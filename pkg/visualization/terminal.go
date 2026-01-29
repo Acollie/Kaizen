@@ -102,12 +102,17 @@ func (visualizer *TerminalVisualizer) createBar(score float64, maxWidth int) str
 	return "[" + filled + empty + "]"
 }
 
+const (
+	mediumScore = 33
+	lowScore    = 67
+)
+
 // getColorForScore returns the appropriate color function for a score
 func (visualizer *TerminalVisualizer) getColorForScore(score float64) *color.Color {
 	switch {
-	case score < 33:
+	case score < lowScore:
 		return visualizer.green
-	case score < 67:
+	case score < mediumScore:
 		return visualizer.yellow
 	default:
 		return visualizer.red
