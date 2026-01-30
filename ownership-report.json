@@ -1,0 +1,126 @@
+{
+  "snapshot_id": 0,
+  "analyzed_at": "2026-01-30 15:24:54",
+  "total_owners": 1,
+  "owner_metrics": [
+    {
+      "owner": "@maintainers",
+      "file_count": 35,
+      "function_count": 259,
+      "total_lines": 8054,
+      "avg_cyclomatic_complexity": 4.281853281853282,
+      "avg_cognitive_complexity": 4.123552123552123,
+      "avg_maintainability_index": 88.64873390123387,
+      "hotspot_count": 0,
+      "high_complexity_function_count": 14,
+      "overall_health_score": 74.16604021654021
+    }
+  ],
+  "file_ownership_map": {
+    "cmd/kaizen/main.go": [
+      "@maintainers"
+    ],
+    "internal/config/config.go": [
+      "@maintainers"
+    ],
+    "pkg/analyzer/aggregator.go": [
+      "@maintainers"
+    ],
+    "pkg/analyzer/interfaces.go": [
+      "@maintainers"
+    ],
+    "pkg/analyzer/metrics.go": [
+      "@maintainers"
+    ],
+    "pkg/analyzer/pipeline.go": [
+      "@maintainers"
+    ],
+    "pkg/churn/analyzer.go": [
+      "@maintainers"
+    ],
+    "pkg/languages/golang/analyzer.go": [
+      "@maintainers"
+    ],
+    "pkg/languages/golang/callgraph.go": [
+      "@maintainers"
+    ],
+    "pkg/languages/golang/function.go": [
+      "@maintainers"
+    ],
+    "pkg/languages/golang/utils.go": [
+      "@maintainers"
+    ],
+    "pkg/languages/kotlin/analyzer.go": [
+      "@maintainers"
+    ],
+    "pkg/languages/python/analyzer.go": [
+      "@maintainers"
+    ],
+    "pkg/languages/registry.go": [
+      "@maintainers"
+    ],
+    "pkg/models/callgraph.go": [
+      "@maintainers"
+    ],
+    "pkg/models/models.go": [
+      "@maintainers"
+    ],
+    "pkg/ownership/aggregator.go": [
+      "@maintainers"
+    ],
+    "pkg/ownership/models.go": [
+      "@maintainers"
+    ],
+    "pkg/ownership/parser.go": [
+      "@maintainers"
+    ],
+    "pkg/ownership/reporter.go": [
+      "@maintainers"
+    ],
+    "pkg/reports/concerns.go": [
+      "@maintainers"
+    ],
+    "pkg/reports/grading.go": [
+      "@maintainers"
+    ],
+    "pkg/reports/scorer.go": [
+      "@maintainers"
+    ],
+    "pkg/storage/factory.go": [
+      "@maintainers"
+    ],
+    "pkg/storage/interface.go": [
+      "@maintainers"
+    ],
+    "pkg/storage/migrations.go": [
+      "@maintainers"
+    ],
+    "pkg/storage/models.go": [
+      "@maintainers"
+    ],
+    "pkg/storage/sqlite.go": [
+      "@maintainers"
+    ],
+    "pkg/trending/ascii.go": [
+      "@maintainers"
+    ],
+    "pkg/trending/html.go": [
+      "@maintainers"
+    ],
+    "pkg/trending/json.go": [
+      "@maintainers"
+    ],
+    "pkg/visualization/callgraph.go": [
+      "@maintainers"
+    ],
+    "pkg/visualization/html.go": [
+      "@maintainers"
+    ],
+    "pkg/visualization/svg.go": [
+      "@maintainers"
+    ],
+    "pkg/visualization/terminal.go": [
+      "@maintainers"
+    ]
+  }
+}

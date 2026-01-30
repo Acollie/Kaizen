@@ -20,6 +20,9 @@ type Config struct {
 	// Visualization settings
 	Visualization VisualizationConfig `yaml:"visualization"`
 
+	// Storage settings
+	Storage StorageConfig `yaml:"storage"`
+
 	// Ignore patterns from .kaizenignore
 	IgnorePatterns []string `yaml:"-"`
 }
@@ -51,6 +54,15 @@ type VisualizationConfig struct {
 	AutoOpenBrowser  bool   `yaml:"auto_open_browser"`  // Auto-open HTML in browser
 }
 
+// StorageConfig contains storage settings
+type StorageConfig struct {
+	Type           string `yaml:"type"`              // Storage backend: sqlite
+	Path           string `yaml:"path"`              // Path to database file
+	KeepJSONBackup bool   `yaml:"keep_json_backup"` // Also save JSON files
+	RetentionDays  int    `yaml:"retention_days"`   // Auto-prune after N days (0=disabled)
+	AutoPrune      bool   `yaml:"auto_prune"`       // Auto-prune on each analyze
+}
+
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
@@ -74,6 +86,13 @@ func DefaultConfig() *Config {
 			ColorScheme:     "red-yellow-green",
 			ShowPercentages: true,
 			AutoOpenBrowser: true,
+		},
+		Storage: StorageConfig{
+			Type:           "sqlite",
+			Path:           "", // Will be set dynamically
+			KeepJSONBackup: true,
+			RetentionDays:  90,
+			AutoPrune:      false,
 		},
 		IgnorePatterns: []string{},
 	}

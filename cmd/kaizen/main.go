@@ -18,6 +18,9 @@ import (
 	"github.com/alexcollie/kaizen/pkg/languages"
 	"github.com/alexcollie/kaizen/pkg/languages/golang"
 	"github.com/alexcollie/kaizen/pkg/models"
+	"github.com/alexcollie/kaizen/pkg/ownership"
+	"github.com/alexcollie/kaizen/pkg/storage"
+	"github.com/alexcollie/kaizen/pkg/trending"
 	"github.com/alexcollie/kaizen/pkg/visualization"
 )
 
@@ -41,6 +44,23 @@ var (
 	svgHeight    int
 	openBrowser  bool
 
+	// History flags
+	historyLimit int
+
+	// Trend flags
+	trendDays    int
+	trendFolder  string
+	trendFormat  string
+	trendOutput  string
+	trendOpen    bool
+
+	// Report flags
+	reportSnapshotID int64
+	reportFormat     string
+	reportOutput     string
+	reportOpen       bool
+	reportCodeOwnersPath string
+
 	// Callgraph flags
 	callgraphPath   string
 	callgraphOutput string
@@ -59,6 +79,41 @@ var rootCmd = &cobra.Command{
   - Hotspots (high churn + high complexity)
 
 Generates heat maps to visualize code health by folder.`,
+}
+
+var historyCmd = &cobra.Command{
+	Use:   "history",
+	Short: "Manage historical analysis snapshots",
+	Long:  `View, list, and manage historical code analysis snapshots.`,
+}
+
+var trendCmd = &cobra.Command{
+	Use:   "trend <metric>",
+	Short: "Visualize metric trends over time",
+	Long: `Visualize how code metrics have changed over time.
+
+Supported metrics:
+  - overall_score: Overall code health score
+  - complexity_score: Code complexity score
+  - maintainability_score: Code maintainability
+  - churn_score: Code churn/volatility
+  - avg_cyclomatic_complexity: Average cyclomatic complexity
+  - avg_cognitive_complexity: Average cognitive complexity
+  - avg_maintainability_index: Average maintainability index
+  - hotspot_count: Number of hotspots
+
+Examples:
+  kaizen trend overall_score
+  kaizen trend complexity_score --days=30
+  kaizen trend complexity_score --format=json`,
+	Args: cobra.ExactArgs(1),
+	Run:  runTrend,
+}
+
+var reportCmd = &cobra.Command{
+	Use:   "report",
+	Short: "Generate analysis reports",
+	Long:  `Generate reports from analysis snapshots.`,
 }
 
 var analyzeCmd = &cobra.Command{
@@ -106,6 +161,48 @@ func init() {
 	rootCmd.AddCommand(analyzeCmd)
 	rootCmd.AddCommand(visualizeCmd)
 	rootCmd.AddCommand(callgraphCmd)
+	rootCmd.AddCommand(historyCmd)
+	rootCmd.AddCommand(trendCmd)
+	rootCmd.AddCommand(reportCmd)
+
+	// Report subcommands
+	reportOwnersCmd := &cobra.Command{
+		Use:   "owners [snapshot-id]",
+		Short: "Generate code ownership report",
+		Run:   runReportOwners,
+	}
+	reportCmd.AddCommand(reportOwnersCmd)
+
+	// Report flags
+	reportOwnersCmd.Flags().StringVarP(&reportCodeOwnersPath, "codeowners", "c", "", "Path to CODEOWNERS file (auto-detected if not specified)")
+	reportOwnersCmd.Flags().StringVarP(&reportFormat, "format", "f", "ascii", "Output format (ascii, json, html)")
+	reportOwnersCmd.Flags().StringVarP(&reportOutput, "output", "o", "", "Output file path")
+	reportOwnersCmd.Flags().BoolVar(&reportOpen, "open", true, "Open HTML in browser (format=html only)")
+
+	// History subcommands
+	historyListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all analysis snapshots",
+		Run:   runHistoryList,
+	}
+	historyShowCmd := &cobra.Command{
+		Use:   "show <id>",
+		Short: "Display detailed snapshot information",
+		Args:  cobra.ExactArgs(1),
+		Run:   runHistoryShow,
+	}
+	historyPruneCmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Remove old snapshots",
+		Run:   runHistoryPrune,
+	}
+	historyCmd.AddCommand(historyListCmd)
+	historyCmd.AddCommand(historyShowCmd)
+	historyCmd.AddCommand(historyPruneCmd)
+
+	// History flags
+	historyListCmd.Flags().IntVarP(&historyLimit, "limit", "l", 20, "Maximum snapshots to display")
+	historyPruneCmd.Flags().IntVar(&historyLimit, "retention", 90, "Retention period in days")
 
 	// Analyze flags
 	analyzeCmd.Flags().StringVarP(&rootPath, "path", "p", ".", "Path to analyze")
@@ -124,6 +221,13 @@ func init() {
 	visualizeCmd.Flags().IntVar(&svgWidth, "svg-width", 1200, "SVG width in pixels")
 	visualizeCmd.Flags().IntVar(&svgHeight, "svg-height", 800, "SVG height in pixels")
 	visualizeCmd.Flags().BoolVar(&openBrowser, "open", true, "Open HTML in browser automatically")
+
+	// Trend flags
+	trendCmd.Flags().IntVarP(&trendDays, "days", "d", 90, "Number of days to show (0 = all)")
+	trendCmd.Flags().StringVar(&trendFolder, "folder", "", "Show metrics for specific folder")
+	trendCmd.Flags().StringVarP(&trendFormat, "format", "f", "ascii", "Output format (ascii, json, html)")
+	trendCmd.Flags().StringVarP(&trendOutput, "output", "o", "", "Output file path (required for json/html, optional for ascii)")
+	trendCmd.Flags().BoolVar(&trendOpen, "open", true, "Open HTML in browser (format=html only)")
 
 	// Callgraph flags
 	callgraphCmd.Flags().StringVarP(&callgraphPath, "path", "p", ".", "Path to analyze")
@@ -227,14 +331,73 @@ func runAnalyze(cmd *cobra.Command, args []string) {
 	// Print summary
 	printSummary(result)
 
-	// Save results
+	// Create storage backend with auto-detection
+	dbPath, err := storage.DetectOrCreateDatabase(rootPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not setup database: %v\n", err)
+	} else {
+		storageBackend, err := storage.NewBackend(storage.BackendConfig{
+			Type: "sqlite",
+			Path: dbPath,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not create storage backend: %v\n", err)
+		} else {
+			defer storageBackend.Close()
+
+			// Save to database
+			metadata := storage.SnapshotMetadata{
+				KaizenVersion: "1.0.0", // TODO: Use actual version
+			}
+
+			snapshotID, err := storageBackend.Save(result, metadata)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not save to database: %v\n", err)
+			} else {
+				fmt.Printf("💾 Saved to database (ID: %d)\n", snapshotID)
+
+				// Try to save ownership data if CODEOWNERS exists
+				codeownersPath := findCodeOwnersFile(rootPath)
+				if codeownersPath != "" {
+					codeowners, err := ownership.ParseCodeOwners(codeownersPath)
+					if err == nil {
+						aggregator := ownership.NewAggregator(codeowners)
+						ownerMetrics, fileOwnership := aggregator.AggregateByOwner(result)
+
+						// Convert map to slice
+						var metrics []storage.OwnerMetric
+						for _, m := range ownerMetrics {
+							metrics = append(metrics, storage.OwnerMetric{
+								Owner:                       m.Owner,
+								FileCount:                   m.FileCount,
+								FunctionCount:               m.FunctionCount,
+								AvgCyclomaticComplexity:     m.AvgCyclomaticComplexity,
+								AvgMaintainabilityIndex:     m.AvgMaintainabilityIndex,
+								HotspotCount:                m.HotspotCount,
+								OverallHealthScore:          m.OverallHealthScore,
+							})
+						}
+
+						err = storageBackend.SaveOwnershipData(snapshotID, fileOwnership, metrics, result.AnalyzedAt)
+						if err != nil {
+							fmt.Fprintf(os.Stderr, "Warning: could not save ownership data: %v\n", err)
+						} else {
+							fmt.Printf("👥 Saved ownership data for %d owner(s)\n", len(ownerMetrics))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Save results to JSON file
 	err = saveResults(result, outputFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving results: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("\n💾 Results saved to: %s\n", outputFile)
+	fmt.Printf("💾 Results saved to: %s\n", outputFile)
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  kaizen visualize --input=%s --metric=hotspot\n", outputFile)
 }
@@ -586,6 +749,440 @@ func openInBrowser(filename string) error {
 
 	cmd := exec.Command(command, args...)
 	return cmd.Start()
+}
+
+func findCodeOwnersFile(rootPath string) string {
+	// Check common locations
+	locations := []string{
+		filepath.Join(rootPath, ".github", "CODEOWNERS"),
+		filepath.Join(rootPath, "CODEOWNERS"),
+		filepath.Join(rootPath, ".gitlab", "CODEOWNERS"),
+		filepath.Join(rootPath, ".gitea", "CODEOWNERS"),
+	}
+
+	for _, loc := range locations {
+		if _, err := os.Stat(loc); err == nil {
+			return loc
+		}
+	}
+
+	return ""
+}
+
+func runReportOwners(cmd *cobra.Command, args []string) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not get current directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Determine snapshot ID
+	var snapshotID int64
+	if len(args) > 0 {
+		_, err := fmt.Sscanf(args[0], "%d", &snapshotID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid snapshot ID: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Create storage backend
+	dbPath, err := storage.DetectOrCreateDatabase(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not locate database: %v\n", err)
+		os.Exit(1)
+	}
+
+	backend, err := storage.NewBackend(storage.BackendConfig{
+		Type: "sqlite",
+		Path: dbPath,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
+		os.Exit(1)
+	}
+	defer backend.Close()
+
+	// Get snapshot
+	var snapshot *models.AnalysisResult
+	if snapshotID > 0 {
+		snapshot, err = backend.GetByID(snapshotID)
+	} else {
+		snapshot, err = backend.GetLatest()
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not retrieve snapshot: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Find CODEOWNERS file
+	codeownersPath := reportCodeOwnersPath
+	if codeownersPath == "" {
+		codeownersPath = findCodeOwnersFile(cwd)
+	}
+
+	if codeownersPath == "" {
+		fmt.Fprintf(os.Stderr, "Error: CODEOWNERS file not found (specify with --codeowners)\n")
+		os.Exit(1)
+	}
+
+	// Parse CODEOWNERS
+	codeowners, err := ownership.ParseCodeOwners(codeownersPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not parse CODEOWNERS: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Generate report
+	aggregator := ownership.NewAggregator(codeowners)
+	report := aggregator.GetOwnerReport(snapshot, snapshotID, snapshot.AnalyzedAt.Format("2006-01-02 15:04:05"))
+
+	// Render output
+	switch reportFormat {
+	case "ascii":
+		fmt.Print(ownership.RenderOwnerReportASCII(report))
+	case "json":
+		renderReportJSON(report, reportOutput)
+	case "html":
+		renderReportHTML(report, reportOutput, reportOpen)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unsupported format '%s'\n", reportFormat)
+		os.Exit(1)
+	}
+}
+
+func renderReportJSON(report *ownership.OwnerReport, outputPath string) {
+	jsonStr, err := ownership.RenderOwnerReportJSON(report)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not format JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	if outputPath == "" {
+		fmt.Println(jsonStr)
+	} else {
+		err := os.WriteFile(outputPath, []byte(jsonStr), 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not write file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✅ Exported to: %s\n", outputPath)
+	}
+}
+
+func renderReportHTML(report *ownership.OwnerReport, outputPath string, open bool) {
+	html, err := ownership.RenderOwnerReportHTML(report)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not generate report: %v\n", err)
+		os.Exit(1)
+	}
+
+	if outputPath == "" {
+		outputPath = "kaizen-owners-report.html"
+	}
+
+	err = os.WriteFile(outputPath, []byte(html), 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not write file: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✅ HTML report generated: %s\n", outputPath)
+
+	if open {
+		fmt.Printf("🌐 Opening in browser...\n")
+		err = openInBrowser(outputPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
+			fmt.Printf("Please open the file manually: %s\n", outputPath)
+		}
+	}
+}
+
+func runHistoryList(cmd *cobra.Command, args []string) {
+	// Get current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not get current directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create storage backend
+	dbPath, err := storage.DetectOrCreateDatabase(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not locate database: %v\n", err)
+		os.Exit(1)
+	}
+
+	backend, err := storage.NewBackend(storage.BackendConfig{
+		Type: "sqlite",
+		Path: dbPath,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
+		os.Exit(1)
+	}
+	defer backend.Close()
+
+	// Get snapshots
+	snapshots, err := backend.ListSnapshots(historyLimit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not retrieve snapshots: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(snapshots) == 0 {
+		fmt.Println("No analysis snapshots found")
+		return
+	}
+
+	// Print header
+	fmt.Printf("\n📋 Analysis Snapshots (%d)\n", len(snapshots))
+	fmt.Println("─────────────────────────────────────────────────────────────────────────────")
+	fmt.Printf("%-4s │ %-19s │ %-8s │ %-8s │ %-5s │ %-7s │ %s\n",
+		"ID", "Date", "Grade", "Score", "Files", "Funcs", "Commit")
+	fmt.Println("─────────────────────────────────────────────────────────────────────────────")
+
+	// Print snapshots
+	for _, snap := range snapshots {
+		commit := snap.GitCommitHash
+		if len(commit) > 7 {
+			commit = commit[:7]
+		}
+		if commit == "" {
+			commit = "-"
+		}
+
+		fmt.Printf("%-4d │ %s │ %-8s │ %7.1f │ %-5d │ %-7d │ %s\n",
+			snap.ID,
+			snap.AnalyzedAt.Format("2006-01-02 15:04:05"),
+			snap.OverallGrade,
+			snap.OverallScore,
+			snap.TotalFiles,
+			snap.TotalFunctions,
+			commit,
+		)
+	}
+	fmt.Println()
+}
+
+func runHistoryShow(cmd *cobra.Command, args []string) {
+	// Parse ID
+	var snapshotID int64
+	_, err := fmt.Sscanf(args[0], "%d", &snapshotID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid snapshot ID: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Get current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not get current directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create storage backend
+	dbPath, err := storage.DetectOrCreateDatabase(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not locate database: %v\n", err)
+		os.Exit(1)
+	}
+
+	backend, err := storage.NewBackend(storage.BackendConfig{
+		Type: "sqlite",
+		Path: dbPath,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
+		os.Exit(1)
+	}
+	defer backend.Close()
+
+	// Get snapshot
+	summary, err := backend.GetByIDSummary(snapshotID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not retrieve snapshot: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Print snapshot details
+	fmt.Printf("\n📊 Snapshot #%d\n\n", summary.ID)
+	fmt.Printf("Analyzed At:              %s\n", summary.AnalyzedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Git Commit:               %s\n", summary.GitCommitHash)
+	fmt.Printf("Git Branch:               %s\n", summary.GitBranch)
+	fmt.Printf("\nMetrics:\n")
+	fmt.Printf("  Overall Grade:          %s\n", summary.OverallGrade)
+	fmt.Printf("  Overall Score:          %.1f/100\n", summary.OverallScore)
+	fmt.Printf("  Complexity Score:       %.1f/100\n", summary.ComplexityScore)
+	fmt.Printf("  Maintainability Score:  %.1f/100\n", summary.MaintainabilityScore)
+	fmt.Printf("  Churn Score:            %.1f/100\n", summary.ChurnScore)
+	fmt.Printf("\nCode Metrics:\n")
+	fmt.Printf("  Total Files:            %d\n", summary.TotalFiles)
+	fmt.Printf("  Total Functions:        %d\n", summary.TotalFunctions)
+	fmt.Printf("  Avg Cyclomatic:         %.1f\n", summary.AvgCyclomaticComplexity)
+	fmt.Printf("  Avg Maintainability:    %.1f\n", summary.AvgMaintainabilityIndex)
+	fmt.Printf("  Hotspot Count:          %d\n", summary.HotspotCount)
+	fmt.Println()
+}
+
+func runHistoryPrune(cmd *cobra.Command, args []string) {
+	// Get current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not get current directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create storage backend
+	dbPath, err := storage.DetectOrCreateDatabase(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not locate database: %v\n", err)
+		os.Exit(1)
+	}
+
+	backend, err := storage.NewBackend(storage.BackendConfig{
+		Type: "sqlite",
+		Path: dbPath,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
+		os.Exit(1)
+	}
+	defer backend.Close()
+
+	// Prune old snapshots
+	deleted, err := backend.Prune(historyLimit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not prune snapshots: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✅ Removed %d snapshot(s) older than %d days\n", deleted, historyLimit)
+}
+
+func runTrend(cmd *cobra.Command, args []string) {
+	metricName := args[0]
+
+	// Get current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not get current directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create storage backend
+	dbPath, err := storage.DetectOrCreateDatabase(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not locate database: %v\n", err)
+		os.Exit(1)
+	}
+
+	backend, err := storage.NewBackend(storage.BackendConfig{
+		Type: "sqlite",
+		Path: dbPath,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
+		os.Exit(1)
+	}
+	defer backend.Close()
+
+	// Calculate time range
+	endTime := time.Now()
+	var startTime time.Time
+	if trendDays > 0 {
+		startTime = endTime.AddDate(0, 0, -trendDays)
+	} else {
+		startTime = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+
+	// Get time-series data
+	points, err := backend.GetTimeSeries(metricName, trendFolder, startTime, endTime)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not retrieve metric data: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(points) == 0 {
+		fmt.Fprintf(os.Stderr, "Error: no data available for metric '%s'\n", metricName)
+		os.Exit(1)
+	}
+
+	// Handle output based on format
+	switch trendFormat {
+	case "ascii":
+		renderTrendASCII(metricName, trendFolder, points)
+	case "json":
+		renderTrendJSON(metricName, trendFolder, points, trendOutput)
+	case "html":
+		renderTrendHTML(metricName, trendFolder, points, trendOutput, trendOpen)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unsupported format '%s'\n", trendFormat)
+		os.Exit(1)
+	}
+}
+
+func renderTrendASCII(metricName, folder string, points []storage.TimeSeriesPoint) {
+	output := trending.RenderASCIIChart(metricName, points, folder)
+	fmt.Print(output)
+}
+
+func renderTrendJSON(metricName, folder string, points []storage.TimeSeriesPoint, outputPath string) {
+	export, err := trending.ExportToJSON(metricName, folder, points)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not export data: %v\n", err)
+		os.Exit(1)
+	}
+
+	// If no output file specified, print to stdout
+	if outputPath == "" {
+		jsonStr, err := trending.JSONToString(export)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not format JSON: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(jsonStr)
+	} else {
+		// Write to file
+		err := trending.WriteJSONToFile(export, outputPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not write file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✅ Exported to: %s\n", outputPath)
+	}
+}
+
+func renderTrendHTML(metricName, folder string, points []storage.TimeSeriesPoint, outputPath string, open bool) {
+	html, err := trending.RenderHTMLChart(metricName, points, folder)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not generate chart: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Determine output file
+	if outputPath == "" {
+		outputPath = trending.FormatChartFilename(metricName)
+	}
+
+	err = trending.WriteHTMLToFile(html, outputPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not write file: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✅ HTML chart generated: %s\n", outputPath)
+
+	if open {
+		fmt.Printf("🌐 Opening in browser...\n")
+		err = openInBrowser(outputPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
+			fmt.Printf("Please open the file manually: %s\n", outputPath)
+		}
+	}
 }
 
 func runCallGraph(cmd *cobra.Command, args []string) {

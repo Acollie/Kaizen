@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <title>Kaizen Call Graph</title>
+  <rect width="1400" height="900" fill="#1a1a1a"/>
+
+  <!-- Edges -->
+  <g id="edges">
+    <line x1="699.38" y1="449.38" x2="699.38" y2="449.38" stroke="#4a4a4a" stroke-width="2.00" opacity="0.6"/>
+    <line x1="699.38" y1="449.38" x2="699.38" y2="449.38" stroke="#4a4a4a" stroke-width="2.00" opacity="0.6"/>
+    <line x1="699.38" y1="449.38" x2="699.38" y2="449.38" stroke="#4a4a4a" stroke-width="4.00" opacity="0.6"/>
+    <line x1="699.38" y1="449.38" x2="699.38" y2="449.38" stroke="#4a4a4a" stroke-width="2.83" opacity="0.6"/>
+  </g>
+
+  <!-- Nodes -->
+  <g id="nodes">
+    <circle cx="699.38" cy="449.38" r="5.00" fill="#22c55e" stroke="#1a1a1a" stroke-width="2">
+      <title>AddEdge
+Calls: 0
+Complexity: 6</title>
+    </circle>
+    <circle cx="699.38" cy="449.38" r="5.00" fill="#22c55e" stroke="#1a1a1a" stroke-width="2">
+      <title>CalculateStats
+Calls: 0
+Complexity: 7</title>
+    </circle>
+    <circle cx="699.38" cy="449.38" r="11.25" fill="#86bc33" stroke="#1a1a1a" stroke-width="2">
+      <title>make
+Calls: 1
+Complexity: 0</title>
+    </circle>
+    <circle cx="699.38" cy="449.38" r="11.25" fill="#86bc33" stroke="#1a1a1a" stroke-width="2">
+      <title>append
+Calls: 1
+Complexity: 0</title>
+    </circle>
+    <circle cx="699.38" cy="449.38" r="30.00" fill="#ef4444" stroke="#1a1a1a" stroke-width="2">
+      <title>len
+Calls: 4
+Complexity: 0</title>
+    </circle>
+    <circle cx="699.38" cy="449.38" r="17.50" fill="#eab308" stroke="#1a1a1a" stroke-width="2">
+      <title>float64
+Calls: 2
+Complexity: 0</title>
+    </circle>
+    <circle cx="699.38" cy="449.38" r="5.00" fill="#22c55e" stroke="#1a1a1a" stroke-width="2">
+      <title>NewCallGraph
+Calls: 0
+Complexity: 1</title>
+    </circle>
+    <circle cx="699.38" cy="449.38" r="5.00" fill="#22c55e" stroke="#1a1a1a" stroke-width="2">
+      <title>AddNode
+Calls: 0
+Complexity: 1</title>
+    </circle>
+  </g>
+</svg>

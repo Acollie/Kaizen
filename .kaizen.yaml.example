@@ -1,0 +1,61 @@
+# Kaizen Configuration File
+# Copy this to .kaizen.yaml and customize for your project
+
+# Analysis settings
+analysis:
+  # Time range for churn analysis (e.g., "30d", "90d", "2024-01-01")
+  since: 90d
+
+  # Languages to analyze (empty = all supported languages)
+  languages:
+    - go
+    # - kotlin
+    # - python
+    # - java
+
+  # Additional patterns to exclude (beyond .kaizenignore)
+  exclude:
+    - vendor
+    - node_modules
+    - "*_test.go"
+    - "*/testdata/*"
+
+  # Skip git churn analysis
+  skip_churn: false
+
+  # Number of parallel workers for analysis
+  max_workers: 8
+
+# Metric thresholds for warnings
+thresholds:
+  # Cyclomatic complexity threshold
+  cyclomatic_complexity: 10
+
+  # Cognitive complexity threshold
+  cognitive_complexity: 15
+
+  # Function length threshold (lines)
+  function_length: 50
+
+  # Maximum nesting depth
+  nesting_depth: 4
+
+  # Maximum number of parameters
+  parameter_count: 5
+
+  # Minimum maintainability index (warn if below)
+  maintainability_index: 60
+
+# Visualization settings
+visualization:
+  # Default metric to display (hotspot, complexity, churn, length, maintainability)
+  default_metric: hotspot
+
+  # Color scheme (red-yellow-green, blue-red, etc.)
+  color_scheme: red-yellow-green
+
+  # Show percentages in output
+  show_percentages: true
+
+  # Auto-open HTML visualizations in browser
+  auto_open_browser: true

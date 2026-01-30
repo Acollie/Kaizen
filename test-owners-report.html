@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kaizen: Code Ownership Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 40px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .summary-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .summary-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+        .summary-value {
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .table-container {
+            margin-bottom: 40px;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background: #f8f9fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            color: #666;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .health-excellent {
+            color: #10b981;
+            font-weight: 600;
+        }
+        .health-good {
+            color: #3b82f6;
+            font-weight: 600;
+        }
+        .health-fair {
+            color: #f59e0b;
+            font-weight: 600;
+        }
+        .health-poor {
+            color: #ef4444;
+            font-weight: 600;
+        }
+        .chart-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .chart-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👥 Code Ownership Report</h1>
+        <div class="subtitle">Generated at 2026-01-30 15:35:45</div>
+
+        <div class="summary">
+            <div class="summary-card">
+                <div class="summary-label">Total Owners</div>
+                <div class="summary-value" id="totalOwners">9</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Avg Health Score</div>
+                <div class="summary-value" id="avgHealth">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Total Files</div>
+                <div class="summary-value" id="totalFiles">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Total Functions</div>
+                <div class="summary-value" id="totalFunctions">-</div>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <h2 style="margin-bottom: 20px; color: #333;">Owner Metrics</h2>
+            <table id="ownerTable">
+                <thead>
+                    <tr>
+                        <th>Owner</th>
+                        <th>Files</th>
+                        <th>Functions</th>
+                        <th>Health Score</th>
+                        <th>Avg Complexity</th>
+                        <th>Avg Maintainability</th>
+                        <th>Hotspots</th>
+                    </tr>
+                </thead>
+                <tbody id="ownerBody"></tbody>
+            </table>
+        </div>
+
+        <div class="chart-row">
+            <div class="chart-container">
+                <div class="chart-title">Health Scores by Owner</div>
+                <canvas id="healthChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">Complexity by Owner</div>
+                <canvas id="complexityChart"></canvas>
+            </div>
+        </div>
+
+        <div class="footer">
+            Generated by Kaizen · 2026-01-30 15:35:54
+        </div>
+    </div>
+
+    <script>
+        const report = {"snapshot_id":0,"analyzed_at":"2026-01-30 15:35:45","total_owners":9,"owner_metrics":[{"owner":"@storage-team","file_count":4,"function_count":5,"total_lines":248,"avg_cyclomatic_complexity":2.6,"avg_cognitive_complexity":2.6,"avg_maintainability_index":91.28296209524683,"hotspot_count":0,"high_complexity_function_count":0,"overall_health_score":93.05659241904937},{"owner":"@golang-expert","file_count":4,"function_count":38,"total_lines":651,"avg_cyclomatic_complexity":3.710526315789474,"avg_cognitive_complexity":2.763157894736842,"avg_maintainability_index":91.80646013624155,"hotspot_count":0,"high_complexity_function_count":1,"overall_health_score":89.44023939566937},{"owner":"@language-team","file_count":3,"function_count":37,"total_lines":577,"avg_cyclomatic_complexity":3.3783783783783785,"avg_cognitive_complexity":3.027027027027027,"avg_maintainability_index":93.09896357242377,"hotspot_count":0,"high_complexity_function_count":2,"overall_health_score":88.863035957728},{"owner":"@ui-team","file_count":4,"function_count":31,"total_lines":2136,"avg_cyclomatic_complexity":3.935483870967742,"avg_cognitive_complexity":3.806451612903226,"avg_maintainability_index":89.39619159895305,"hotspot_count":0,"high_complexity_function_count":1,"overall_health_score":88.50827057785513},{"owner":"@db-expert","file_count":1,"function_count":20,"total_lines":556,"avg_cyclomatic_complexity":4.9,"avg_cognitive_complexity":4.85,"avg_maintainability_index":83.992140399518,"hotspot_count":0,"high_complexity_function_count":0,"overall_health_score":86.9984280799036},{"owner":"@analysis-team","file_count":4,"function_count":19,"total_lines":499,"avg_cyclomatic_complexity":5.2631578947368425,"avg_cognitive_complexity":5.578947368421052,"avg_maintainability_index":87.79589221202043,"hotspot_count":0,"high_complexity_function_count":1,"overall_health_score":85.5328626529304},{"owner":"@reporting-team","file_count":7,"function_count":26,"total_lines":1094,"avg_cyclomatic_complexity":4.884615384615385,"avg_cognitive_complexity":5.576923076923077,"avg_maintainability_index":83.65693216461001,"hotspot_count":0,"high_complexity_function_count":2,"overall_health_score":83.96215566369123},{"owner":"@maintainers","file_count":7,"function_count":49,"total_lines":1266,"avg_cyclomatic_complexity":4.3061224489795915,"avg_cognitive_complexity":4.489795918367347,"avg_maintainability_index":88.9008365540456,"hotspot_count":0,"high_complexity_function_count":4,"overall_health_score":83.16792241284993},{"owner":"@cli-team","file_count":1,"function_count":34,"total_lines":1027,"avg_cyclomatic_complexity":5.0588235294117645,"avg_cognitive_complexity":4.470588235294118,"avg_maintainability_index":85.877417810944,"hotspot_count":0,"high_complexity_function_count":3,"overall_health_score":82.55783650336527}],"file_ownership_map":{"cmd/kaizen/main.go":["@cli-team"],"internal/config/config.go":["@maintainers"],"pkg/analyzer/aggregator.go":["@analysis-team"],"pkg/analyzer/interfaces.go":["@analysis-team"],"pkg/analyzer/metrics.go":["@analysis-team"],"pkg/analyzer/pipeline.go":["@analysis-team"],"pkg/churn/analyzer.go":["@maintainers"],"pkg/languages/golang/analyzer.go":["@golang-expert"],"pkg/languages/golang/callgraph.go":["@golang-expert"],"pkg/languages/golang/function.go":["@golang-expert"],"pkg/languages/golang/utils.go":["@golang-expert"],"pkg/languages/kotlin/analyzer.go":["@language-team"],"pkg/languages/python/analyzer.go":["@language-team"],"pkg/languages/registry.go":["@language-team"],"pkg/models/callgraph.go":["@maintainers"],"pkg/models/models.go":["@maintainers"],"pkg/ownership/aggregator.go":["@reporting-team"],"pkg/ownership/models.go":["@reporting-team"],"pkg/ownership/parser.go":["@reporting-team"],"pkg/ownership/reporter.go":["@reporting-team"],"pkg/reports/concerns.go":["@maintainers"],"pkg/reports/grading.go":["@maintainers"],"pkg/reports/scorer.go":["@maintainers"],"pkg/storage/factory.go":["@storage-team"],"pkg/storage/interface.go":["@storage-team"],"pkg/storage/migrations.go":["@storage-team"],"pkg/storage/models.go":["@storage-team"],"pkg/storage/sqlite.go":["@db-expert"],"pkg/trending/ascii.go":["@reporting-team"],"pkg/trending/html.go":["@reporting-team"],"pkg/trending/json.go":["@reporting-team"],"pkg/visualization/callgraph.go":["@ui-team"],"pkg/visualization/html.go":["@ui-team"],"pkg/visualization/svg.go":["@ui-team"],"pkg/visualization/terminal.go":["@ui-team"]}};
+
+        // Populate summary
+        let totalFiles = 0, totalFunctions = 0, totalHealth = 0;
+        report.owner_metrics.forEach(m => {
+            totalFiles += m.file_count;
+            totalFunctions += m.function_count;
+            totalHealth += m.overall_health_score;
+        });
+
+        document.getElementById('totalOwners').textContent = report.total_owners;
+        document.getElementById('totalFiles').textContent = totalFiles;
+        document.getElementById('totalFunctions').textContent = totalFunctions;
+        document.getElementById('avgHealth').textContent = (totalHealth / report.total_owners).toFixed(1);
+
+        // Populate table
+        const tbody = document.getElementById('ownerBody');
+        report.owner_metrics.forEach(m => {
+            const healthClass = m.overall_health_score >= 80 ? 'health-excellent' :
+                               m.overall_health_score >= 60 ? 'health-good' :
+                               m.overall_health_score >= 40 ? 'health-fair' : 'health-poor';
+
+            const row = tbody.insertRow();
+            row.innerHTML = '<td>' + m.owner + '</td>' +
+                '<td>' + m.file_count + '</td>' +
+                '<td>' + m.function_count + '</td>' +
+                '<td class="' + healthClass + '">' + m.overall_health_score.toFixed(1) + '</td>' +
+                '<td>' + m.avg_cyclomatic_complexity.toFixed(1) + '</td>' +
+                '<td>' + m.avg_maintainability_index.toFixed(1) + '</td>' +
+                '<td>' + m.hotspot_count + '</td>';
+        });
+
+        // Health chart
+        const owners = report.owner_metrics.map(m => m.owner);
+        const healthScores = report.owner_metrics.map(m => m.overall_health_score);
+
+        new Chart(document.getElementById('healthChart'), {
+            type: 'bar',
+            data: {
+                labels: owners,
+                datasets: [{
+                    label: 'Health Score',
+                    data: healthScores,
+                    backgroundColor: healthScores.map(s =>
+                        s >= 80 ? '#10b981' : s >= 60 ? '#3b82f6' : s >= 40 ? '#f59e0b' : '#ef4444'
+                    ),
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { x: { max: 100 } }
+            }
+        });
+
+        // Complexity chart
+        const complexity = report.owner_metrics.map(m => m.avg_cyclomatic_complexity);
+
+        new Chart(document.getElementById('complexityChart'), {
+            type: 'bar',
+            data: {
+                labels: owners,
+                datasets: [{
+                    label: 'Avg Cyclomatic Complexity',
+                    data: complexity,
+                    backgroundColor: '#667eea',
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+            }
+        });
+    </script>
+</body>
+</html>

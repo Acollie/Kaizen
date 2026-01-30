@@ -1,0 +1,24 @@
+# Kaizen CODEOWNERS file
+# Rules are evaluated in order, LAST match wins (most specific at bottom)
+
+# Catch-all (least specific)
+* @maintainers
+
+# Visualization
+pkg/visualization/ @ui-team
+
+# Trending and reporting
+pkg/trending/ @reporting-team
+pkg/ownership/ @reporting-team
+
+# Analysis and language support
+pkg/analyzer/ @analysis-team
+pkg/languages/ @language-team
+pkg/languages/golang/ @golang-expert
+
+# Storage layer (more specific)
+pkg/storage/ @storage-team
+pkg/storage/sqlite.go @db-expert
+
+# CLI (most specific)
+cmd/kaizen/ @cli-team

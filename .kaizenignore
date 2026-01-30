@@ -1,0 +1,56 @@
+# Kaizen Ignore File
+# Similar to .gitignore, specify patterns to exclude from analysis
+
+# Dependencies
+vendor/
+node_modules/
+third_party/
+
+# Build outputs
+dist/
+build/
+target/
+out/
+*.exe
+*.so
+*.dylib
+
+# Test files (uncomment if you want to exclude)
+# *_test.go
+# **/*_test.py
+# **/*.test.js
+
+# Generated code
+*.pb.go
+*.generated.go
+*_gen.go
+generated/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Documentation
+docs/
+*.md
+
+# Assets
+assets/
+static/
+public/
+
+# Examples and testdata
+examples/
+testdata/
+fixtures/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Specific files to ignore
+# /path/to/specific/file.go
