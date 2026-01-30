@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alexcollie/kaizen/pkg/models"
+	"github.com/alexcollie/kaizen/pkg/reports"
 )
 
 // AnalysisOptions contains configuration for the analysis
@@ -79,7 +80,8 @@ func (pipeline *Pipeline) Analyze(options AnalysisOptions) (*models.AnalysisResu
 	// Generate summary
 	summary := pipeline.generateSummary(fileAnalyses)
 
-	return &models.AnalysisResult{
+	// Build result for score report generation
+	result := &models.AnalysisResult{
 		Repository: options.RootPath,
 		AnalyzedAt: time.Now(),
 		TimeRange: models.TimeRange{
@@ -89,7 +91,13 @@ func (pipeline *Pipeline) Analyze(options AnalysisOptions) (*models.AnalysisResu
 		Files:       fileAnalyses,
 		FolderStats: folderStats,
 		Summary:     summary,
-	}, nil
+	}
+
+	// Generate score report
+	hasChurnData := options.IncludeChurn && pipeline.churnAnalyzer != nil
+	result.ScoreReport = reports.GenerateScoreReport(result, hasChurnData)
+
+	return result, nil
 }
 
 // discoverFiles finds all files that can be analyzed

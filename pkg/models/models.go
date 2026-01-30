@@ -10,6 +10,7 @@ type AnalysisResult struct {
 	Files       []FileAnalysis           `json:"files"`
 	FolderStats map[string]FolderMetrics `json:"folder_stats"`
 	Summary     SummaryMetrics           `json:"summary"`
+	ScoreReport *ScoreReport             `json:"score_report,omitempty"`
 }
 
 // TimeRange represents the time period analyzed for churn
@@ -172,4 +173,46 @@ type SummaryMetrics struct {
 	VeryHighComplexityCount   int     `json:"very_high_complexity_count"` // >20
 	LongFunctionCount         int     `json:"long_function_count"`        // >50 lines
 	VeryLongFunctionCount     int     `json:"very_long_function_count"`   // >100 lines
+}
+
+// ScoreReport represents the overall health assessment of a codebase
+type ScoreReport struct {
+	OverallGrade    string          `json:"overall_grade"`    // A, B, C, D, F
+	OverallScore    float64         `json:"overall_score"`    // 0-100
+	ComponentScores ComponentScores `json:"component_scores"`
+	Concerns        []Concern       `json:"concerns"`
+	HasChurnData    bool            `json:"has_churn_data"`
+}
+
+// ComponentScores breaks down health by category
+type ComponentScores struct {
+	Complexity      CategoryScore `json:"complexity"`
+	Maintainability CategoryScore `json:"maintainability"`
+	Churn           CategoryScore `json:"churn"`
+	FunctionSize    CategoryScore `json:"function_size"`
+	CodeStructure   CategoryScore `json:"code_structure"`
+}
+
+// CategoryScore represents a single component's score
+type CategoryScore struct {
+	Score    float64 `json:"score"`    // 0-100 (higher = better)
+	Weight   float64 `json:"weight"`   // Weight in overall calculation
+	Category string  `json:"category"` // "excellent", "good", "moderate", "poor", "critical"
+}
+
+// Concern represents an area needing attention
+type Concern struct {
+	Type          string         `json:"type"`
+	Severity      string         `json:"severity"` // "critical", "warning", "info"
+	Title         string         `json:"title"`
+	Description   string         `json:"description"`
+	AffectedItems []AffectedItem `json:"affected_items"`
+}
+
+// AffectedItem references a specific file or function
+type AffectedItem struct {
+	FilePath     string             `json:"file_path"`
+	FunctionName string             `json:"function_name,omitempty"`
+	Line         int                `json:"line,omitempty"`
+	Metrics      map[string]float64 `json:"metrics"`
 }
