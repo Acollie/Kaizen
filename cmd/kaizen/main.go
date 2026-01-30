@@ -280,7 +280,151 @@ func printSummary(result *models.AnalysisResult) {
 	fmt.Printf("  Long functions (>50):       %d\n", summary.LongFunctionCount)
 	fmt.Printf("  Very long functions (>100): %d\n", summary.VeryLongFunctionCount)
 	fmt.Printf("  🔥 Hotspots:                %d\n", summary.HotspotCount)
+
+	// Print score report if available
+	if result.ScoreReport != nil {
+		printScoreReport(result.ScoreReport)
+	}
 }
+
+func printScoreReport(report *models.ScoreReport) {
+	fmt.Printf("\n")
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("📋 Code Health Report\n")
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+	// Print grade with color coding
+	gradeColor := getGradeColor(report.OverallGrade)
+	fmt.Printf("Overall Grade: %s%s%s (%.0f/100)\n\n", gradeColor, report.OverallGrade, colorReset, report.OverallScore)
+
+	// Print component scores
+	fmt.Printf("Component Scores:\n")
+	printComponentScore("Complexity", report.ComponentScores.Complexity)
+	printComponentScore("Maintainability", report.ComponentScores.Maintainability)
+	if report.HasChurnData {
+		printComponentScore("Churn", report.ComponentScores.Churn)
+	} else {
+		fmt.Printf("  %-17s %s (no churn data)\n", "Churn:", "N/A")
+	}
+	printComponentScore("Function Size", report.ComponentScores.FunctionSize)
+	printComponentScore("Code Structure", report.ComponentScores.CodeStructure)
+	fmt.Printf("\n")
+
+	// Print concerns
+	printConcerns(report.Concerns)
+}
+
+func printComponentScore(name string, score models.CategoryScore) {
+	barWidth := 10
+	filled := int(score.Score / 10)
+	if filled > barWidth {
+		filled = barWidth
+	}
+
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+	color := getScoreColor(score.Score)
+	fmt.Printf("  %-17s %s%s%s %.0f/100 (%s)\n", name+":", color, bar, colorReset, score.Score, score.Category)
+}
+
+func printConcerns(concerns []models.Concern) {
+	if len(concerns) == 0 {
+		fmt.Printf("✨ No concerns detected\n")
+		return
+	}
+
+	// Group concerns by severity
+	criticalConcerns := filterConcernsBySeverity(concerns, "critical")
+	warningConcerns := filterConcernsBySeverity(concerns, "warning")
+	infoConcerns := filterConcernsBySeverity(concerns, "info")
+
+	totalConcerns := len(criticalConcerns) + len(warningConcerns) + len(infoConcerns)
+	fmt.Printf("Areas of Concern (%d):\n", totalConcerns)
+
+	// Print critical concerns
+	for _, concern := range criticalConcerns {
+		printConcern(concern, colorRed, "CRITICAL")
+	}
+
+	// Print warning concerns
+	for _, concern := range warningConcerns {
+		printConcern(concern, colorYellow, "WARNING")
+	}
+
+	// Print info concerns
+	for _, concern := range infoConcerns {
+		printConcern(concern, colorCyan, "INFO")
+	}
+}
+
+func printConcern(concern models.Concern, color string, label string) {
+	fmt.Printf("\n  %s[%s]%s %s\n", color, label, colorReset, concern.Title)
+	fmt.Printf("    %s\n", concern.Description)
+
+	for _, item := range concern.AffectedItems {
+		location := item.FilePath
+		if item.Line > 0 {
+			location = fmt.Sprintf("%s:%d", item.FilePath, item.Line)
+		}
+		if item.FunctionName != "" {
+			fmt.Printf("    - %s (%s)\n", location, item.FunctionName)
+		} else {
+			fmt.Printf("    - %s\n", location)
+		}
+	}
+}
+
+func filterConcernsBySeverity(concerns []models.Concern, severity string) []models.Concern {
+	var filtered []models.Concern
+	for _, concern := range concerns {
+		if concern.Severity == severity {
+			filtered = append(filtered, concern)
+		}
+	}
+	return filtered
+}
+
+func getGradeColor(grade string) string {
+	switch grade {
+	case "A":
+		return colorGreen
+	case "B":
+		return colorBlue
+	case "C":
+		return colorYellow
+	case "D":
+		return colorOrange
+	case "F":
+		return colorRed
+	default:
+		return colorReset
+	}
+}
+
+func getScoreColor(score float64) string {
+	switch {
+	case score >= 90:
+		return colorGreen
+	case score >= 75:
+		return colorBlue
+	case score >= 60:
+		return colorYellow
+	case score >= 40:
+		return colorOrange
+	default:
+		return colorRed
+	}
+}
+
+// ANSI color codes
+const (
+	colorReset  = "\033[0m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorBlue   = "\033[34m"
+	colorCyan   = "\033[36m"
+	colorOrange = "\033[38;5;208m"
+)
 
 func saveResults(result *models.AnalysisResult, filename string) error {
 	data, err := json.MarshalIndent(result, "", "  ")
