@@ -38,7 +38,7 @@ type TreeMetrics struct {
 	HotspotCount         int     `json:"hotspot_count"`
 }
 
-// GenerateHTML creates an interactive HTML heat map
+// GenerateHTML creates an interactive HTML heat map with Nordic warm color scheme
 func (visualizer *HTMLVisualizer) GenerateHTML(result *models.AnalysisResult) (string, error) {
 	// Build tree data structure
 	treeData := visualizer.buildTreeData(result)
@@ -51,15 +51,19 @@ func (visualizer *HTMLVisualizer) GenerateHTML(result *models.AnalysisResult) (s
 
 	// Convert score report to JSON if available
 	var scoreReportJSON []byte
+	var scoreReportMap map[string]interface{}
 	if result.ScoreReport != nil {
 		scoreReportJSON, err = json.Marshal(result.ScoreReport)
 		if err != nil {
 			return "", fmt.Errorf("failed to marshal score report: %w", err)
 		}
+
+		// Also create a map for easier template access
+		json.Unmarshal(scoreReportJSON, &scoreReportMap)
 	}
 
-	// Render HTML template
-	tmpl := template.Must(template.New("heatmap").Parse(htmlTemplate))
+	// Render HTML template using Nordic theme
+	tmpl := template.Must(template.New("heatmap").Parse(htmlNordicTemplate))
 
 	templateData := map[string]interface{}{
 		"TreeData":        template.JS(jsonData),
@@ -73,6 +77,7 @@ func (visualizer *HTMLVisualizer) GenerateHTML(result *models.AnalysisResult) (s
 	if result.ScoreReport != nil {
 		templateData["OverallGrade"] = result.ScoreReport.OverallGrade
 		templateData["OverallScore"] = result.ScoreReport.OverallScore
+		templateData["ScoreReportMap"] = scoreReportMap
 	}
 
 	var builder strings.Builder

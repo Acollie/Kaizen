@@ -56,7 +56,7 @@ func RenderHTMLChart(metricName string, points []storage.TimeSeriesPoint, scopeP
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+            background: #F5F1E8;
             min-height: 100vh;
             padding: 40px 20px;
         }
@@ -64,17 +64,18 @@ func RenderHTMLChart(metricName string, points []storage.TimeSeriesPoint, scopeP
             max-width: 1000px;
             margin: 0 auto;
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(45, 45, 42, 0.12);
             padding: 40px;
         }
         h1 {
-            color: #333;
+            color: #C97064;
             margin-bottom: 10px;
             font-size: 28px;
+            font-weight: 700;
         }
         .subtitle {
-            color: #666;
+            color: #6B6B68;
             margin-bottom: 30px;
             font-size: 14px;
         }
@@ -82,6 +83,9 @@ func RenderHTMLChart(metricName string, points []storage.TimeSeriesPoint, scopeP
             position: relative;
             height: 400px;
             margin-bottom: 30px;
+            background: #F5F1E8;
+            border-radius: 12px;
+            padding: 20px;
         }
         .stats {
             display: grid;
@@ -90,28 +94,34 @@ func RenderHTMLChart(metricName string, points []storage.TimeSeriesPoint, scopeP
             margin-top: 30px;
         }
         .stat-card {
-            background: #f8f9fa;
+            background: #EBE6DD;
             padding: 20px;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
+            border-radius: 12px;
+            border-left: 4px solid #C97064;
+            transition: all 0.2s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 2px 8px rgba(201, 112, 100, 0.15);
         }
         .stat-label {
-            color: #666;
+            color: #6B6B68;
             font-size: 12px;
             text-transform: uppercase;
             margin-bottom: 8px;
             font-weight: 600;
+            letter-spacing: 0.05em;
         }
         .stat-value {
-            color: #333;
+            color: #2D2D2A;
             font-size: 24px;
             font-weight: bold;
         }
         .footer {
             margin-top: 30px;
             padding-top: 20px;
-            border-top: 1px solid #eee;
-            color: #666;
+            border-top: 1px solid #E8E4DA;
+            color: #9A9A97;
             font-size: 12px;
         }
     </style>
@@ -168,16 +178,17 @@ func RenderHTMLChart(metricName string, points []storage.TimeSeriesPoint, scopeP
                 datasets: [{
                     label: '%s',
                     data: chartData.data,
-                    borderColor: '#667eea',
-                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                    borderWidth: 2,
+                    borderColor: '#C97064',
+                    backgroundColor: 'rgba(201, 112, 100, 0.1)',
+                    borderWidth: 3,
                     fill: true,
-                    tension: 0.3,
-                    pointRadius: 4,
-                    pointBackgroundColor: '#667eea',
+                    tension: 0.4,
+                    pointRadius: 5,
+                    pointBackgroundColor: '#C97064',
                     pointBorderColor: '#fff',
                     pointBorderWidth: 2,
-                    pointHoverRadius: 6,
+                    pointHoverRadius: 7,
+                    pointHoverBackgroundColor: '#B85C50',
                 }]
             },
             options: {

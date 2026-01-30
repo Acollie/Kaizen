@@ -97,7 +97,7 @@ func RenderOwnerReportHTML(report *OwnerReport) (string, error) {
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+            background: #F5F1E8;
             min-height: 100vh;
             padding: 40px 20px;
         }
@@ -105,17 +105,18 @@ func RenderOwnerReportHTML(report *OwnerReport) (string, error) {
             max-width: 1400px;
             margin: 0 auto;
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(45, 45, 42, 0.12);
             padding: 40px;
         }
         h1 {
-            color: #333;
+            color: #C97064;
             margin-bottom: 10px;
             font-size: 32px;
+            font-weight: 700;
         }
         .subtitle {
-            color: #666;
+            color: #6B6B68;
             margin-bottom: 30px;
             font-size: 14px;
         }
@@ -126,10 +127,11 @@ func RenderOwnerReportHTML(report *OwnerReport) (string, error) {
             margin-bottom: 40px;
         }
         .summary-card {
-            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+            background: linear-gradient(135deg, #C97064 0%%, #B85C50 100%%);
             color: white;
             padding: 20px;
-            border-radius: 8px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(201, 112, 100, 0.2);
         }
         .summary-label {
             font-size: 12px;
@@ -150,20 +152,20 @@ func RenderOwnerReportHTML(report *OwnerReport) (string, error) {
             border-collapse: collapse;
         }
         th {
-            background: #f8f9fa;
+            background: #EBE6DD;
             padding: 12px;
             text-align: left;
             font-weight: 600;
-            color: #333;
-            border-bottom: 2px solid #667eea;
+            color: #2D2D2A;
+            border-bottom: 2px solid #C97064;
         }
         td {
             padding: 12px;
-            border-bottom: 1px solid #eee;
-            color: #666;
+            border-bottom: 1px solid #E8E4DA;
+            color: #6B6B68;
         }
         tr:hover {
-            background: #f8f9fa;
+            background: #F5F1E8;
         }
         .health-excellent {
             color: #10b981;
@@ -190,9 +192,9 @@ func RenderOwnerReportHTML(report *OwnerReport) (string, error) {
         .chart-container {
             position: relative;
             height: 300px;
-            background: #f8f9fa;
+            background: #F5F1E8;
             padding: 20px;
-            border-radius: 8px;
+            border-radius: 12px;
         }
         .chart-title {
             font-size: 14px;
@@ -312,7 +314,7 @@ func RenderOwnerReportHTML(report *OwnerReport) (string, error) {
                     label: 'Health Score',
                     data: healthScores,
                     backgroundColor: healthScores.map(s =>
-                        s >= 80 ? '#10b981' : s >= 60 ? '#3b82f6' : s >= 40 ? '#f59e0b' : '#ef4444'
+                        s >= 80 ? '#A8B5A3' : s >= 60 ? '#D4A574' : s >= 40 ? '#E6A86F' : '#C97064'
                     ),
                 }]
             },
@@ -335,7 +337,7 @@ func RenderOwnerReportHTML(report *OwnerReport) (string, error) {
                 datasets: [{
                     label: 'Avg Cyclomatic Complexity',
                     data: complexity,
-                    backgroundColor: '#667eea',
+                    backgroundColor: '#D4A574',
                 }]
             },
             options: {

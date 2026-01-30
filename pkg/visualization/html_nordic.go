@@ -1,0 +1,904 @@
+package visualization
+
+// Nordic warm color HTML template with improved usability
+const htmlNordicTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kaizen Code Analysis - {{.Repository}}</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        :root {
+            /* Nordic Warm Color Palette */
+            --bg-primary: #F5F1E8;
+            --bg-secondary: #EBE6DD;
+            --bg-surface: #E8E4DA;
+            --text-primary: #2D2D2A;
+            --text-secondary: #6B6B68;
+            --text-muted: #9A9A97;
+
+            /* Accent Colors */
+            --accent-terracotta: #C97064;
+            --accent-terracotta-dark: #B85C50;
+            --accent-amber: #D4A574;
+            --accent-amber-dark: #C08552;
+            --accent-sage: #A8B5A3;
+            --accent-sage-dark: #8B9A87;
+
+            /* Metric Colors - Warm Tones */
+            --color-excellent: #A8B5A3;  /* Sage green */
+            --color-good: #D4A574;       /* Warm amber */
+            --color-moderate: #E6A86F;   /* Warm orange */
+            --color-poor: #D4896B;       /* Warm coral */
+            --color-critical: #C97064;   /* Terracotta */
+
+            /* Shadows */
+            --shadow-sm: 0 2px 4px rgba(45, 45, 42, 0.08);
+            --shadow-md: 0 4px 12px rgba(45, 45, 42, 0.12);
+            --shadow-lg: 0 8px 24px rgba(45, 45, 42, 0.16);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        /* Header Section */
+        .header {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-md);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 8px;
+            color: var(--accent-terracotta-dark);
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1em;
+            margin-bottom: 24px;
+        }
+
+        /* Grade Display */
+        .grade-display {
+            display: flex;
+            align-items: center;
+            gap: 32px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .grade-circle {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+        }
+
+        .grade-circle::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            padding: 4px;
+            background: linear-gradient(135deg, var(--accent-terracotta), var(--accent-amber));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            opacity: 0.3;
+        }
+
+        .grade-circle.grade-A { background: linear-gradient(135deg, #A8B5A3, #8B9A87); }
+        .grade-circle.grade-B { background: linear-gradient(135deg, #D4A574, #C08552); }
+        .grade-circle.grade-C { background: linear-gradient(135deg, #E6A86F, #D4896B); }
+        .grade-circle.grade-D { background: linear-gradient(135deg, #D4896B, #C97064); }
+        .grade-circle.grade-F { background: linear-gradient(135deg, #C97064, #B85C50); }
+
+        .grade-letter {
+            font-size: 3.5em;
+            font-weight: 800;
+            color: white;
+            line-height: 1;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .grade-score {
+            font-size: 1.1em;
+            color: rgba(255, 255, 255, 0.95);
+            margin-top: 4px;
+            font-weight: 600;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+            flex: 1;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent-amber);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: var(--accent-terracotta-dark);
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        /* Component Scores */
+        .component-scores {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .component-score {
+            background: var(--bg-surface);
+            padding: 16px;
+            border-radius: 12px;
+            border-left: 4px solid var(--accent-sage);
+        }
+
+        .component-name {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        .component-bar {
+            height: 10px;
+            background: white;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 6px;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .component-bar-fill {
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.5s ease;
+        }
+
+        .component-bar-fill.excellent { background: linear-gradient(90deg, #A8B5A3, #8B9A87); }
+        .component-bar-fill.good { background: linear-gradient(90deg, #D4A574, #C08552); }
+        .component-bar-fill.moderate { background: linear-gradient(90deg, #E6A86F, #D4896B); }
+        .component-bar-fill.poor { background: linear-gradient(90deg, #D4896B, #C97064); }
+        .component-bar-fill.critical { background: linear-gradient(90deg, #C97064, #B85C50); }
+
+        .component-value {
+            font-size: 0.95em;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        /* Visualization Section */
+        .visualization-section {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-md);
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .metric-selector {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .metric-btn {
+            padding: 10px 20px;
+            border: 2px solid var(--bg-surface);
+            background: white;
+            color: var(--text-primary);
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: all 0.2s ease;
+            text-transform: capitalize;
+        }
+
+        .metric-btn:hover {
+            border-color: var(--accent-amber);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .metric-btn.active {
+            background: linear-gradient(135deg, var(--accent-terracotta), var(--accent-terracotta-dark));
+            color: white;
+            border-color: var(--accent-terracotta-dark);
+        }
+
+        /* Breadcrumb */
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.95em;
+            color: var(--text-secondary);
+            flex-wrap: wrap;
+        }
+
+        .breadcrumb-item {
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .breadcrumb-item:hover {
+            background: var(--bg-secondary);
+            color: var(--accent-terracotta);
+        }
+
+        .breadcrumb-sep {
+            color: var(--text-muted);
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            margin-bottom: 16px;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            flex-wrap: wrap;
+        }
+
+        .legend-title {
+            font-weight: 700;
+            color: var(--text-primary);
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .legend-items {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85em;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .legend-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Treemap Container */
+        #treemap {
+            width: 100%;
+            height: 800px;
+            background: var(--bg-surface);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Treemap Cells */
+        .cell {
+            cursor: pointer;
+            transition: all 0.2s ease;
+            stroke: white;
+            stroke-width: 2;
+        }
+
+        .cell:hover {
+            opacity: 0.9;
+            stroke-width: 3;
+            stroke: var(--accent-terracotta);
+        }
+
+        .cell-label {
+            pointer-events: none;
+            font-weight: 600;
+            text-shadow: 0 1px 3px rgba(255, 255, 255, 0.8),
+                         0 -1px 3px rgba(255, 255, 255, 0.8),
+                         1px 0 3px rgba(255, 255, 255, 0.8),
+                         -1px 0 3px rgba(255, 255, 255, 0.8);
+        }
+
+        /* Tooltip */
+        .tooltip {
+            position: absolute;
+            background: white;
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: var(--shadow-lg);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            max-width: 300px;
+            border: 2px solid var(--accent-terracotta);
+        }
+
+        .tooltip.visible {
+            opacity: 1;
+        }
+
+        .tooltip-title {
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--accent-terracotta-dark);
+            font-size: 1.05em;
+        }
+
+        .tooltip-metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px solid var(--bg-surface);
+            font-size: 0.9em;
+        }
+
+        .tooltip-metric:last-child {
+            border-bottom: none;
+        }
+
+        .tooltip-label {
+            color: var(--text-secondary);
+        }
+
+        .tooltip-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Concerns Panel */
+        .concerns-panel {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: var(--shadow-md);
+        }
+
+        .concerns-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .concerns-title {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: var(--accent-terracotta-dark);
+        }
+
+        .concern-item {
+            background: var(--bg-secondary);
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            border-left: 4px solid var(--accent-sage);
+        }
+
+        .concern-item.critical {
+            border-left-color: var(--color-critical);
+            background: rgba(201, 112, 100, 0.1);
+        }
+
+        .concern-item.warning {
+            border-left-color: var(--color-moderate);
+            background: rgba(230, 168, 111, 0.1);
+        }
+
+        .concern-item.info {
+            border-left-color: var(--color-good);
+            background: rgba(168, 181, 163, 0.1);
+        }
+
+        .concern-severity {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 0.75em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .concern-severity.critical {
+            background: var(--color-critical);
+            color: white;
+        }
+
+        .concern-severity.warning {
+            background: var(--color-moderate);
+            color: white;
+        }
+
+        .concern-severity.info {
+            background: var(--color-good);
+            color: white;
+        }
+
+        .concern-title-text {
+            font-weight: 700;
+            font-size: 1.1em;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .concern-description {
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }
+
+        .concern-files {
+            font-size: 0.9em;
+        }
+
+        .concern-file {
+            display: block;
+            padding: 6px 0;
+            color: var(--accent-terracotta);
+            text-decoration: none;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+
+        .concern-file:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body {
+                padding: 12px;
+            }
+
+            .header {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .grade-circle {
+                width: 100px;
+                height: 100px;
+            }
+
+            .grade-letter {
+                font-size: 2.5em;
+            }
+
+            #treemap {
+                height: 500px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎯 Kaizen Code Analysis</h1>
+            <div class="subtitle">{{.Repository}}</div>
+
+            <div class="grade-display">
+                {{if .HasScoreReport}}
+                <div class="grade-circle grade-{{.OverallGrade}}">
+                    <div class="grade-letter">{{.OverallGrade}}</div>
+                    <div class="grade-score">{{printf "%.0f" .OverallScore}}/100</div>
+                </div>
+                {{end}}
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">{{.Summary.TotalFiles}}</div>
+                        <div class="stat-label">Files</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{{.Summary.TotalFunctions}}</div>
+                        <div class="stat-label">Functions</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{{printf "%.1f" .Summary.AverageCyclomaticComplexity}}</div>
+                        <div class="stat-label">Avg Complexity</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{{printf "%.0f" .Summary.AverageMaintainabilityIndex}}</div>
+                        <div class="stat-label">Maintainability</div>
+                    </div>
+                </div>
+            </div>
+
+            {{if .HasScoreReport}}
+            <!-- Component scores will be rendered by JavaScript -->
+            <div class="component-scores" id="component-scores"></div>
+            {{end}}
+        </div>
+
+        <!-- Visualization -->
+        <div class="visualization-section">
+            <div class="controls">
+                <div class="metric-selector">
+                    <button class="metric-btn active" data-metric="hotspot">🔥 Hotspots</button>
+                    <button class="metric-btn" data-metric="complexity">🔍 Complexity</button>
+                    <button class="metric-btn" data-metric="maintainability">✨ Maintainability</button>
+                    <button class="metric-btn" data-metric="length">📏 Function Size</button>
+                    <button class="metric-btn" data-metric="churn">📊 Churn</button>
+                </div>
+
+                <div class="breadcrumb" id="breadcrumb">
+                    <span class="breadcrumb-item" data-path="">🏠 Root</span>
+                </div>
+            </div>
+
+            <div class="legend">
+                <span class="legend-title">Legend:</span>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #A8B5A3, #8B9A87);"></div>
+                        <span class="legend-label">Excellent (85-100)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #D4A574, #C08552);"></div>
+                        <span class="legend-label">Good (65-84)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #E6A86F, #D4896B);"></div>
+                        <span class="legend-label">Moderate (40-64)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #C97064, #B85C50);"></div>
+                        <span class="legend-label">Poor (0-39)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="treemap"></div>
+        </div>
+
+        <!-- Concerns Panel -->
+        {{if .HasScoreReport}}
+        <div class="concerns-panel" id="concerns-panel">
+            <div class="concerns-header">
+                <h2 class="concerns-title">Areas of Concern</h2>
+            </div>
+            <div id="concerns-list"></div>
+        </div>
+        {{end}}
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // Data
+        const treeData = {{.TreeData}};
+        {{if .HasScoreReport}}
+        const scoreReport = {{.ScoreReportJSON}};
+        {{end}}
+
+        // State
+        let currentRoot = treeData;
+        let fullRoot = treeData;
+        let currentMetric = 'hotspot';
+
+        // Initialize
+        renderTreemap(currentRoot, currentMetric);
+        {{if .HasScoreReport}}
+        renderComponentScores();
+        renderConcerns();
+        {{end}}
+
+        // Render component scores
+        function renderComponentScores() {
+            const container = document.getElementById('component-scores');
+            if (!scoreReport) return;
+
+            const components = [
+                { name: 'Complexity', score: scoreReport.complexity_score || 0 },
+                { name: 'Maintainability', score: scoreReport.maintainability_score || 0 },
+                { name: 'Function Size', score: scoreReport.function_size_score || 0 },
+                { name: 'Code Structure', score: scoreReport.code_structure_score || 0 }
+            ];
+
+            container.innerHTML = components.map(comp => {
+                const rating = comp.score >= 85 ? 'excellent' :
+                              comp.score >= 65 ? 'good' :
+                              comp.score >= 40 ? 'moderate' : 'poor';
+
+                return '<div class="component-score">' +
+                    '<div class="component-name">' + comp.name + '</div>' +
+                    '<div class="component-bar">' +
+                    '<div class="component-bar-fill ' + rating + '" style="width: ' + comp.score + '%"></div>' +
+                    '</div>' +
+                    '<div class="component-value">' + Math.round(comp.score) + '/100</div>' +
+                    '</div>';
+            }).join('');
+        }
+
+        // Metric selector
+        document.querySelectorAll('.metric-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.metric-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentMetric = btn.dataset.metric;
+                renderTreemap(currentRoot, currentMetric);
+            });
+        });
+
+        // Color scale - Nordic warm colors
+        function getColor(value) {
+            // Invert for maintainability (higher is better)
+            if (currentMetric === 'maintainability') {
+                value = 100 - value;
+            }
+
+            if (value < 15) return '#A8B5A3';  // Excellent - Sage
+            if (value < 35) return '#D4A574';  // Good - Amber
+            if (value < 60) return '#E6A86F';  // Moderate - Warm orange
+            if (value < 80) return '#D4896B';  // Poor - Warm coral
+            return '#C97064';                   // Critical - Terracotta
+        }
+
+        // Render treemap
+        function renderTreemap(root, metric) {
+            const container = document.getElementById('treemap');
+            container.innerHTML = '';
+
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            const svg = d3.select(container)
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            const treemap = d3.treemap()
+                .size([width, height])
+                .padding(2)
+                .round(true);
+
+            const hierarchy = d3.hierarchy(root)
+                .sum(d => d.value || 0)
+                .sort((a, b) => b.value - a.value);
+
+            treemap(hierarchy);
+
+            const cells = svg.selectAll('g')
+                .data(hierarchy.leaves())
+                .enter()
+                .append('g')
+                .attr('transform', d => 'translate(' + d.x0 + ',' + d.y0 + ')');
+
+            // Rectangles
+            cells.append('rect')
+                .attr('class', 'cell')
+                .attr('width', d => d.x1 - d.x0)
+                .attr('height', d => d.y1 - d.y0)
+                .attr('fill', d => {
+                    const metrics = d.data.metrics || {};
+                    let value = metrics[metric + '_score'] || 0;
+                    return getColor(value);
+                })
+                .on('click', (event, d) => {
+                    if (d.data.children && d.data.children.length > 0) {
+                        currentRoot = d.data;
+                        updateBreadcrumb(d.data);
+                        renderTreemap(d.data, currentMetric);
+                    }
+                })
+                .on('mouseover', (event, d) => showTooltip(event, d))
+                .on('mouseout', hideTooltip);
+
+            // Labels
+            cells.append('text')
+                .attr('class', 'cell-label')
+                .attr('x', 4)
+                .attr('y', 16)
+                .text(d => {
+                    const width = d.x1 - d.x0;
+                    const name = d.data.name;
+                    if (width < 50) return '';
+                    if (width < 100) return name.substring(0, 8) + '...';
+                    return name;
+                })
+                .attr('font-size', d => {
+                    const width = d.x1 - d.x0;
+                    if (width < 80) return '10px';
+                    if (width < 150) return '12px';
+                    return '14px';
+                })
+                .attr('fill', '#2D2D2A')
+                .attr('font-weight', '600');
+        }
+
+        // Tooltip
+        function showTooltip(event, d) {
+            const tooltip = document.getElementById('tooltip');
+            const metrics = d.data.metrics || {};
+
+            let html = '<div class="tooltip-title">' + d.data.name + '</div>';
+            html += '<div class="tooltip-metric"><span class="tooltip-label">Functions:</span><span class="tooltip-value">' + (metrics.total_functions || 0) + '</span></div>';
+            html += '<div class="tooltip-metric"><span class="tooltip-label">Complexity:</span><span class="tooltip-value">' + (metrics.complexity_score || 0).toFixed(1) + '</span></div>';
+            html += '<div class="tooltip-metric"><span class="tooltip-label">Maintainability:</span><span class="tooltip-value">' + (metrics.maintainability_score || 0).toFixed(1) + '</span></div>';
+            if (metrics.hotspot_count > 0) {
+                html += '<div class="tooltip-metric"><span class="tooltip-label">🔥 Hotspots:</span><span class="tooltip-value">' + metrics.hotspot_count + '</span></div>';
+            }
+
+            tooltip.innerHTML = html;
+            tooltip.classList.add('visible');
+            tooltip.style.left = (event.pageX + 10) + 'px';
+            tooltip.style.top = (event.pageY + 10) + 'px';
+        }
+
+        function hideTooltip() {
+            document.getElementById('tooltip').classList.remove('visible');
+        }
+
+        // Breadcrumb
+        function updateBreadcrumb(node) {
+            // Build path
+            const path = [];
+            let current = node;
+
+            while (current && current !== fullRoot) {
+                path.unshift(current.name);
+                // Find parent (simplified)
+                current = findParent(fullRoot, current);
+            }
+
+            const breadcrumb = document.getElementById('breadcrumb');
+            breadcrumb.innerHTML = '<span class="breadcrumb-item" data-path="">🏠 Root</span>';
+
+            path.forEach((name, index) => {
+                breadcrumb.innerHTML += '<span class="breadcrumb-sep">/</span>';
+                breadcrumb.innerHTML += '<span class="breadcrumb-item" data-path="' + path.slice(0, index + 1).join('/') + '">' + name + '</span>';
+            });
+
+            // Add click handlers
+            document.querySelectorAll('.breadcrumb-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const path = item.dataset.path;
+                    if (path === '') {
+                        currentRoot = fullRoot;
+                    } else {
+                        currentRoot = findNodeByPath(fullRoot, path);
+                    }
+                    renderTreemap(currentRoot, currentMetric);
+                    updateBreadcrumb(currentRoot);
+                });
+            });
+        }
+
+        function findParent(root, target) {
+            if (!root.children) return null;
+            for (const child of root.children) {
+                if (child === target) return root;
+                const found = findParent(child, target);
+                if (found) return found;
+            }
+            return null;
+        }
+
+        function findNodeByPath(root, path) {
+            const parts = path.split('/');
+            let current = root;
+
+            for (const part of parts) {
+                if (!current.children) return current;
+                current = current.children.find(c => c.name === part);
+                if (!current) return root;
+            }
+
+            return current;
+        }
+
+        // Render concerns
+        {{if .HasScoreReport}}
+        function renderConcerns() {
+            const container = document.getElementById('concerns-list');
+            if (!scoreReport.concerns || scoreReport.concerns.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">✨ No concerns detected! Your code looks great.</p>';
+                return;
+            }
+
+            container.innerHTML = scoreReport.concerns.map(concern => {
+                const severityClass = concern.severity.toLowerCase();
+                return '<div class="concern-item ' + severityClass + '">' +
+                    '<div class="concern-severity ' + severityClass + '">' + concern.severity + '</div>' +
+                    '<div class="concern-title-text">' + concern.type + '</div>' +
+                    '<div class="concern-description">' + concern.description + '</div>' +
+                    (concern.functions && concern.functions.length > 0 ?
+                        '<div class="concern-files">' + concern.functions.map(f =>
+                            '<a href="vscode://file/' + f.file_path + ':' + f.start_line + '" class="concern-file">' +
+                            f.file_path + ':' + f.start_line + ' (' + f.function_name + ')' +
+                            '</a>'
+                        ).join('') + '</div>'
+                    : '') +
+                '</div>';
+            }).join('');
+        }
+        {{end}}
+    </script>
+</body>
+</html>`
