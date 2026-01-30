@@ -315,7 +315,14 @@ func runAnalyze(cmd *cobra.Command, args []string) {
 		IncludeChurn:     !shouldSkipChurn,
 		MaxWorkers:       cfg.Analysis.MaxWorkers,
 		ProgressCallback: func(file string, current int, total int) {
-			fmt.Printf("\r[%d/%d] Analyzing: %s", current, total, truncate(file, 60))
+			percent := 0
+			if total > 0 {
+				percent = (current * 100) / total
+			}
+			barWidth := 20
+			filledWidth := (percent * barWidth) / 100
+			bar := strings.Repeat("█", filledWidth) + strings.Repeat("░", barWidth-filledWidth)
+			fmt.Printf("\r📊 [%3d%%] [%s] [%d/%d] %s", percent, bar, current, total, truncate(file, 40))
 		},
 	}
 
@@ -332,6 +339,7 @@ func runAnalyze(cmd *cobra.Command, args []string) {
 	printSummary(result)
 
 	// Create storage backend with auto-detection
+	fmt.Printf("💾 Saving to database...\n")
 	dbPath, err := storage.DetectOrCreateDatabase(rootPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not setup database: %v\n", err)
@@ -350,17 +358,22 @@ func runAnalyze(cmd *cobra.Command, args []string) {
 				KaizenVersion: "1.0.0", // TODO: Use actual version
 			}
 
+			fmt.Printf("  [1/3] Writing snapshot data...")
 			snapshotID, err := storageBackend.Save(result, metadata)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not save to database: %v\n", err)
+				fmt.Fprintf(os.Stderr, "\n  Warning: could not save to database: %v\n", err)
 			} else {
+				fmt.Printf(" ✓\n")
 				fmt.Printf("💾 Saved to database (ID: %d)\n", snapshotID)
 
 				// Try to save ownership data if CODEOWNERS exists
 				codeownersPath := findCodeOwnersFile(rootPath)
 				if codeownersPath != "" {
+					fmt.Printf("  [2/3] Parsing CODEOWNERS...")
 					codeowners, err := ownership.ParseCodeOwners(codeownersPath)
 					if err == nil {
+						fmt.Printf(" ✓\n")
+						fmt.Printf("  [3/3] Aggregating team metrics...")
 						aggregator := ownership.NewAggregator(codeowners)
 						ownerMetrics, fileOwnership := aggregator.AggregateByOwner(result)
 
@@ -380,11 +393,16 @@ func runAnalyze(cmd *cobra.Command, args []string) {
 
 						err = storageBackend.SaveOwnershipData(snapshotID, fileOwnership, metrics, result.AnalyzedAt)
 						if err != nil {
-							fmt.Fprintf(os.Stderr, "Warning: could not save ownership data: %v\n", err)
+							fmt.Fprintf(os.Stderr, "\n  Warning: could not save ownership data: %v\n", err)
 						} else {
+							fmt.Printf(" ✓\n")
 							fmt.Printf("👥 Saved ownership data for %d owner(s)\n", len(ownerMetrics))
 						}
+					} else {
+						fmt.Printf(" ✗\n")
 					}
+				} else {
+					fmt.Printf("  [2/3] No CODEOWNERS found (skipped)\n")
 				}
 			}
 		}

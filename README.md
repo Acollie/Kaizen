@@ -18,10 +18,6 @@ A powerful code analysis tool that measures code quality, complexity, and churn 
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/alexcollie/kaizen
-cd kaizen
-
 # Build
 go build -o kaizen ./cmd/kaizen
 
