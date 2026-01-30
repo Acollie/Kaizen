@@ -512,18 +512,29 @@ const htmlNordicTemplate = `<!DOCTYPE html>
 
         .concern-files {
             font-size: 0.9em;
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
 
         .concern-file {
             display: block;
-            padding: 6px 0;
+            padding: 10px 12px;
+            background: white;
             color: var(--accent-terracotta);
             text-decoration: none;
             font-family: 'Monaco', 'Menlo', monospace;
+            border-radius: 6px;
+            border-left: 3px solid var(--accent-terracotta);
+            transition: all 0.2s ease;
+            font-size: 0.85em;
         }
 
         .concern-file:hover {
-            text-decoration: underline;
+            background: var(--bg-surface);
+            transform: translateX(4px);
+            box-shadow: 0 2px 4px rgba(201, 112, 100, 0.15);
         }
 
         /* Responsive */
@@ -889,12 +900,14 @@ const htmlNordicTemplate = `<!DOCTYPE html>
                     '<div class="concern-severity ' + severityClass + '">' + concern.severity + '</div>' +
                     '<div class="concern-title-text">' + concern.type + '</div>' +
                     '<div class="concern-description">' + concern.description + '</div>' +
-                    (concern.functions && concern.functions.length > 0 ?
-                        '<div class="concern-files">' + concern.functions.map(f =>
-                            '<a href="vscode://file/' + f.file_path + ':' + f.start_line + '" class="concern-file">' +
-                            f.file_path + ':' + f.start_line + ' (' + f.function_name + ')' +
-                            '</a>'
-                        ).join('') + '</div>'
+                    (concern.affected_items && concern.affected_items.length > 0 ?
+                        '<div class="concern-files">' + concern.affected_items.map(item => {
+                            const displayName = item.function_name || item.file_path;
+                            const location = item.line ? item.file_path + ':' + item.line : item.file_path;
+                            return '<a href="vscode://file/' + location + '" class="concern-file" title="' + JSON.stringify(item.metrics || {}) + '">' +
+                                '📄 ' + location + (item.function_name ? ' → ' + item.function_name : '') +
+                                '</a>';
+                        }).join('') + '</div>'
                     : '') +
                 '</div>';
             }).join('');
