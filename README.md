@@ -11,6 +11,9 @@ A powerful code analysis tool that measures code quality, complexity, and churn 
 - **Git Churn Analysis** - Tracks code change frequency over time
 - **Hotspot Detection** - Identifies high-churn + high-complexity code
 - **Interactive Visualizations** - Zoomable HTML treemaps with drill-down navigation
+- **Historical Tracking** - SQLite database for time-series analysis (Phase 1)
+- **Trend Analysis** - ASCII, JSON, and HTML charts showing metric evolution (Phase 2)
+- **Code Ownership Reports** - Team-based metrics aggregation with CODEOWNERS integration (Phase 3)
 
 ## Installation
 
@@ -62,6 +65,160 @@ Areas of Concern (2):
     Low scores driven by long functions (avg 51 lines). Break into
     smaller, focused functions to improve readability.
     - pkg/churn/analyzer.go:119 (parseNumstatOutput)
+```
+
+---
+
+## Historical Analysis & Trends
+
+### Phase 1: Time-Series Storage
+
+Kaizen automatically stores all analysis results in SQLite database (`.kaizen/kaizen.db`). This enables tracking metrics over time and comparing code quality across versions.
+
+**Basic Usage:**
+
+```bash
+# Run analysis (automatically saves to database)
+kaizen analyze --path=.
+
+# List all snapshots
+kaizen history list
+
+# View specific snapshot
+kaizen history show 1
+
+# Prune old snapshots (keep last 90 days)
+kaizen history prune --retention=90
+```
+
+**Example Output:**
+```
+ID   Date                 Grade   Score   Files
+──────────────────────────────────────────────────
+3    2026-01-30 15:36    A       89.2    35
+2    2026-01-30 15:35    A       87.5    35
+1    2026-01-30 15:00    B       82.1    34
+```
+
+---
+
+### Phase 2: Trend Visualization
+
+Track metric evolution over time with multiple output formats.
+
+**Basic Usage:**
+
+```bash
+# Run multiple analyses over time
+kaizen analyze --path=.
+# ... make changes ...
+kaizen analyze --path=.
+# ... make more changes ...
+kaizen analyze --path=.
+
+# View trends (ASCII format, default)
+kaizen trend overall_score
+kaizen trend complexity
+kaizen trend maintainability
+
+# Export trends as JSON
+kaizen trend overall_score --format=json --output=trends.json
+
+# Generate interactive HTML chart
+kaizen trend complexity --format=html --output=complexity-chart.html
+```
+
+**Supported Metrics:**
+- `overall_score` - Overall health score
+- `complexity` - Average cyclomatic complexity
+- `maintainability` - Average maintainability index
+- `hotspots` - Number of hotspots detected
+
+**Example ASCII Output:**
+```
+Complexity Trend (Last 30 days)
+─────────────────────────────────
+5.2  │
+5.0  │      ╱╲
+4.8  │    ╱╲  ╲
+4.6  │  ╱    ╲  ╲
+4.4  │╱        ╲__╲
+└────┴──────────────── Time
+     Min: 4.2 | Max: 5.2 | Avg: 4.8 | Change: -0.4
+```
+
+---
+
+### Phase 3: Code Ownership Reports
+
+Aggregate metrics by team using CODEOWNERS file for team-based accountability.
+
+**Setup:**
+
+First, create a `.github/CODEOWNERS` file:
+```
+# CODEOWNERS file (GitHub/GitLab format)
+# Last matching rule wins (most specific at bottom)
+
+* @maintainers
+
+pkg/storage/ @storage-team
+pkg/storage/sqlite.go @db-expert
+
+pkg/analyzer/ @analysis-team
+pkg/languages/ @language-team
+pkg/languages/golang/ @golang-expert
+
+pkg/visualization/ @ui-team
+```
+
+**Basic Usage:**
+
+```bash
+# Generate ownership report (ASCII format, default)
+kaizen report owners
+
+# Specific snapshot
+kaizen report owners 2
+
+# Export as JSON
+kaizen report owners --format=json --output=team-metrics.json
+
+# Generate interactive HTML report
+kaizen report owners --format=html --output=team-report.html
+
+# Open HTML in browser (automatic)
+kaizen report owners --format=html
+```
+
+**Example ASCII Output:**
+```
+👥 Code Ownership Report
+═════════════════════════════════════════════════════════════════
+
+Owner              │ Files │ Funcs │ Health  │ Avg Cmplx │ Hotspots
+────────────────────┼───────┼───────┼─────────┼───────────┼──────────
+@storage-team      │ 4     │ 5     │ 93.1%   │ 2.6       │ 0
+@golang-expert     │ 4     │ 38    │ 89.4%   │ 3.7       │ 0
+@ui-team           │ 4     │ 31    │ 88.5%   │ 3.9       │ 0
+@db-expert         │ 1     │ 20    │ 87.0%   │ 4.9       │ 0
+@maintainers       │ 12    │ 59    │ 81.5%   │ 4.4       │ 0
+```
+
+**CI/CD Integration Example:**
+
+```bash
+#!/bin/bash
+# Run analysis and check team health
+kaizen analyze --path=.
+kaizen report owners --format=json --output=metrics.json
+
+# Fail if any team below health threshold
+jq '.owner_metrics[] | select(.overall_health_score < 70)' metrics.json | \
+  if [ -s /dev/stdin ]; then
+    echo "⚠️  Teams below health threshold!"
+    exit 1
+  fi
 ```
 
 ---
@@ -387,13 +544,57 @@ thresholds:
   cognitive_complexity: 15
   function_length: 50
   maintainability_index: 40
+
+# Storage configuration (Phase 1)
+storage:
+  type: sqlite                    # sqlite, json, or both
+  path: ./kaizen.db              # Database location
+  keep_json_backup: true         # Also save JSON files
+  retention_days: 90             # Auto-prune after 90 days
+  auto_prune: false              # Prune on each analyze
+
+# Code ownership (Phase 3)
+codeowners:
+  path: .github/CODEOWNERS       # CODEOWNERS file location
+  auto_report: false             # Generate report on analyze
+  exclude_owners: []             # Teams to exclude from reports
 ```
+
+### `.github/CODEOWNERS`
+
+Define team ownership (GitHub/GitLab format):
+
+```
+# Catch-all rule (least specific)
+* @maintainers
+
+# Specific team assignments
+pkg/analyzer/ @analysis-team
+pkg/languages/ @language-team
+pkg/languages/golang/ @golang-expert
+
+pkg/storage/ @storage-team
+pkg/storage/sqlite.go @db-expert
+
+pkg/visualization/ @ui-team
+
+cmd/kaizen/ @cli-team
+```
+
+**Rules:**
+- CODEOWNERS uses "last match wins" semantics
+- Most general patterns should come first
+- Most specific patterns should come last
+- A file can have multiple owners
+- Comments start with `#`
 
 ---
 
 ## CLI Reference
 
 ### `kaizen analyze`
+
+Analyze code quality and save to database.
 
 ```bash
 kaizen analyze [flags]
@@ -405,9 +606,112 @@ Flags:
   -l, --languages strings Languages to include
   -e, --exclude strings   Patterns to exclude
       --skip-churn        Skip git churn analysis
+
+Examples:
+  kaizen analyze --path=.
+  kaizen analyze --path=./pkg --skip-churn
+  kaizen analyze --since=30d --output=results.json
 ```
 
+**Follow-up commands:**
+```bash
+kaizen history list                          # View all snapshots
+kaizen trend overall_score                   # See score trends
+kaizen visualize --input=kaizen-results.json # Generate visualization
+```
+
+---
+
+### `kaizen history`
+
+Manage analysis snapshots and history.
+
+```bash
+kaizen history list [flags]
+  List all snapshots with ID, date, grade, and score
+  Flags: (none)
+
+kaizen history show <snapshot-id> [flags]
+  Display detailed snapshot information
+  Flags: (none)
+
+kaizen history prune [flags]
+  Delete snapshots older than retention days
+  Flags:
+    -r, --retention int  Days to retain (default 90)
+
+Examples:
+  kaizen history list
+  kaizen history show 5
+  kaizen history prune --retention=30
+```
+
+---
+
+### `kaizen trend`
+
+Visualize metrics over time.
+
+```bash
+kaizen trend <metric> [flags]
+
+Metrics:
+  overall_score, complexity, maintainability, hotspots
+
+Flags:
+  -d, --days int      Time range in days (default 30)
+  -f, --format string Format: ascii, json, html (default "ascii")
+  -o, --output string Output file (for json/html)
+      --folder string Show trends for specific folder
+
+Examples:
+  kaizen trend overall_score
+  kaizen trend complexity --days=60
+  kaizen trend hotspots --format=html --output=hotspots.html
+  kaizen trend maintainability --folder=pkg/analyzer
+```
+
+**Follow-up commands:**
+```bash
+kaizen report owners                         # Compare with team metrics
+kaizen trend <different_metric>              # View another metric
+```
+
+---
+
+### `kaizen report owners`
+
+Generate code ownership report by team.
+
+```bash
+kaizen report owners [snapshot-id] [flags]
+
+Flags:
+  -c, --codeowners string Path to CODEOWNERS file (auto-detected)
+  -f, --format string     Format: ascii, json, html (default "ascii")
+  -o, --output string     Output file (for json/html)
+      --open              Open HTML in browser (default true)
+
+Examples:
+  kaizen report owners
+  kaizen report owners 5
+  kaizen report owners --format=json --output=team-health.json
+  kaizen report owners --format=html
+  kaizen report owners --codeowners=.gitlab/CODEOWNERS
+```
+
+**Follow-up commands:**
+```bash
+jq '.owner_metrics | sort_by(.overall_health_score)[]' report.json  # Sort by health
+kaizen history list                                                  # See history
+kaizen trend complexity --format=json | jq '.data'                   # Compare with trends
+```
+
+---
+
 ### `kaizen visualize`
+
+Generate interactive visualizations.
 
 ```bash
 kaizen visualize [flags]
@@ -418,9 +722,18 @@ Flags:
   -m, --metric string   Metric: complexity, churn, hotspot, etc.
   -o, --output string   Output file
       --open            Auto-open HTML (default true)
+
+Examples:
+  kaizen visualize --format=html
+  kaizen visualize --format=html --metric=complexity
+  kaizen visualize --format=svg --output=heatmap.svg --open=false
 ```
 
+---
+
 ### `kaizen callgraph`
+
+Generate function call graph.
 
 ```bash
 kaizen callgraph [flags]
@@ -430,6 +743,10 @@ Flags:
   -o, --output string   Output file
   -f, --format string   Format: html, svg, json
       --min-calls int   Filter by minimum call count
+
+Examples:
+  kaizen callgraph --format=html
+  kaizen callgraph --path=./pkg/analyzer --format=svg
 ```
 
 ---
@@ -493,15 +810,24 @@ type LanguageAnalyzer interface {
 
 ## Roadmap
 
+### Completed ✅
 - [x] Code health grading (A-F)
 - [x] Areas of concern with explanations
 - [x] Zoomable treemap visualization
 - [x] VS Code integration
+- [x] Historical time-series storage (Phase 1)
+- [x] Trend visualization with ASCII/JSON/HTML (Phase 2)
+- [x] Code ownership reports with CODEOWNERS integration (Phase 3)
+
+### In Progress / Planned
 - [ ] Kotlin language support
 - [ ] Python, TypeScript, Java support
-- [ ] Historical trend analysis
-- [ ] CI/CD integration
+- [ ] Ownership trend analysis (track team metrics over time)
+- [ ] CI/CD integration examples
 - [ ] GitHub Actions reporter
+- [ ] Slack integration
+- [ ] PDF report export
+- [ ] Performance forecasting
 
 ---
 
