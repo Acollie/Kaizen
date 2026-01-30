@@ -672,13 +672,14 @@ const htmlNordicTemplate = `<!DOCTYPE html>
         // Render component scores
         function renderComponentScores() {
             const container = document.getElementById('component-scores');
-            if (!scoreReport) return;
+            if (!scoreReport || !scoreReport.component_scores) return;
 
+            const cs = scoreReport.component_scores;
             const components = [
-                { name: 'Complexity', score: scoreReport.complexity_score || 0 },
-                { name: 'Maintainability', score: scoreReport.maintainability_score || 0 },
-                { name: 'Function Size', score: scoreReport.function_size_score || 0 },
-                { name: 'Code Structure', score: scoreReport.code_structure_score || 0 }
+                { name: 'Complexity', score: cs.complexity?.score || 0 },
+                { name: 'Maintainability', score: cs.maintainability?.score || 0 },
+                { name: 'Function Size', score: cs.function_size?.score || 0 },
+                { name: 'Code Structure', score: cs.code_structure?.score || 0 }
             ];
 
             container.innerHTML = components.map(comp => {
