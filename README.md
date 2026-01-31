@@ -14,25 +14,151 @@ A powerful code analysis tool that measures code quality, complexity, and churn 
 - **Historical Tracking** - SQLite database for time-series analysis (Phase 1)
 - **Trend Analysis** - ASCII, JSON, and HTML charts showing metric evolution (Phase 2)
 - **Code Ownership Reports** - Team-based metrics aggregation with CODEOWNERS integration (Phase 3)
+- **Ownership Flow Diagrams** - Interactive Sankey diagrams showing team dependencies on shared functions
 
 ## Installation
+
+### Quick Install (Recommended)
+
+Install kaizen with shell completion for zsh and fish:
+
+```bash
+# Clone the repository
+git clone https://github.com/alexcollie/kaizen.git
+cd kaizen
+
+# Run the install script
+./install.sh
+```
+
+The install script will:
+- Build the kaizen binary
+- Install it to `~/.local/bin` (or `$INSTALL_DIR` if set)
+- Set up shell completions for zsh and fish
+- Provide next steps for configuration
+
+**Shell Completion:**
+- **Zsh**: Completions installed to `~/.local/share/zsh/site-functions/_kaizen`
+- **Fish**: Completions installed to `~/.config/fish/completions/kaizen.fish`
+
+After installation, restart your shell or run:
+```bash
+# Zsh
+exec zsh
+
+# Fish
+exec fish
+```
+
+### Manual Installation
 
 ```bash
 # Build
 go build -o kaizen ./cmd/kaizen
 
-# Or install globally
+# Install to custom location
+mv kaizen /usr/local/bin/
+
+# Or install with Go
 go install ./cmd/kaizen
 ```
 
 ## Quick Start
 
 ```bash
-# Analyze current directory
+# Analyze current directory (automatically saves to database)
 kaizen analyze --path=.
 
 # Generate interactive HTML heat map
-kaizen visualize --input=kaizen-results.json --format=html
+kaizen visualize --format=html
+
+# View analysis history
+kaizen history list
+
+# Generate ownership report
+kaizen report owners
+
+# View trends over time
+kaizen trend overall_score
+```
+
+## Common Workflows
+
+### First Time Setup
+
+```bash
+# 1. Install kaizen
+./install.sh
+
+# 2. Analyze your project
+cd /path/to/your/project
+kaizen analyze --path=.
+
+# 3. View the results
+kaizen visualize --format=html
+```
+
+### Daily Development
+
+```bash
+# Run analysis before committing
+kaizen analyze --path=.
+
+# Quick terminal view of hotspots
+kaizen visualize --metric=hotspot
+
+# Check if code quality is improving
+kaizen trend overall_score --days=7
+```
+
+### Team Health Monitoring
+
+```bash
+# Generate ownership report
+kaizen report owners --format=html
+
+# Export team metrics for CI/CD
+kaizen report owners --format=json --output=team-health.json
+
+# Visualize team dependencies
+kaizen sankey --min-owners=3
+```
+
+### Refactoring Sessions
+
+```bash
+# Before refactoring - create baseline
+kaizen analyze --path=. --output=before.json
+
+# After refactoring - compare results
+kaizen analyze --path=. --output=after.json
+
+# View improvements
+kaizen visualize --input=after.json --format=html
+
+# Check trends
+kaizen trend complexity --days=1
+```
+
+### CI/CD Integration
+
+```bash
+#!/bin/bash
+# .github/workflows/code-quality.yml or similar
+
+# Run analysis
+kaizen analyze --path=.
+
+# Fail if grade drops below B
+SCORE=$(kaizen history show 1 | grep "Score:" | awk '{print $2}')
+if (( $(echo "$SCORE < 75" | bc -l) )); then
+  echo "❌ Code quality below threshold (Score: $SCORE)"
+  exit 1
+fi
+
+# Generate reports
+kaizen report owners --format=html --output=reports/team-health.html
+kaizen visualize --format=html --output=reports/complexity-map.html
 ```
 
 **Example Output:**
@@ -216,6 +342,44 @@ jq '.owner_metrics[] | select(.overall_health_score < 70)' metrics.json | \
     exit 1
   fi
 ```
+
+**Sankey Diagram - Ownership Flow Visualization:**
+
+```bash
+# Generate interactive Sankey diagram showing owner → function dependencies
+kaizen sankey
+
+# Adjust threshold (show functions used by 3+ owners)
+kaizen sankey --min-owners=3
+
+# Save to specific file
+kaizen sankey --output=ownership-flow.html
+
+# Don't open browser automatically
+kaizen sankey --open=false
+```
+
+**What it shows:**
+- Flow from code owners (left) to commonly-used functions (right)
+- Width of flow = number of calls
+- Identifies shared dependencies across teams
+- Highlights collaboration patterns and potential bottlenecks
+
+**Example visualization:**
+```
+@storage-team ────────▶ models.NewCallGraph (18 calls)
+              ────────▶ fmt.Errorf (12 calls)
+@analysis-team ───────▶ fmt.Errorf (23 calls)
+               ───────▶ filepath.Join (15 calls)
+@ui-team ─────────────▶ fmt.Errorf (18 calls)
+         ─────────────▶ template.Must (11 calls)
+```
+
+The Sankey diagram helps answer questions like:
+- Which functions are shared across multiple teams?
+- Which teams depend most on common utilities?
+- Are there central functions that need extra attention?
+- How isolated vs. collaborative are our teams?
 
 ---
 
@@ -604,15 +768,28 @@ Flags:
       --skip-churn        Skip git churn analysis
 
 Examples:
+  # Analyze current directory (saves to database + JSON file)
   kaizen analyze --path=.
+  
+  # Analyze specific path without churn
   kaizen analyze --path=./pkg --skip-churn
+  
+  # Custom output file and time period
   kaizen analyze --since=30d --output=results.json
+  
+  # Analyze only Go files
+  kaizen analyze --languages=go
+
+Note: Results are automatically saved to both:
+  - SQLite database (.kaizen/kaizen.db) for historical tracking
+  - JSON file (kaizen-results.json) for visualizations
 ```
 
 **Follow-up commands:**
 ```bash
 kaizen history list                          # View all snapshots
 kaizen trend overall_score                   # See score trends
+kaizen visualize --format=html               # Generate interactive visualization
 kaizen visualize --input=kaizen-results.json # Generate visualization
 ```
 
@@ -652,7 +829,8 @@ Visualize metrics over time.
 kaizen trend <metric> [flags]
 
 Metrics:
-  overall_score, complexity, maintainability, hotspots
+  overall_score, complexity, maintainability, hotspots, churn
+  avg_cyclomatic_complexity, avg_cognitive_complexity, avg_maintainability_index
 
 Flags:
   -d, --days int      Time range in days (default 30)
@@ -661,16 +839,29 @@ Flags:
       --folder string Show trends for specific folder
 
 Examples:
+  # View overall score trend in terminal
   kaizen trend overall_score
+  
+  # View complexity over last 60 days
   kaizen trend complexity --days=60
-  kaizen trend hotspots --format=html --output=hotspots.html
+  
+  # Export hotspots trend as HTML chart
+  kaizen trend hotspots --format=html --output=hotspots-chart.html
+  
+  # Track maintainability for specific folder
   kaizen trend maintainability --folder=pkg/analyzer
+  
+  # Get raw trend data as JSON
+  kaizen trend overall_score --format=json --output=trend-data.json
+
+Note: Requires historical data in database from multiple 'kaizen analyze' runs.
 ```
 
 **Follow-up commands:**
 ```bash
 kaizen report owners                         # Compare with team metrics
 kaizen trend <different_metric>              # View another metric
+kaizen history list                          # See all snapshots
 ```
 
 ---
@@ -689,18 +880,33 @@ Flags:
       --open              Open HTML in browser (default true)
 
 Examples:
+  # Use latest snapshot from database
   kaizen report owners
+  
+  # Use specific snapshot by ID
   kaizen report owners 5
+  
+  # Export as JSON or HTML
   kaizen report owners --format=json --output=team-health.json
-  kaizen report owners --format=html
+  kaizen report owners --format=html --output=team-report.html
+  
+  # Specify custom CODEOWNERS location
   kaizen report owners --codeowners=.gitlab/CODEOWNERS
+
+Note: This command reads snapshots from the database (.kaizen/kaizen.db).
+      Run 'kaizen analyze' first to populate the database.
 ```
 
 **Follow-up commands:**
 ```bash
-jq '.owner_metrics | sort_by(.overall_health_score)[]' report.json  # Sort by health
-kaizen history list                                                  # See history
-kaizen trend complexity --format=json | jq '.data'                   # Compare with trends
+# Sort teams by health score
+jq '.owner_metrics | sort_by(.overall_health_score)[]' team-health.json
+
+# View snapshot history
+kaizen history list
+
+# Compare with trend data
+kaizen trend complexity --format=json | jq '.data'
 ```
 
 ---
@@ -720,9 +926,19 @@ Flags:
       --open            Auto-open HTML (default true)
 
 Examples:
+  # Generate HTML visualization from latest analysis
   kaizen visualize --format=html
-  kaizen visualize --format=html --metric=complexity
+  
+  # View complexity in terminal
+  kaizen visualize --metric=complexity
+  
+  # Generate SVG without opening browser
   kaizen visualize --format=svg --output=heatmap.svg --open=false
+  
+  # Use specific analysis file
+  kaizen visualize --input=old-results.json --format=html
+
+Note: By default, uses kaizen-results.json created by 'kaizen analyze'.
 ```
 
 ---
@@ -744,6 +960,38 @@ Examples:
   kaizen callgraph --format=html
   kaizen callgraph --path=./pkg/analyzer --format=svg
 ```
+
+---
+
+### `kaizen sankey`
+
+Generate Sankey diagram showing code ownership flow to common functions.
+
+```bash
+kaizen sankey [flags]
+
+Flags:
+  -i, --input string      Input analysis file (default "kaizen-results.json")
+  -o, --output string     Output HTML file (default "kaizen-sankey.html")
+      --min-owners int    Minimum owners calling a function to include it (default 2)
+      --min-calls int     Minimum calls to include a function (default 1)
+      --open              Open in browser (default true)
+
+Examples:
+  kaizen sankey
+  kaizen sankey --min-owners=3
+  kaizen sankey --output=team-dependencies.html --open=false
+
+Requires:
+  - CODEOWNERS file (.github/CODEOWNERS or similar)
+  - Analysis results from 'kaizen analyze'
+```
+
+**What it visualizes:**
+- Left side: Code owners (teams/individuals)
+- Right side: Commonly-used functions
+- Links: Call relationships (width = call count)
+- Helps identify shared dependencies and collaboration patterns
 
 ---
 
@@ -804,6 +1052,113 @@ type LanguageAnalyzer interface {
 
 ---
 
+## Troubleshooting
+
+### Command Not Found After Installation
+
+If you get `command not found: kaizen` after running the install script:
+
+1. Check if `~/.local/bin` is in your PATH:
+   ```bash
+   echo $PATH | grep -q "$HOME/.local/bin" && echo "Found" || echo "Not found"
+   ```
+
+2. Add to your PATH by adding this to `~/.zshrc` or `~/.bashrc`:
+   ```bash
+   export PATH="$PATH:$HOME/.local/bin"
+   ```
+
+3. Reload your shell:
+   ```bash
+   source ~/.zshrc  # or source ~/.bashrc
+   ```
+
+### Shell Completions Not Working
+
+**Zsh:**
+```bash
+# Ensure completion directory exists and is in fpath
+mkdir -p ~/.local/share/zsh/site-functions
+echo $fpath | grep -q "local/share/zsh/site-functions" || echo "Add to fpath in ~/.zshrc"
+
+# Rebuild completion cache
+rm -f ~/.zcompdump
+compinit
+```
+
+**Fish:**
+```bash
+# Completions should be automatic, but you can check:
+set -U fish_complete_path $fish_complete_path ~/.config/fish/completions
+```
+
+### "No Snapshots Found" Error
+
+If `kaizen report owners` or `kaizen trend` shows "no snapshots":
+
+1. Run an analysis first:
+   ```bash
+   kaizen analyze --path=.
+   ```
+
+2. Verify database exists:
+   ```bash
+   ls -la .kaizen/kaizen.db
+   ```
+
+3. List snapshots:
+   ```bash
+   kaizen history list
+   ```
+
+### CODEOWNERS Not Found
+
+If ownership reports fail:
+
+1. Create `.github/CODEOWNERS` in your repository root
+2. Or specify custom location:
+   ```bash
+   kaizen report owners --codeowners=.gitlab/CODEOWNERS
+   ```
+
+### Visualization Opens Wrong Browser
+
+Set your default browser:
+
+**macOS:**
+```bash
+# Use Chrome
+export BROWSER=/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome
+
+# Use Firefox
+export BROWSER=/Applications/Firefox.app/Contents/MacOS/firefox
+```
+
+**Linux:**
+```bash
+export BROWSER=firefox
+# or
+export BROWSER=google-chrome
+```
+
+Add to `~/.zshrc` or `~/.bashrc` to make permanent.
+
+### Database Locked Error
+
+If you get "database is locked":
+
+1. Ensure no other kaizen processes are running:
+   ```bash
+   ps aux | grep kaizen
+   ```
+
+2. If stuck, remove the lock:
+   ```bash
+   rm .kaizen/kaizen.db-shm .kaizen/kaizen.db-wal
+   ```
+
+---
+
 ## Roadmap
 
 ### Completed ✅
@@ -814,6 +1169,7 @@ type LanguageAnalyzer interface {
 - [x] Historical time-series storage (Phase 1)
 - [x] Trend visualization with ASCII/JSON/HTML (Phase 2)
 - [x] Code ownership reports with CODEOWNERS integration (Phase 3)
+- [x] Sankey diagrams for ownership flow visualization
 
 ### In Progress / Planned
 - [ ] Kotlin language support

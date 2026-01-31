@@ -67,6 +67,13 @@ var (
 	callgraphFormat string
 	saveJSON        bool
 	minCalls        int
+
+	// Sankey flags
+	sankeyInput     string
+	sankeyOutput    string
+	sankeyMinOwners int
+	sankeyMinCalls  int
+	sankeyOpen      bool
 )
 
 var rootCmd = &cobra.Command{
@@ -156,11 +163,27 @@ Node color represents complexity or other metrics.`,
 	Run: runCallGraph,
 }
 
+var sankeyCmd = &cobra.Command{
+	Use:   "sankey",
+	Short: "Generate Sankey diagram of code ownership flow",
+	Long: `Visualize how code owners depend on common functions across the codebase.
+
+Creates an interactive Sankey diagram showing:
+  - Flow from code owners (left) to commonly-used functions (right)
+  - Width of flow indicates number of calls
+  - Identifies shared dependencies and collaboration patterns
+  - Highlights functions used by multiple teams
+
+Requires CODEOWNERS file and call graph data in analysis results.`,
+	Run: runSankey,
+}
+
 func init() {
 	// Add commands
 	rootCmd.AddCommand(analyzeCmd)
 	rootCmd.AddCommand(visualizeCmd)
 	rootCmd.AddCommand(callgraphCmd)
+	rootCmd.AddCommand(sankeyCmd)
 	rootCmd.AddCommand(historyCmd)
 	rootCmd.AddCommand(trendCmd)
 	rootCmd.AddCommand(reportCmd)
@@ -238,6 +261,13 @@ func init() {
 	callgraphCmd.Flags().BoolVar(&openBrowser, "open", true, "Open HTML in browser automatically")
 	callgraphCmd.Flags().BoolVar(&saveJSON, "save-json", false, "Also save call graph data as JSON")
 	callgraphCmd.Flags().IntVar(&minCalls, "min-calls", 0, "Minimum call count to include a function (filters noise)")
+
+	// Sankey flags
+	sankeyCmd.Flags().StringVarP(&sankeyInput, "input", "i", "kaizen-results.json", "Input analysis file")
+	sankeyCmd.Flags().StringVarP(&sankeyOutput, "output", "o", "kaizen-sankey.html", "Output HTML file")
+	sankeyCmd.Flags().IntVar(&sankeyMinOwners, "min-owners", 2, "Minimum owners calling a function to include it")
+	sankeyCmd.Flags().IntVar(&sankeyMinCalls, "min-calls", 1, "Minimum calls to include a function")
+	sankeyCmd.Flags().BoolVar(&sankeyOpen, "open", true, "Open in browser")
 }
 
 func main() {
@@ -1321,4 +1351,138 @@ func generateCallGraphSVG(graph *models.CallGraph) {
 	fmt.Printf("✅ Static call graph generated: %s\n", outputFilename)
 	fmt.Printf("   Dimensions: %dx%d pixels\n", svgWidth, svgHeight)
 	fmt.Printf("\nOpen the file in a browser or image viewer to view the call graph.\n")
+}
+
+func runSankey(cmd *cobra.Command, args []string) {
+	fmt.Printf("🔄 Generating Sankey diagram...\n\n")
+
+	// Step 1: Load analysis result
+	data, err := os.ReadFile(sankeyInput)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading input file: %v\n", err)
+		os.Exit(1)
+	}
+
+	var result models.AnalysisResult
+	err = json.Unmarshal(data, &result)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Step 2: Build call graph from the codebase
+	// We need to analyze the same codebase to get call relationships
+	// First, determine the root path from the analysis result
+	rootDir := filepath.Dir(sankeyInput)
+	if !filepath.IsAbs(rootDir) {
+		cwd, err := os.Getwd()
+		if err == nil {
+			rootDir = filepath.Join(cwd, rootDir)
+		} else {
+			rootDir = "."
+		}
+	}
+
+	fmt.Printf("Analyzing call graph from: %s\n", rootDir)
+	callGraphAnalyzer := golang.NewCallGraphAnalyzer()
+	callGraph, err := callGraphAnalyzer.AnalyzeDirectory(rootDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error analyzing call graph: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(callGraph.Edges) == 0 {
+		fmt.Fprintf(os.Stderr, "Error: No call graph data found\n")
+		fmt.Fprintf(os.Stderr, "The codebase may not have any function calls or may not be Go code\n")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Found %d functions and %d call relationships\n", len(callGraph.Nodes), len(callGraph.Edges))
+
+	// Step 3: Find CODEOWNERS file (use rootDir already determined above)
+	codeownersPath := findCodeOwnersFile(rootDir)
+	if codeownersPath == "" {
+		fmt.Fprintf(os.Stderr, "Error: CODEOWNERS file not found\n")
+		fmt.Fprintf(os.Stderr, "Sankey diagram requires a CODEOWNERS file to map files to owners\n")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Using CODEOWNERS: %s\n", codeownersPath)
+
+	// Step 4: Parse CODEOWNERS
+	codeowners, err := ownership.ParseCodeOwners(codeownersPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing CODEOWNERS: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Step 5: Aggregate ownership data
+	aggregator := ownership.NewAggregator(codeowners)
+	ownerMetricsMap, fileOwnership := aggregator.AggregateByOwner(&result)
+
+	// Convert map to slice for OwnerReport
+	ownerMetricsList := make([]ownership.OwnerMetrics, 0, len(ownerMetricsMap))
+	for _, metrics := range ownerMetricsMap {
+		ownerMetricsList = append(ownerMetricsList, *metrics)
+	}
+
+	ownerReport := &ownership.OwnerReport{
+		OwnerMetrics:     ownerMetricsList,
+		FileOwnershipMap: fileOwnership,
+	}
+
+	fmt.Printf("Found %d code owners\n", len(ownerMetricsMap))
+
+	// Step 6: Build Sankey data
+	fmt.Printf("Aggregating owner → function calls...\n")
+	sankeyData, err := visualization.BuildSankeyData(
+		&result,
+		ownerReport,
+		callGraph,
+		sankeyMinOwners,
+		sankeyMinCalls,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error building Sankey data: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Found %d common functions across %d owners\n\n",
+		sankeyData.Stats.TotalCommonFunctions,
+		sankeyData.Stats.TotalOwners)
+
+	// Step 7: Generate HTML
+	visualizer := visualization.NewSankeyVisualizer()
+	html, err := visualizer.GenerateHTML(sankeyData, result.Repository)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating HTML: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Step 8: Write file
+	err = os.WriteFile(sankeyOutput, []byte(html), 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✅ Sankey diagram generated: %s\n", sankeyOutput)
+	fmt.Printf("   Total owners: %d\n", sankeyData.Stats.TotalOwners)
+	fmt.Printf("   Common functions: %d\n", sankeyData.Stats.TotalCommonFunctions)
+	fmt.Printf("   Dependencies: %d\n", sankeyData.Stats.TotalLinks)
+	if sankeyData.Stats.MostSharedFunction != "" {
+		fmt.Printf("   Most shared: %s\n", sankeyData.Stats.MostSharedFunction)
+	}
+
+	// Step 9: Open in browser
+	if sankeyOpen {
+		fmt.Printf("\n🌐 Opening in browser...\n")
+		err = openInBrowser(sankeyOutput)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
+			fmt.Printf("Please open the file manually: %s\n", sankeyOutput)
+		}
+	} else {
+		fmt.Printf("\nTo view the diagram, open: %s\n", sankeyOutput)
+	}
 }
