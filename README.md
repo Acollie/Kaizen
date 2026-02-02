@@ -9,7 +9,7 @@
 
 **Continuous improvement starts with visibility.** Kaizen is a powerful code analysis tool that measures code quality, complexity, and churn to identify technical debt and hotspots in your codebase. It generates health grades, actionable concerns, and beautiful interactive visualizations.
 
-📖 **[Usage Guide](./GUIDE.md)** | 🏗️ **[Architecture](./ARCHITECTURE.md)** | 📊 **[Live Demo](#demo)** | 🚀 **[Quick Start](#quick-start)**
+📖 **[Usage Guide](./GUIDE.md)** | 🏗️ **[Architecture](./ARCHITECTURE.md)** | 📊 **[Self-Analysis Report](./ANALYSIS_REPORT.md)** | 🎨 **[Interactive Heatmap](./ANALYSIS.html)** | 🚀 **[Quick Start](#quick-start)**
 
 ---
 
@@ -65,6 +65,39 @@ All code changes are tested across multiple Go versions (1.21, 1.22, 1.23) and o
 - [![Tests](https://github.com/alexcollie/kaizen/actions/workflows/ci.yml/badge.svg)](https://github.com/alexcollie/kaizen/actions/workflows/ci.yml)
 - [![Coverage Report](https://codecov.io/gh/alexcollie/kaizen/branch/main/graph/badge.svg)](https://codecov.io/gh/alexcollie/kaizen)
 - [![Go Version](https://img.shields.io/badge/go-1.21%2B-blue)](https://golang.org/)
+
+---
+
+## 📊 Self-Analysis & Code Quality
+
+Kaizen practices what it preaches! The project analyzes itself to ensure quality standards.
+
+### 🎓 Latest Self-Assessment
+
+**Grade: B (88/100)** | **Status:** ✅ Healthy Production Codebase
+
+- **Overall Health:** Excellent - Grade B indicates well-maintained code with minor improvement opportunities
+- **Code Structure:** Perfect (100/100) - Modular, clean architecture
+- **Maintainability:** Strong (86/100) - Easy to understand and modify
+- **Complexity:** Good (78/100) - Well-balanced decision logic
+- **Function Sizing:** Excellent (92/100) - Average function length just 27 lines
+
+### 📈 Key Metrics
+
+| Metric | Value | Status |
+|--------|-------|--------|
+| Files Analyzed | 47 | ✅ |
+| Total Functions | 350 | ✅ |
+| Avg Cyclomatic Complexity | 4.5 | ✅ Excellent |
+| Avg Function Length | 27 lines | ✅ Excellent |
+| Hotspots Detected | 0 | ✅ Perfect |
+| Avg Maintainability Index | 86.4 | ✅ Good |
+
+### 📚 Resources
+
+- **📋 [Detailed Analysis Report](./ANALYSIS_REPORT.md)** - Executive summary, findings, recommendations
+- **🎨 [Interactive Visualization](./ANALYSIS.html)** - Drill-down heatmap of complexity and metrics
+- **📊 [Raw Analysis Data](./kaizen-self-analysis.json)** - Full metrics in JSON format
 
 ---
 
