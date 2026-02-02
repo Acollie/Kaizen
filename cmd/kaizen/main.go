@@ -74,6 +74,13 @@ var (
 	sankeyMinOwners int
 	sankeyMinCalls  int
 	sankeyOpen      bool
+
+	// Diff flags
+	diffPath             string
+	diffShowTeams        bool
+	diffCodeOwnersPath   string
+	diffOutput           string
+	diffSkipChurn        bool
 )
 
 var rootCmd = &cobra.Command{
@@ -178,6 +185,22 @@ Requires CODEOWNERS file and call graph data in analysis results.`,
 	Run: runSankey,
 }
 
+var diffCmd = &cobra.Command{
+	Use:   "diff",
+	Short: "Compare current analysis with previous snapshot",
+	Long: `Compare the current code analysis with the last stored snapshot to identify:
+  - Changes in overall code quality score
+  - Changes in complexity metrics
+  - New hotspots introduced
+  - Hotspots that have been fixed
+  - Changes in maintainability
+  - File and function count changes
+  - Team-based breakdowns (requires CODEOWNERS)
+
+Useful for tracking progress over time and identifying regressions.`,
+	Run: runDiff,
+}
+
 func init() {
 	// Add commands
 	rootCmd.AddCommand(analyzeCmd)
@@ -187,6 +210,7 @@ func init() {
 	rootCmd.AddCommand(historyCmd)
 	rootCmd.AddCommand(trendCmd)
 	rootCmd.AddCommand(reportCmd)
+	rootCmd.AddCommand(diffCmd)
 
 	// Report subcommands
 	reportOwnersCmd := &cobra.Command{
@@ -268,6 +292,13 @@ func init() {
 	sankeyCmd.Flags().IntVar(&sankeyMinOwners, "min-owners", 2, "Minimum owners calling a function to include it")
 	sankeyCmd.Flags().IntVar(&sankeyMinCalls, "min-calls", 1, "Minimum calls to include a function")
 	sankeyCmd.Flags().BoolVar(&sankeyOpen, "open", true, "Open in browser")
+
+	// Diff flags
+	diffCmd.Flags().StringVarP(&diffPath, "path", "p", ".", "Path to analyze (should match original analysis path)")
+	diffCmd.Flags().BoolVar(&diffShowTeams, "teams", false, "Show breakdown by team (requires CODEOWNERS)")
+	diffCmd.Flags().StringVarP(&diffCodeOwnersPath, "codeowners", "c", "", "Path to CODEOWNERS file (auto-detected if not specified)")
+	diffCmd.Flags().StringVarP(&diffOutput, "output", "o", "", "Output file path (optional, default prints to terminal)")
+	diffCmd.Flags().BoolVar(&diffSkipChurn, "skip-churn", false, "Skip git churn analysis")
 }
 
 func main() {
@@ -1484,5 +1515,89 @@ func runSankey(cmd *cobra.Command, args []string) {
 		}
 	} else {
 		fmt.Printf("\nTo view the diagram, open: %s\n", sankeyOutput)
+	}
+}
+
+func runDiff(cmd *cobra.Command, args []string) {
+	fmt.Println("📊 Analyzing code and comparing with last snapshot...")
+
+	// Get current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not get current directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create storage backend
+	dbPath, err := storage.DetectOrCreateDatabase(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not locate database: %v\n", err)
+		os.Exit(1)
+	}
+
+	backend, err := storage.NewBackend(storage.BackendConfig{
+		Type: "sqlite",
+		Path: dbPath,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
+		os.Exit(1)
+	}
+	defer backend.Close()
+
+	// Get the last snapshot for comparison
+	lastSnapshot, err := backend.GetLatest()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not retrieve last snapshot: %v\n", err)
+		os.Exit(1)
+	}
+
+	if lastSnapshot == nil {
+		fmt.Fprintf(os.Stderr, "Error: no previous analysis found. Run 'kaizen analyze' first.\n")
+		os.Exit(1)
+	}
+
+	// Run current analysis
+	fmt.Println("Running current analysis...")
+
+	// Create analysis pipeline with registry
+	languageRegistry := languages.NewRegistry()
+	churnAnalyzer := churn.NewGitChurnAnalyzer(diffPath)
+	aggregatorImpl := analyzer.NewAggregator()
+
+	pipeline := analyzer.NewPipeline(languageRegistry, churnAnalyzer, aggregatorImpl)
+
+	// Parse since time
+	since := time.Now().AddDate(0, -3, 0) // Default 90 days
+
+	options := analyzer.AnalysisOptions{
+		RootPath:       diffPath,
+		Since:          since,
+		IncludeChurn:   !diffSkipChurn,
+		MaxWorkers:     4,
+	}
+
+	result, err := pipeline.Analyze(options)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: analysis failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Compare analyses
+	diff := CompareAnalyses(lastSnapshot, result)
+
+	// Format and output report
+	report := FormatDiffReport(diff, diffShowTeams)
+
+	if diffOutput == "" {
+		fmt.Print(report)
+	} else {
+		err := os.WriteFile(diffOutput, []byte(report), 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not write file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✅ Report saved to: %s\n", diffOutput)
+		fmt.Print(report)
 	}
 }
