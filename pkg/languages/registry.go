@@ -8,6 +8,7 @@ import (
 	"github.com/alexcollie/kaizen/pkg/languages/golang"
 	"github.com/alexcollie/kaizen/pkg/languages/kotlin"
 	"github.com/alexcollie/kaizen/pkg/languages/python"
+	"github.com/alexcollie/kaizen/pkg/languages/swift"
 )
 
 // Registry manages all available language analyzers
@@ -22,6 +23,7 @@ func NewRegistry() *Registry {
 			golang.NewGoAnalyzer(),
 			kotlin.NewKotlinAnalyzer(),
 			python.NewPythonAnalyzer(),
+			swift.NewSwiftAnalyzer(),
 		},
 	}
 }
