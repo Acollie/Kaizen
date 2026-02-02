@@ -1,7 +1,7 @@
 # 🏔️ Kaizen - Code Quality Analysis Tool
 
 [![Build Status](https://github.com/acollie/kaizen/workflows/CI/badge.svg)](https://github.com/alexcollie/kaizen/actions)
-[![codecov](https://codecov.io/gh/collie/kaizen/branch/main/graph/badge.svg)](https://codecov.io/gh/alexcollie/kaizen)
+[![codecov](https://codecov.io/github/Acollie/Kaizen/graph/badge.svg?token=9V3XZY7JAF)](https://codecov.io/github/Acollie/Kaizen)
 [![Go Report Card](https://goreportcard.com/badge/github.com/collie/kaizen)](https://goreportcard.com/report/github.com/alexcollie/kaizen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/go-1.21%2B-blue)](https://golang.org/)
