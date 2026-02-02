@@ -246,7 +246,7 @@ func RenderHTMLChart(metricName string, points []storage.TimeSeriesPoint, scopeP
     </script>
 </body>
 </html>
-`, title, title, time.Now().Format("2006-01-02 15:04:05"), string(jsonData), metricName, len(points), time.Now().Format("2006-01-02 15:04:05"))
+`, title, title, time.Now().Format("2006-01-02 15:04:05"), len(points), time.Now().Format("2006-01-02 15:04:05"), string(jsonData), metricName)
 
 	return html, nil
 }
