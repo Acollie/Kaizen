@@ -49,6 +49,25 @@
 
 ---
 
+---
+
+## ✅ Quality Assurance
+
+### Test Coverage
+All code changes are tested across multiple Go versions (1.21, 1.22, 1.23) and operating systems (Linux, macOS, Windows):
+
+- **Unit Tests**: 50+ test files covering analyzers, metrics, and language parsers
+- **Integration Tests**: End-to-end analysis and visualization pipeline validation
+- **Coverage Target**: 50%+ coverage on main branch with automated codecov checks
+- **CI Pipeline**: Automated testing, linting, and build verification on every PR
+
+### Build Status
+- [![Tests](https://github.com/alexcollie/kaizen/actions/workflows/ci.yml/badge.svg)](https://github.com/alexcollie/kaizen/actions/workflows/ci.yml)
+- [![Coverage Report](https://codecov.io/gh/alexcollie/kaizen/branch/main/graph/badge.svg)](https://codecov.io/gh/alexcollie/kaizen)
+- [![Go Version](https://img.shields.io/badge/go-1.21%2B-blue)](https://golang.org/)
+
+---
+
 ## 🚀 Quick Start
 
 ### Installation

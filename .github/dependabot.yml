@@ -1,0 +1,37 @@
+version: 2
+updates:
+  # Check Go module dependencies
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "alexcollie"
+    assignees:
+      - "alexcollie"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      prefix-scope: "deps"
+
+  # Check GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "alexcollie"
+    assignees:
+      - "alexcollie"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "ci"
+      prefix-scope: "actions"

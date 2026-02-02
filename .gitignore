@@ -1,0 +1,36 @@
+# Build artifacts
+/kaizen
+*.exe
+*.so
+*.dylib
+
+# Test outputs
+*-test*.html
+*-analysis.json
+kaizen-*.html
+test-sankey*.html
+final-sankey-test.html
+
+# Database
+.kaizen/
+
+# System files
+.DS_Store
+*.swp
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# Go build cache
+/vendor/
+
+# Temporary files
+/tmp/
+*.tmp
+
+# Coverage reports
+*.out
+coverage.html
