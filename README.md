@@ -1,11 +1,11 @@
 # 🏔️ Kaizen - Code Quality Analysis Tool
 
-[![Build Status](https://github.com/acollie/kaizen/workflows/CI/badge.svg)](https://github.com/alexcollie/kaizen/actions)
+[![Build Status](https://github.com/acollie/kaizen/workflows/CI/badge.svg)](https://github.com/acollie/kaizen/actions)
 [![codecov](https://codecov.io/github/Acollie/Kaizen/graph/badge.svg?token=9V3XZY7JAF)](https://codecov.io/github/Acollie/Kaizen)
-[![Go Report Card](https://goreportcard.com/badge/github.com/collie/kaizen)](https://goreportcard.com/report/github.com/alexcollie/kaizen)
+[![Go Report Card](https://goreportcard.com/badge/github.com/collie/kaizen)](https://goreportcard.com/report/github.com/acollie/kaizen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/go-1.21%2B-blue)](https://golang.org/)
-[![Latest Release](https://img.shields.io/github/v/release/alexcollie/kaizen)](https://github.com/alexcollie/kaizen/releases)
+[![Latest Release](https://img.shields.io/github/v/release/acollie/kaizen)](https://github.com/acollie/kaizen/releases)
 
 **Continuous improvement starts with visibility.** Kaizen is a powerful code analysis tool that measures code quality, complexity, and churn to identify technical debt and hotspots in your codebase. It generates health grades, actionable concerns, and beautiful interactive visualizations.
 
@@ -62,8 +62,8 @@ All code changes are tested across multiple Go versions (1.21, 1.22, 1.23) and o
 - **CI Pipeline**: Automated testing, linting, and build verification on every PR
 
 ### Build Status
-- [![Tests](https://github.com/alexcollie/kaizen/actions/workflows/ci.yml/badge.svg)](https://github.com/alexcollie/kaizen/actions/workflows/ci.yml)
-- [![Coverage Report](https://codecov.io/gh/alexcollie/kaizen/branch/main/graph/badge.svg)](https://codecov.io/gh/alexcollie/kaizen)
+- [![Tests](https://github.com/acollie/kaizen/actions/workflows/ci.yml/badge.svg)](https://github.com/acollie/kaizen/actions/workflows/ci.yml)
+- [![codecov](https://codecov.io/github/Acollie/Kaizen/graph/badge.svg?token=9V3XZY7JAF)](https://codecov.io/github/Acollie/Kaizen)
 - [![Go Version](https://img.shields.io/badge/go-1.21%2B-blue)](https://golang.org/)
 
 ---
@@ -109,7 +109,7 @@ Kaizen practices what it preaches! The project analyzes itself to ensure quality
 
 ```bash
 # Clone and install
-git clone https://github.com/alexcollie/kaizen.git
+git clone https://github.com/acollie/kaizen.git
 cd kaizen
 ./install.sh
 
@@ -350,8 +350,8 @@ See [Adding Languages](./ARCHITECTURE.md#adding-languages) for detailed guide.
 ### Reporting Issues
 
 Found a bug? Have a suggestion?
-- 🐛 [Report Bug](https://github.com/alexcollie/kaizen/issues/new?template=bug_report.md)
-- 💡 [Request Feature](https://github.com/alexcollie/kaizen/issues/new?template=feature_request.md)
+- 🐛 [Report Bug](https://github.com/acollie/kaizen/issues/new?template=bug_report.md)
+- 💡 [Request Feature](https://github.com/acollie/kaizen/issues/new?template=feature_request.md)
 
 ---
 
@@ -381,7 +381,7 @@ Built with:
 ## 🎯 Roadmap
 
 ### Planned Features
-- [ ] 📊 Web dashboard for team health monitoring
+- [x] 📊 Web dashboard for team health monitoring
 - [ ] 🔌 GitHub/GitLab integration (automatic PR comments)
 - [ ] 📈 Advanced trend prediction
 - [ ] 🐍 Complete Python analyzer
@@ -401,8 +401,8 @@ Built with:
 
 - 📖 [Full Documentation](./GUIDE.md)
 - 🏗️ [Architecture Guide](./ARCHITECTURE.md)
-- 💬 [GitHub Discussions](https://github.com/alexcollie/kaizen/discussions)
-- 🐛 [Report Issue](https://github.com/alexcollie/kaizen/issues)
+- 💬 [GitHub Discussions](https://github.com/acollie/kaizen/discussions)
+- 🐛 [Report Issue](https://github.com/acollie/kaizen/issues)
 
 ---
 
@@ -410,6 +410,6 @@ Built with:
 
 Made with ❤️ for continuous improvement
 
-[⭐ Star us on GitHub](https://github.com/alexcollie/kaizen) | [📬 Follow on Twitter](https://twitter.com/kaizencode) | [💼 LinkedIn](https://linkedin.com/in/alexcollie)
+[⭐ Star us on GitHub](https://github.com/acollie/kaizen) | [📬 Follow on Twitter](https://twitter.com/kaizencode) | [💼 LinkedIn](https://linkedin.com/in/acollie)
 
 </div>
