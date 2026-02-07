@@ -41,6 +41,18 @@
 - **Historical Trends** - Track metrics over time with trend analysis
 - **Ownership Reports** - Aggregate metrics by team using CODEOWNERS
 
+### 🛡️ CI Quality Gate
+- **Blast-Radius Detection** - Warns when modified functions have high fan-in (many callers)
+- **Exit Codes for CI** - `0` = clean, `2` = blast-radius concerns detected
+- **Branch Diffing** - Compares current branch against a base branch (default: main)
+- **Text or JSON Output** - Machine-readable format for pipeline integration
+
+### 🔗 Call Graph Analysis
+- **Function Call Graph** - Interactive D3.js force-directed graph showing who calls whom
+- **Fan-In / Fan-Out** - Identify heavily-depended-on functions and coupling
+- **Filterable** - Set minimum call count to reduce noise
+- **Multiple Formats** - HTML, SVG, or JSON output
+
 ### 🔄 Git Integration
 - **Automatic Churn Analysis** - Track how frequently code changes
 - **Time-Series Database** - SQLite storage for historical snapshots
@@ -136,8 +148,14 @@ kaizen report owners
 ### Common Commands
 
 ```bash
-# View analysis results
+# View analysis results as interactive heatmap
 kaizen visualize --metric=complexity --format=html --open
+
+# CI quality gate — fail on high blast-radius changes
+kaizen check --base=main --path=.
+
+# Generate function call graph
+kaizen callgraph --path=. --format=html
 
 # Compare with previous analysis
 kaizen diff --path=.
@@ -147,6 +165,9 @@ kaizen trend overall_score --days=30
 
 # Generate team ownership report
 kaizen report owners --format=html
+
+# Generate code ownership Sankey diagram
+kaizen sankey --input=kaizen-results.json
 
 # View analysis history
 kaizen history list
@@ -267,10 +288,28 @@ Score Trend (30 days):
 - Make data-driven architecture decisions
 
 ### 🚀 For CI/CD
-- Fail builds when metrics exceed thresholds
+- **`kaizen check`** - Fail builds when modified functions have high blast-radius (exit code 2)
 - Track quality progression across releases
 - Catch complexity regressions early
-- Export metrics to external dashboards
+- Export metrics as JSON for external dashboards
+
+---
+
+## 🔧 Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `kaizen analyze` | Analyze a codebase and generate metrics (JSON output) |
+| `kaizen visualize` | Generate interactive heatmaps (HTML, SVG, or terminal) |
+| `kaizen check` | CI quality gate — warn on high blast-radius function changes |
+| `kaizen callgraph` | Generate interactive function call graph (D3.js force-directed) |
+| `kaizen sankey` | Generate Sankey diagram of code ownership flow |
+| `kaizen diff` | Compare current analysis with previous snapshot |
+| `kaizen trend` | Visualize metric trends over time (ASCII, HTML, or JSON) |
+| `kaizen report owners` | Generate code ownership report |
+| `kaizen history list` | List all stored analysis snapshots |
+| `kaizen history show` | Display detailed snapshot information |
+| `kaizen history prune` | Remove old snapshots |
 
 ---
 
