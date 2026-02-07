@@ -1,0 +1,22 @@
+name: PR Analysis
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  kaizen:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./
+        with:
+          path: "."
+          base-branch: main
+          skip-churn: "true"

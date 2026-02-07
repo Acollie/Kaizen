@@ -1,0 +1,198 @@
+name: "Kaizen PR Analysis"
+description: "Analyze code quality changes in a pull request and post a comment with metrics, hotspot changes, and blast-radius warnings."
+author: "acollie"
+
+branding:
+  icon: "bar-chart-2"
+  color: "blue"
+
+inputs:
+  path:
+    description: "Directory to analyze"
+    required: false
+    default: "."
+  base-branch:
+    description: "Branch to compare against"
+    required: false
+    default: "main"
+  skip-churn:
+    description: "Skip git churn analysis for faster runs"
+    required: false
+    default: "true"
+  github-token:
+    description: "GitHub token for posting PR comments"
+    required: false
+    default: ${{ github.token }}
+  fail-on-regression:
+    description: "Fail the action if the score drops"
+    required: false
+    default: "false"
+  languages:
+    description: "Comma-separated list of languages to include (default: all)"
+    required: false
+    default: ""
+
+outputs:
+  score-delta:
+    description: "Numeric score change between base and head"
+    value: ${{ steps.generate-comment.outputs.score-delta }}
+  grade:
+    description: "Current grade letter"
+    value: ${{ steps.generate-comment.outputs.grade }}
+  has-concerns:
+    description: "Whether blast-radius concerns were found"
+    value: ${{ steps.check-blast-radius.outputs.has-concerns }}
+  comment-body:
+    description: "The generated markdown comment body"
+    value: ${{ steps.generate-comment.outputs.comment-body }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.23"
+
+    - name: Build Kaizen
+      shell: bash
+      run: |
+        cd ${{ github.action_path }}
+        go build -o $RUNNER_TEMP/kaizen ./cmd/kaizen
+
+    - name: Analyze base branch
+      shell: bash
+      run: |
+        git checkout ${{ inputs.base-branch }} -- . 2>/dev/null || git stash
+        LANG_FLAG=""
+        if [ -n "${{ inputs.languages }}" ]; then
+          LANG_FLAG="--languages=${{ inputs.languages }}"
+        fi
+        CHURN_FLAG=""
+        if [ "${{ inputs.skip-churn }}" = "true" ]; then
+          CHURN_FLAG="--skip-churn"
+        fi
+        $RUNNER_TEMP/kaizen analyze \
+          --path="${{ inputs.path }}" \
+          --output="$RUNNER_TEMP/kaizen-base.json" \
+          $CHURN_FLAG $LANG_FLAG || true
+        git checkout - 2>/dev/null || git stash pop 2>/dev/null || true
+
+    - name: Analyze head branch
+      shell: bash
+      run: |
+        LANG_FLAG=""
+        if [ -n "${{ inputs.languages }}" ]; then
+          LANG_FLAG="--languages=${{ inputs.languages }}"
+        fi
+        CHURN_FLAG=""
+        if [ "${{ inputs.skip-churn }}" = "true" ]; then
+          CHURN_FLAG="--skip-churn"
+        fi
+        $RUNNER_TEMP/kaizen analyze \
+          --path="${{ inputs.path }}" \
+          --output="$RUNNER_TEMP/kaizen-head.json" \
+          $CHURN_FLAG $LANG_FLAG
+
+    - name: Check blast radius
+      id: check-blast-radius
+      shell: bash
+      run: |
+        $RUNNER_TEMP/kaizen check \
+          --path="${{ inputs.path }}" \
+          --base="${{ inputs.base-branch }}" \
+          --format=json > "$RUNNER_TEMP/kaizen-check.json" 2>/dev/null || true
+
+        if [ -s "$RUNNER_TEMP/kaizen-check.json" ] && [ "$(cat "$RUNNER_TEMP/kaizen-check.json")" != "null" ] && [ "$(cat "$RUNNER_TEMP/kaizen-check.json")" != "[]" ]; then
+          echo "has-concerns=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-concerns=false" >> "$GITHUB_OUTPUT"
+          rm -f "$RUNNER_TEMP/kaizen-check.json"
+        fi
+
+    - name: Generate PR comment
+      id: generate-comment
+      shell: bash
+      run: |
+        CHECK_FLAG=""
+        if [ -f "$RUNNER_TEMP/kaizen-check.json" ]; then
+          CHECK_FLAG="--check-json=$RUNNER_TEMP/kaizen-check.json"
+        fi
+
+        $RUNNER_TEMP/kaizen pr-comment \
+          --base-analysis="$RUNNER_TEMP/kaizen-base.json" \
+          --head-analysis="$RUNNER_TEMP/kaizen-head.json" \
+          $CHECK_FLAG \
+          --output="$RUNNER_TEMP/kaizen-comment.md"
+
+        # Extract score delta and grade from head analysis for outputs
+        SCORE_DELTA=$(python3 -c "
+        import json
+        with open('$RUNNER_TEMP/kaizen-base.json') as b, open('$RUNNER_TEMP/kaizen-head.json') as h:
+            base = json.load(b)
+            head = json.load(h)
+            bs = base.get('score_report', {}).get('overall_score', 0)
+            hs = head.get('score_report', {}).get('overall_score', 0)
+            print(f'{hs - bs:.1f}')
+        " 2>/dev/null || echo "0.0")
+
+        GRADE=$(python3 -c "
+        import json
+        with open('$RUNNER_TEMP/kaizen-head.json') as f:
+            data = json.load(f)
+            print(data.get('score_report', {}).get('overall_grade', 'N/A'))
+        " 2>/dev/null || echo "N/A")
+
+        echo "score-delta=$SCORE_DELTA" >> "$GITHUB_OUTPUT"
+        echo "grade=$GRADE" >> "$GITHUB_OUTPUT"
+
+        # Store comment body (handle multiline)
+        COMMENT_BODY=$(cat "$RUNNER_TEMP/kaizen-comment.md")
+        {
+          echo "comment-body<<KAIZEN_EOF"
+          echo "$COMMENT_BODY"
+          echo "KAIZEN_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Post or update PR comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        if [ -z "$PR_NUMBER" ]; then
+          echo "Not a pull request event, skipping comment."
+          exit 0
+        fi
+
+        COMMENT_BODY=$(cat "$RUNNER_TEMP/kaizen-comment.md")
+        MARKER="<!-- kaizen-pr-analysis -->"
+
+        # Find existing comment by marker
+        EXISTING_COMMENT_ID=$(gh api \
+          "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+          --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" \
+          2>/dev/null | head -1)
+
+        if [ -n "$EXISTING_COMMENT_ID" ]; then
+          gh api \
+            "repos/${{ github.repository }}/issues/comments/${EXISTING_COMMENT_ID}" \
+            --method PATCH \
+            --field body="$COMMENT_BODY"
+          echo "Updated existing comment #${EXISTING_COMMENT_ID}"
+        else
+          gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
+          echo "Posted new comment on PR #${PR_NUMBER}"
+        fi
+
+    - name: Check for regression
+      if: inputs.fail-on-regression == 'true'
+      shell: bash
+      run: |
+        SCORE_DELTA="${{ steps.generate-comment.outputs.score-delta }}"
+        # Use python for float comparison since bash can't handle floats
+        IS_REGRESSION=$(python3 -c "print('true' if float('$SCORE_DELTA') < 0 else 'false')" 2>/dev/null || echo "false")
+        if [ "$IS_REGRESSION" = "true" ]; then
+          echo "::error::Code quality regression detected (score delta: $SCORE_DELTA)"
+          exit 1
+        fi

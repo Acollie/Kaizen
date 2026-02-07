@@ -212,6 +212,7 @@ func init() {
 	rootCmd.AddCommand(reportCmd)
 	rootCmd.AddCommand(diffCmd)
 	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(prCommentCmd)
 
 	// Report subcommands
 	reportOwnersCmd := &cobra.Command{
