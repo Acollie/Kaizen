@@ -128,11 +128,11 @@ func writeHeader(builder *strings.Builder, headResult *models.AnalysisResult, di
 		score = headResult.ScoreReport.OverallScore
 	}
 
-	builder.WriteString(fmt.Sprintf("## Kaizen Code Analysis \u2014 Grade %s (%.0f/100)\n\n", grade, score))
+	fmt.Fprintf(builder, "## Kaizen Code Analysis \u2014 Grade %s (%.0f/100)\n\n", grade, score)
 
 	delta := diff.GlobalMetrics.ScoreDelta
 	arrow := deltaArrow(delta)
-	builder.WriteString(fmt.Sprintf("Score: **%+.1f** from previous %s\n\n", delta, arrow))
+	fmt.Fprintf(builder, "Score: **%+.1f** from previous %s\n\n", delta, arrow)
 }
 
 func writeMetricsTable(builder *strings.Builder, headResult *models.AnalysisResult, diff *AnalysisDiff) {
@@ -170,12 +170,12 @@ func writeMetricsTable(builder *strings.Builder, headResult *models.AnalysisResu
 
 func writeMetricRow(builder *strings.Builder, name, previous, current string, delta float64, invertArrow bool) {
 	arrow := deltaArrowFloat(delta, invertArrow)
-	builder.WriteString(fmt.Sprintf("| %s | %s | %s | %+.1f %s |\n", name, previous, current, delta, arrow))
+	fmt.Fprintf(builder, "| %s | %s | %s | %+.1f %s |\n", name, previous, current, delta, arrow)
 }
 
 func writeMetricRowInt(builder *strings.Builder, name string, previous, current, delta int, invertArrow bool) {
 	arrow := deltaArrowInt(delta, invertArrow)
-	builder.WriteString(fmt.Sprintf("| %s | %d | %d | %+d %s |\n", name, previous, current, delta, arrow))
+	fmt.Fprintf(builder, "| %s | %d | %d | %+d %s |\n", name, previous, current, delta, arrow)
 }
 
 func writeHotspotChanges(builder *strings.Builder, diff *AnalysisDiff) {
@@ -192,18 +192,18 @@ func writeHotspotChanges(builder *strings.Builder, diff *AnalysisDiff) {
 	builder.WriteString("|--------|----------|\n")
 
 	for _, spot := range diff.HotspotChanges.New {
-		builder.WriteString(fmt.Sprintf("| :x: New | `%s` |\n", spot))
+		fmt.Fprintf(builder, "| :x: New | `%s` |\n", spot)
 	}
 	for _, spot := range diff.HotspotChanges.Removed {
-		builder.WriteString(fmt.Sprintf("| :white_check_mark: Fixed | `%s` |\n", spot))
+		fmt.Fprintf(builder, "| :white_check_mark: Fixed | `%s` |\n", spot)
 	}
 	for idx, spot := range diff.HotspotChanges.Persistent {
 		if idx >= 10 {
 			remaining := len(diff.HotspotChanges.Persistent) - 10
-			builder.WriteString(fmt.Sprintf("| :warning: Persistent | *...and %d more* |\n", remaining))
+			fmt.Fprintf(builder, "| :warning: Persistent | *...and %d more* |\n", remaining)
 			break
 		}
-		builder.WriteString(fmt.Sprintf("| :warning: Persistent | `%s` |\n", spot))
+		fmt.Fprintf(builder, "| :warning: Persistent | `%s` |\n", spot)
 	}
 
 	builder.WriteString("\n")
@@ -221,8 +221,8 @@ func writeBlastRadiusWarnings(builder *strings.Builder, concerns []models.Concer
 	for _, concern := range concerns {
 		for _, item := range concern.AffectedItems {
 			fanIn := int(item.Metrics["fan_in"])
-			builder.WriteString(fmt.Sprintf("| `%s` | `%s` | %d | %s |\n",
-				item.FunctionName, item.FilePath, fanIn, concern.Severity))
+			fmt.Fprintf(builder, "| `%s` | `%s` | %d | %s |\n",
+				item.FunctionName, item.FilePath, fanIn, concern.Severity)
 		}
 	}
 
