@@ -11,70 +11,75 @@ permissions:
 jobs:
   build:
     name: Build Release Binaries
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - os: linux
-            arch: amd64
-            target: x86_64-unknown-linux-gnu
-          - os: linux
-            arch: arm64
-            target: aarch64-unknown-linux-gnu
-          - os: darwin
-            arch: amd64
-            target: x86_64-apple-darwin
-          - os: darwin
-            arch: arm64
-            target: aarch64-apple-darwin
-          - os: windows
-            arch: amd64
-            target: x86_64-pc-windows-gnu
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            name: linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            name: linux-arm64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            name: darwin-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            name: darwin-arm64
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23'
+          cache: true
+
+      - name: Install ARM64 cross-compiler (Linux only)
+        if: matrix.os == 'ubuntu-latest' && matrix.goarch == 'arm64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build binary
         env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 1
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.goarch == 'arm64' && matrix.os == 'ubuntu-latest' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
         run: |
           VERSION=${{ github.ref_name }}
-          OUTPUT_NAME=kaizen-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            OUTPUT_NAME="${OUTPUT_NAME}.exe"
-          fi
-          go build -ldflags="-X github.com/alexcollie/kaizen/internal.Version=${VERSION}" \
+          OUTPUT_NAME=kaizen-${VERSION}-${{ matrix.name }}
+          go build -ldflags="-s -w -X github.com/alexcollie/kaizen/internal.Version=${VERSION}" \
             -o "${OUTPUT_NAME}" ./cmd/kaizen
 
-      - name: Calculate checksums
-        run: |
-          VERSION=${{ github.ref_name }}
-          OUTPUT_NAME=kaizen-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            OUTPUT_NAME="${OUTPUT_NAME}.exe"
-          fi
-          sha256sum "${OUTPUT_NAME}" > "${OUTPUT_NAME}.sha256"
+          # Create tarball
+          tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}" README.md LICENSE CHANGELOG.md
+
+          # Generate checksum
+          sha256sum "${OUTPUT_NAME}.tar.gz" > "${OUTPUT_NAME}.tar.gz.sha256"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.os }}-${{ matrix.arch }}
+          name: kaizen-${{ matrix.name }}
           path: |
-            kaizen-*
+            kaizen-*.tar.gz
             kaizen-*.sha256
 
-  create-release:
+  release:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -89,19 +94,25 @@ jobs:
           find artifacts -type f -exec cp {} release-artifacts/ \;
           ls -la release-artifacts/
 
-      - name: Generate release notes from CHANGELOG
+      - name: Generate combined checksums
+        run: |
+          cd release-artifacts
+          cat *.sha256 > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Extract release notes from CHANGELOG
         id: release-notes
         run: |
           VERSION=${{ github.ref_name }}
-          # Extract release notes from CHANGELOG.md
-          # Find the section for this version and extract until the next version
           sed -n "/^## ${VERSION}/,/^## /p" CHANGELOG.md | head -n -1 > release-notes.md
 
-          # If no CHANGELOG entry, use commit history
           if [ ! -s release-notes.md ]; then
-            echo "## Release ${VERSION}" > release-notes.md
+            echo "## Kaizen ${VERSION}" > release-notes.md
             echo "" >> release-notes.md
-            git log $(git describe --tags --abbrev=0 $(git rev-list --tags --skip=1 --max-count=1))..HEAD --oneline --no-decorate >> release-notes.md || \
+            echo "🏔️ Code quality analysis tool" >> release-notes.md
+            echo "" >> release-notes.md
+            echo "### Changes" >> release-notes.md
+            git log $(git describe --tags --abbrev=0 $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")..HEAD --oneline --no-decorate >> release-notes.md 2>/dev/null || \
             git log --oneline --no-decorate -10 >> release-notes.md
           fi
 
@@ -112,27 +123,5 @@ jobs:
           body_path: release-notes.md
           draft: false
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
-
-  publish-checksums:
-    name: Publish Checksums
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Combine checksums
-        run: |
-          mkdir -p checksums
-          find artifacts -name "*.sha256" -exec cat {} \; > checksums/SHA256SUMS
-          cat checksums/SHA256SUMS
-
-      - name: Upload checksums to release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: checksums/SHA256SUMS
-          append_body: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
