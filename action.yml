@@ -31,6 +31,10 @@ inputs:
     description: "Comma-separated list of languages to include (default: all)"
     required: false
     default: ""
+  include-callgraph:
+    description: "Include call graph visualization of changed functions (Go only)"
+    required: false
+    default: "false"
 
 outputs:
   score-delta:
@@ -110,6 +114,16 @@ runs:
           rm -f "$RUNNER_TEMP/kaizen-check.json"
         fi
 
+    - name: Generate call graph (optional)
+      if: inputs.include-callgraph == 'true'
+      shell: bash
+      run: |
+        $RUNNER_TEMP/kaizen callgraph \
+          --path="${{ inputs.path }}" \
+          --format=svg \
+          --output="$RUNNER_TEMP/kaizen-callgraph.svg" \
+          --min-calls=1 || true
+
     - name: Generate PR comment
       id: generate-comment
       shell: bash
@@ -119,10 +133,16 @@ runs:
           CHECK_FLAG="--check-json=$RUNNER_TEMP/kaizen-check.json"
         fi
 
+        CALLGRAPH_FLAG=""
+        if [ -f "$RUNNER_TEMP/kaizen-callgraph.svg" ]; then
+          CALLGRAPH_FLAG="--callgraph-svg=$RUNNER_TEMP/kaizen-callgraph.svg"
+        fi
+
         $RUNNER_TEMP/kaizen pr-comment \
           --base-analysis="$RUNNER_TEMP/kaizen-base.json" \
           --head-analysis="$RUNNER_TEMP/kaizen-head.json" \
           $CHECK_FLAG \
+          $CALLGRAPH_FLAG \
           --output="$RUNNER_TEMP/kaizen-comment.md"
 
         # Extract score delta and grade from head analysis for outputs
