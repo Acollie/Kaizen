@@ -327,10 +327,7 @@ func TestExtractGoReceiverType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// This test is simple; a full implementation would parse AST nodes
 			// For now, test that extractGoReceiverType works on basic types
-			result := tt.receiver
-			if strings.HasPrefix(result, "*") {
-				result = result[1:]
-			}
+			result := strings.TrimPrefix(tt.receiver, "*")
 			if result != tt.expected {
 				t.Fatalf("expected %s, got %s", tt.expected, result)
 			}

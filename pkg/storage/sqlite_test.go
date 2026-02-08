@@ -15,14 +15,14 @@ import (
 func TestSQLiteBackendSaveAndRetrieve(testingT *testing.T) {
 	tempDir, err := os.MkdirTemp("", "kaizen-test-")
 	require.NoError(testingT, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	dbPath := tempDir + "/test.db"
 
 	// Create backend
 	backend, err := NewSQLiteBackend(dbPath)
 	require.NoError(testingT, err)
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Create test result
 	result := &models.AnalysisResult{
@@ -102,13 +102,13 @@ func TestSQLiteBackendSaveAndRetrieve(testingT *testing.T) {
 func TestSQLiteBackendMultipleSnapshots(testingT *testing.T) {
 	tempDir, err := os.MkdirTemp("", "kaizen-test-")
 	require.NoError(testingT, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	dbPath := tempDir + "/test-multi.db"
 
 	backend, err := NewSQLiteBackend(dbPath)
 	require.NoError(testingT, err)
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Save first snapshot
 	result1 := createTestResult("first", 1, 90.0)

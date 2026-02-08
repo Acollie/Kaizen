@@ -39,7 +39,6 @@ var (
 	topLimit     int
 	outputFormat string
 	htmlOutput   string
-	svgOutput    string
 	svgWidth     int
 	svgHeight    int
 	openBrowser  bool
@@ -55,7 +54,6 @@ var (
 	trendOpen    bool
 
 	// Report flags
-	reportSnapshotID int64
 	reportFormat     string
 	reportOutput     string
 	reportOpen       bool
@@ -414,7 +412,7 @@ func runAnalyze(cmd *cobra.Command, args []string) {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not create storage backend: %v\n", err)
 		} else {
-			defer storageBackend.Close()
+			defer func() { _ = storageBackend.Close() }()
 
 			// Save to database
 			metadata := storage.SnapshotMetadata{
@@ -882,7 +880,7 @@ func runReportOwners(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Get snapshot
 	var snapshot *models.AnalysisResult
@@ -1004,7 +1002,7 @@ func runHistoryList(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Get snapshots
 	snapshots, err := backend.ListSnapshots(historyLimit)
@@ -1079,7 +1077,7 @@ func runHistoryShow(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Get snapshot
 	summary, err := backend.GetByIDSummary(snapshotID)
@@ -1131,7 +1129,7 @@ func runHistoryPrune(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Prune old snapshots
 	deleted, err := backend.Prune(historyLimit)
@@ -1168,7 +1166,7 @@ func runTrend(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Calculate time range
 	endTime := time.Now()
@@ -1545,7 +1543,7 @@ func runDiff(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Get the last snapshot for comparison
 	lastSnapshot, err := backend.GetLatest()

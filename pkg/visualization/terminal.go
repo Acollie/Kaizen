@@ -5,6 +5,9 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"github.com/alexcollie/kaizen/pkg/models"
 	"github.com/fatih/color"
 )
@@ -79,11 +82,11 @@ func (visualizer *TerminalVisualizer) renderFolderRow(builder *strings.Builder, 
 	scoreStr := fmt.Sprintf("%.1f", score)
 
 	// Print colored line
-	colorFunc.Fprintf(builder, "%s %s %s", paddedPath, bar, scoreStr)
+	_, _ = colorFunc.Fprintf(builder, "%s %s %s", paddedPath, bar, scoreStr)
 
 	// Add hotspot indicator
 	if folder.HotspotCount > 0 {
-		builder.WriteString(fmt.Sprintf(" 🔥x%d", folder.HotspotCount))
+		fmt.Fprintf(builder, " 🔥x%d", folder.HotspotCount)
 	}
 
 	builder.WriteString("\n")
@@ -124,9 +127,9 @@ func (visualizer *TerminalVisualizer) renderLegend() string {
 	var builder strings.Builder
 
 	builder.WriteString("Legend:\n")
-	visualizer.green.Fprint(&builder, "  █ Low (0-33)      - Good\n")
-	visualizer.yellow.Fprint(&builder, "  █ Medium (33-67)  - Moderate\n")
-	visualizer.red.Fprint(&builder, "  █ High (67-100)   - Needs attention\n")
+	_, _ = visualizer.green.Fprint(&builder, "  █ Low (0-33)      - Good\n")
+	_, _ = visualizer.yellow.Fprint(&builder, "  █ Medium (33-67)  - Moderate\n")
+	_, _ = visualizer.red.Fprint(&builder, "  █ High (67-100)   - Needs attention\n")
 	builder.WriteString("  🔥 = Hotspot (high churn + complexity)\n")
 
 	return builder.String()
@@ -190,14 +193,14 @@ func (visualizer *TerminalVisualizer) RenderTopHotspots(result *models.AnalysisR
 
 // renderHotspotRow renders a single hotspot row
 func (visualizer *TerminalVisualizer) renderHotspotRow(builder *strings.Builder, file string, function models.FunctionAnalysis, rank int) {
-	visualizer.red.Fprintf(builder, "%d. %s:%d\n", rank, file, function.StartLine)
-	builder.WriteString(fmt.Sprintf("   Function: %s\n", function.Name))
-	builder.WriteString(fmt.Sprintf("   Complexity: %d | Length: %d lines\n",
-		function.CyclomaticComplexity, function.Length))
+	_, _ = visualizer.red.Fprintf(builder, "%d. %s:%d\n", rank, file, function.StartLine)
+	fmt.Fprintf(builder, "   Function: %s\n", function.Name)
+	fmt.Fprintf(builder, "   Complexity: %d | Length: %d lines\n",
+		function.CyclomaticComplexity, function.Length)
 
 	if function.Churn != nil {
-		builder.WriteString(fmt.Sprintf("   Churn: %d commits, %d changes\n",
-			function.Churn.TotalCommits, function.Churn.TotalChanges))
+		fmt.Fprintf(builder, "   Churn: %d commits, %d changes\n",
+			function.Churn.TotalCommits, function.Churn.TotalChanges)
 	}
 
 	builder.WriteString("\n")
@@ -220,7 +223,7 @@ func metricTitle(metric string) string {
 	case "maintainability":
 		return "Maintainability Index"
 	default:
-		return strings.Title(metric)
+		return cases.Title(language.English).String(metric)
 	}
 }
 

@@ -105,12 +105,13 @@ func (kotlinFunc *KotlinFunction) MaxNestingDepth() int {
 	currentDepth := 0
 
 	for _, char := range kotlinFunc.functionBody {
-		if char == '{' {
+		switch char {
+		case '{':
 			currentDepth++
 			if currentDepth > maxDepth {
 				maxDepth = currentDepth
 			}
-		} else if char == '}' {
+		case '}':
 			currentDepth--
 		}
 	}

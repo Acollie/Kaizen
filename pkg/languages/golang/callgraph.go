@@ -240,20 +240,19 @@ func calculateFunctionComplexity(funcDecl *ast.FuncDecl) int {
 	complexity := 1 // Base complexity
 
 	ast.Inspect(funcDecl.Body, func(node ast.Node) bool {
-		switch node.(type) {
+		switch typedNode := node.(type) {
 		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
 			complexity++
 		case *ast.CaseClause:
-			if len(node.(*ast.CaseClause).List) > 0 {
+			if len(typedNode.List) > 0 {
 				complexity++
 			}
 		case *ast.CommClause:
-			if node.(*ast.CommClause).Comm != nil {
+			if typedNode.Comm != nil {
 				complexity++
 			}
 		case *ast.BinaryExpr:
-			binaryExpr := node.(*ast.BinaryExpr)
-			if binaryExpr.Op == token.LAND || binaryExpr.Op == token.LOR {
+			if typedNode.Op == token.LAND || typedNode.Op == token.LOR {
 				complexity++
 			}
 		}

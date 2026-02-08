@@ -13,7 +13,7 @@ func ParseCodeOwners(path string) (*CodeOwners, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not open CODEOWNERS file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	codeowners := &CodeOwners{
 		Path:  path,

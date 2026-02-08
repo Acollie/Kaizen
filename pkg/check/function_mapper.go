@@ -8,6 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/text/cases"
+	textlang "golang.org/x/text/language"
 )
 
 // LineRange represents a range of line numbers
@@ -203,7 +206,7 @@ func extractHeuristicFunctions(filePath string, ranges []LineRange, language str
 			Name:      funcName,
 			StartLine: lineNum,
 			EndLine:   endLine,
-			Language:  strings.Title(language), // Capitalize first letter
+			Language:  cases.Title(textlang.English).String(language), // Capitalize first letter
 		})
 	}
 

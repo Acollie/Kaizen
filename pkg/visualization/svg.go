@@ -313,7 +313,7 @@ func interpolateColor(color1, color2 string, ratio float64) string {
 func hexToRGB(hex string) (int, int, int) {
 	hex = strings.TrimPrefix(hex, "#")
 	var redValue, greenValue, blueValue int
-	fmt.Sscanf(hex, "%02x%02x%02x", &redValue, &greenValue, &blueValue)
+	_, _ = fmt.Sscanf(hex, "%02x%02x%02x", &redValue, &greenValue, &blueValue)
 	return redValue, greenValue, blueValue
 }
 
