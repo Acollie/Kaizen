@@ -392,3 +392,69 @@ func (config *Config) GetExcludePatterns() []string {
 	patterns = append(patterns, config.Analysis.ExcludePattern...)
 	return patterns
 }
+
+// ValidateConfiguration validates the configuration values and returns errors if any are invalid
+func (config *Config) ValidateConfiguration() []string {
+	var errors []string
+
+	// Validate threshold values
+	if config.Thresholds.CyclomaticComplexity < 1 || config.Thresholds.CyclomaticComplexity > 100 {
+		errors = append(errors, "cyclomatic complexity threshold must be between 1 and 100")
+	}
+
+	if config.Thresholds.CognitiveComplexity < 1 || config.Thresholds.CognitiveComplexity > 100 {
+		errors = append(errors, "cognitive complexity threshold must be between 1 and 100")
+	}
+
+	if config.Thresholds.FunctionLength < 10 || config.Thresholds.FunctionLength > 1000 {
+		errors = append(errors, "function length threshold must be between 10 and 1000")
+	}
+
+	if config.Thresholds.NestingDepth < 1 || config.Thresholds.NestingDepth > 20 {
+		errors = append(errors, "nesting depth threshold must be between 1 and 20")
+	}
+
+	if config.Thresholds.ParameterCount < 1 || config.Thresholds.ParameterCount > 20 {
+		errors = append(errors, "parameter count threshold must be between 1 and 20")
+	}
+
+	if config.Thresholds.MaintainabilityIndex < 0 || config.Thresholds.MaintainabilityIndex > 100 {
+		errors = append(errors, "maintainability index threshold must be between 0 and 100")
+	}
+
+	// Validate analysis settings
+	if config.Analysis.MaxWorkers < 0 {
+		errors = append(errors, "max workers must be non-negative")
+	} else if config.Analysis.MaxWorkers == 0 {
+		// Default to number of CPUs if not set
+		config.Analysis.MaxWorkers = 4
+	}
+
+	// Validate language settings
+	validLanguages := map[string]bool{
+		"go":     true,
+		"python": true,
+		"kotlin": true,
+		"swift":  true,
+		"java":   true,
+	}
+
+	for _, lang := range config.Analysis.Languages {
+		normalizedLang := strings.ToLower(strings.TrimSpace(lang))
+		if !validLanguages[normalizedLang] {
+			errors = append(errors, "unsupported language: "+lang)
+		}
+	}
+
+	// Validate storage settings
+	if config.Storage.Backend != "" && config.Storage.Backend != "sqlite" {
+		errors = append(errors, "unsupported storage backend: "+config.Storage.Backend)
+	}
+
+	return errors
+}
+
+// IsValid checks if the configuration is valid
+func (config *Config) IsValid() bool {
+	return len(config.ValidateConfiguration()) == 0
+}
