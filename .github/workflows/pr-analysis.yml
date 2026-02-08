@@ -20,3 +20,4 @@ jobs:
           path: "."
           base-branch: main
           skip-churn: "true"
+          include-callgraph: "true"
