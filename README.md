@@ -9,6 +9,8 @@
 
 **Continuous improvement starts with visibility.** Kaizen analyzes code quality, complexity, and churn to identify technical debt and hotspots in your codebase. It generates health grades, actionable concerns, and interactive visualizations.
 
+![Kaizen Demo](demo.gif)
+
 ---
 
 ## ✨ Features
