@@ -4,30 +4,16 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/alexcollie/kaizen/internal/config"
 	"github.com/alexcollie/kaizen/pkg/models"
 )
 
-// Concern detection thresholds
 const (
-	ThresholdHighChurn           = 10
-	ThresholdVeryHighChurn       = 20
-	ThresholdLongFunction        = 50
-	ThresholdVeryLongFunction    = 100
-	ThresholdHighComplexity      = 10
-	ThresholdVeryHighComplexity  = 20
-	ThresholdManyParameters      = 7
-	ThresholdTooManyParameters   = 10
-	ThresholdDeepNesting         = 5
-	ThresholdVeryDeepNesting     = 7
-	ThresholdLowMaintainability  = 40
-	ThresholdCriticalMaintain    = 20
-	ThresholdGodFunctionParams   = 6
-	ThresholdGodFunctionFanIn    = 10
-	MaxConcernItems              = 5 // Max affected items to show per concern
+	MaxConcernItems = 5 // Max affected items to show per concern
 )
 
 // DetectConcerns analyzes the result and returns a list of concerns
-func DetectConcerns(result *models.AnalysisResult, hasChurnData bool) []models.Concern {
+func DetectConcerns(result *models.AnalysisResult, hasChurnData bool, thresholds config.ThresholdConfig) []models.Concern {
 	var concerns []models.Concern
 
 	// Collect all functions for analysis
@@ -43,14 +29,14 @@ func DetectConcerns(result *models.AnalysisResult, hasChurnData bool) []models.C
 
 	// Detect different types of concerns
 	if hasChurnData {
-		concerns = append(concerns, detectChurnComplexityHotspots(allFunctions)...)
-		concerns = append(concerns, detectHighChurnLongFunctions(allFunctions)...)
+		concerns = append(concerns, detectChurnComplexityHotspots(allFunctions, thresholds)...)
+		concerns = append(concerns, detectHighChurnLongFunctions(allFunctions, thresholds)...)
 	}
 
-	concerns = append(concerns, detectLowMaintainability(allFunctions)...)
-	concerns = append(concerns, detectDeepNesting(allFunctions)...)
-	concerns = append(concerns, detectTooManyParameters(allFunctions)...)
-	concerns = append(concerns, detectGodFunctions(allFunctions)...)
+	concerns = append(concerns, detectLowMaintainability(allFunctions, thresholds)...)
+	concerns = append(concerns, detectDeepNesting(allFunctions, thresholds)...)
+	concerns = append(concerns, detectTooManyParameters(allFunctions, thresholds)...)
+	concerns = append(concerns, detectGodFunctions(allFunctions, thresholds)...)
 
 	// Sort concerns by severity (critical first, then warning, then info)
 	sortConcernsBySeverity(concerns)
@@ -63,7 +49,7 @@ type functionWithFile struct {
 	function models.FunctionAnalysis
 }
 
-func detectChurnComplexityHotspots(functions []functionWithFile) []models.Concern {
+func detectChurnComplexityHotspots(functions []functionWithFile, thresholds config.ThresholdConfig) []models.Concern {
 	var affectedItems []models.AffectedItem
 
 	for _, funcFile := range functions {
@@ -75,7 +61,7 @@ func detectChurnComplexityHotspots(functions []functionWithFile) []models.Concer
 		churnCount := function.Churn.TotalCommits
 		complexity := function.CyclomaticComplexity
 
-		if complexity > ThresholdHighComplexity && churnCount > ThresholdHighChurn {
+		if complexity > thresholds.Hotspot.MinComplexity && churnCount > thresholds.Hotspot.MinChurn {
 			affectedItems = append(affectedItems, models.AffectedItem{
 				FilePath:     funcFile.filePath,
 				FunctionName: function.Name,
@@ -106,7 +92,7 @@ func detectChurnComplexityHotspots(functions []functionWithFile) []models.Concer
 	}}
 }
 
-func detectHighChurnLongFunctions(functions []functionWithFile) []models.Concern {
+func detectHighChurnLongFunctions(functions []functionWithFile, thresholds config.ThresholdConfig) []models.Concern {
 	var warningItems []models.AffectedItem
 	var criticalItems []models.AffectedItem
 
@@ -119,7 +105,7 @@ func detectHighChurnLongFunctions(functions []functionWithFile) []models.Concern
 		churnCount := function.Churn.TotalCommits
 		length := function.Length
 
-		if length > ThresholdLongFunction && churnCount > ThresholdHighChurn {
+		if length > thresholds.FunctionLength.Warning && churnCount > thresholds.Churn.Warning {
 			item := models.AffectedItem{
 				FilePath:     funcFile.filePath,
 				FunctionName: function.Name,
@@ -130,7 +116,7 @@ func detectHighChurnLongFunctions(functions []functionWithFile) []models.Concern
 				},
 			}
 
-			if length > ThresholdVeryLongFunction && churnCount > ThresholdVeryHighChurn {
+			if length > thresholds.FunctionLength.Critical && churnCount > thresholds.Churn.Critical {
 				criticalItems = append(criticalItems, item)
 			} else {
 				warningItems = append(warningItems, item)
@@ -169,29 +155,31 @@ func detectHighChurnLongFunctions(functions []functionWithFile) []models.Concern
 	return concerns
 }
 
-func detectLowMaintainability(functions []functionWithFile) []models.Concern {
+func detectLowMaintainability(functions []functionWithFile, thresholds config.ThresholdConfig) []models.Concern {
 	var warningItems []models.AffectedItem
 	var criticalItems []models.AffectedItem
+
+	miThresholds := thresholds.MaintainabilityIndex
 
 	for _, funcFile := range functions {
 		function := funcFile.function
 		maintainability := function.MaintainabilityIndex
 
-		if maintainability < ThresholdLowMaintainability {
+		if maintainability < float64(miThresholds.Warning) {
 			// Include all contributing factors so we can explain the score
 			item := models.AffectedItem{
 				FilePath:     funcFile.filePath,
 				FunctionName: function.Name,
 				Line:         function.StartLine,
 				Metrics: map[string]float64{
-					"maintainability_index":   maintainability,
-					"cyclomatic_complexity":   float64(function.CyclomaticComplexity),
-					"length":                  float64(function.Length),
-					"halstead_volume":         function.HalsteadVolume,
+					"maintainability_index": maintainability,
+					"cyclomatic_complexity": float64(function.CyclomaticComplexity),
+					"length":               float64(function.Length),
+					"halstead_volume":       function.HalsteadVolume,
 				},
 			}
 
-			if maintainability < ThresholdCriticalMaintain {
+			if maintainability < float64(miThresholds.Critical) {
 				criticalItems = append(criticalItems, item)
 			} else {
 				warningItems = append(warningItems, item)
@@ -209,7 +197,7 @@ func detectLowMaintainability(functions []functionWithFile) []models.Concern {
 			Type:          "low_maintainability",
 			Severity:      "critical",
 			Title:         "Critical Maintainability Issues",
-			Description:   buildMaintainabilityDescription(criticalItems, ThresholdCriticalMaintain),
+			Description:   buildMaintainabilityDescription(criticalItems, miThresholds.Critical),
 			AffectedItems: limitAffectedItems(criticalItems, MaxConcernItems),
 		})
 	}
@@ -222,7 +210,7 @@ func detectLowMaintainability(functions []functionWithFile) []models.Concern {
 			Type:          "low_maintainability",
 			Severity:      "warning",
 			Title:         "Low Maintainability",
-			Description:   buildMaintainabilityDescription(warningItems, ThresholdLowMaintainability),
+			Description:   buildMaintainabilityDescription(warningItems, miThresholds.Warning),
 			AffectedItems: limitAffectedItems(warningItems, MaxConcernItems),
 		})
 	}
@@ -293,15 +281,17 @@ func buildMaintainabilityDescription(items []models.AffectedItem, threshold int)
 	return fmt.Sprintf("Low scores driven by %s. Break into smaller, focused functions to improve readability.", factorStr)
 }
 
-func detectDeepNesting(functions []functionWithFile) []models.Concern {
+func detectDeepNesting(functions []functionWithFile, thresholds config.ThresholdConfig) []models.Concern {
 	var infoItems []models.AffectedItem
 	var warningItems []models.AffectedItem
+
+	nestingThresholds := thresholds.NestingDepth
 
 	for _, funcFile := range functions {
 		function := funcFile.function
 		nesting := function.NestingDepth
 
-		if nesting > ThresholdDeepNesting {
+		if nesting > nestingThresholds.Warning {
 			item := models.AffectedItem{
 				FilePath:     funcFile.filePath,
 				FunctionName: function.Name,
@@ -311,7 +301,7 @@ func detectDeepNesting(functions []functionWithFile) []models.Concern {
 				},
 			}
 
-			if nesting > ThresholdVeryDeepNesting {
+			if nesting > nestingThresholds.Critical {
 				warningItems = append(warningItems, item)
 			} else {
 				infoItems = append(infoItems, item)
@@ -350,15 +340,17 @@ func detectDeepNesting(functions []functionWithFile) []models.Concern {
 	return concerns
 }
 
-func detectTooManyParameters(functions []functionWithFile) []models.Concern {
+func detectTooManyParameters(functions []functionWithFile, thresholds config.ThresholdConfig) []models.Concern {
 	var infoItems []models.AffectedItem
 	var warningItems []models.AffectedItem
+
+	paramThresholds := thresholds.ParameterCount
 
 	for _, funcFile := range functions {
 		function := funcFile.function
 		params := function.ParameterCount
 
-		if params > ThresholdManyParameters {
+		if params > paramThresholds.Warning {
 			item := models.AffectedItem{
 				FilePath:     funcFile.filePath,
 				FunctionName: function.Name,
@@ -368,7 +360,7 @@ func detectTooManyParameters(functions []functionWithFile) []models.Concern {
 				},
 			}
 
-			if params > ThresholdTooManyParameters {
+			if params > paramThresholds.Critical {
 				warningItems = append(warningItems, item)
 			} else {
 				infoItems = append(infoItems, item)
@@ -407,15 +399,17 @@ func detectTooManyParameters(functions []functionWithFile) []models.Concern {
 	return concerns
 }
 
-func detectGodFunctions(functions []functionWithFile) []models.Concern {
+func detectGodFunctions(functions []functionWithFile, thresholds config.ThresholdConfig) []models.Concern {
 	var affectedItems []models.AffectedItem
+
+	godThresholds := thresholds.GodFunction
 
 	for _, funcFile := range functions {
 		function := funcFile.function
 		params := function.ParameterCount
 		fanIn := function.FanIn
 
-		if params > ThresholdGodFunctionParams && fanIn > ThresholdGodFunctionFanIn {
+		if params > godThresholds.MinParameters && fanIn > godThresholds.MinFanIn {
 			affectedItems = append(affectedItems, models.AffectedItem{
 				FilePath:     funcFile.filePath,
 				FunctionName: function.Name,

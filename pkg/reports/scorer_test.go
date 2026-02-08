@@ -3,6 +3,7 @@ package reports
 import (
 	"testing"
 
+	"github.com/alexcollie/kaizen/internal/config"
 	"github.com/alexcollie/kaizen/pkg/models"
 )
 
@@ -57,7 +58,7 @@ func TestGenerateScoreReportEmptyCodebase(t *testing.T) {
 		},
 	}
 
-	report := GenerateScoreReport(result, false)
+	report := GenerateScoreReport(result, false, config.DefaultConfig().Thresholds)
 
 	if report.OverallGrade != "A" {
 		t.Errorf("Empty codebase should get grade A, got %v", report.OverallGrade)
@@ -92,7 +93,7 @@ func TestGenerateScoreReportExcellentCode(t *testing.T) {
 		},
 	}
 
-	report := GenerateScoreReport(result, false)
+	report := GenerateScoreReport(result, false, config.DefaultConfig().Thresholds)
 
 	if report.OverallGrade != "A" {
 		t.Errorf("Excellent code should get grade A, got %v", report.OverallGrade)
@@ -122,7 +123,7 @@ func TestGenerateScoreReportPoorCode(t *testing.T) {
 		},
 	}
 
-	report := GenerateScoreReport(result, false)
+	report := GenerateScoreReport(result, false, config.DefaultConfig().Thresholds)
 
 	if report.OverallGrade == "A" {
 		t.Error("Poor code should not get grade A")
@@ -153,7 +154,7 @@ func TestGenerateScoreReportWithChurnData(t *testing.T) {
 		},
 	}
 
-	report := GenerateScoreReport(result, true)
+	report := GenerateScoreReport(result, true, config.DefaultConfig().Thresholds)
 
 	if !report.HasChurnData {
 		t.Error("Report should indicate churn data is present")
@@ -182,7 +183,7 @@ func TestGenerateScoreReportWithoutChurnData(t *testing.T) {
 		},
 	}
 
-	report := GenerateScoreReport(result, false)
+	report := GenerateScoreReport(result, false, config.DefaultConfig().Thresholds)
 
 	if report.HasChurnData {
 		t.Error("Report should indicate churn data is not present")
@@ -336,7 +337,7 @@ func TestCalculateCodeStructureScore(t *testing.T) {
 					{Functions: testCase.functions},
 				},
 			}
-			score := calculateCodeStructureScore(result)
+			score := calculateCodeStructureScore(result, config.DefaultConfig().Thresholds)
 			if score < testCase.minExpected {
 				t.Errorf("calculateCodeStructureScore = %v, expected >= %v", score, testCase.minExpected)
 			}

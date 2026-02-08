@@ -378,6 +378,7 @@ func runAnalyze(cmd *cobra.Command, args []string) {
 		ExcludePatterns:  allExcludePatterns,
 		IncludeChurn:     !shouldSkipChurn,
 		MaxWorkers:       cfg.Analysis.MaxWorkers,
+		Thresholds:       cfg.Thresholds,
 		ProgressCallback: func(file string, current int, total int) {
 			percent := 0
 			if total > 0 {
@@ -1646,11 +1647,17 @@ func runDiff(cmd *cobra.Command, args []string) {
 	// Parse since time
 	since := time.Now().AddDate(0, -3, 0) // Default 90 days
 
+	diffCfg, _ := config.LoadConfig(diffPath)
+	if diffCfg == nil {
+		diffCfg = config.DefaultConfig()
+	}
+
 	options := analyzer.AnalysisOptions{
-		RootPath:       diffPath,
-		Since:          since,
-		IncludeChurn:   !diffSkipChurn,
-		MaxWorkers:     4,
+		RootPath:     diffPath,
+		Since:        since,
+		IncludeChurn: !diffSkipChurn,
+		MaxWorkers:   4,
+		Thresholds:   diffCfg.Thresholds,
 	}
 
 	result, err := pipeline.Analyze(options)
