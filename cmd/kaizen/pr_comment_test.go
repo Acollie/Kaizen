@@ -18,10 +18,10 @@ func TestFormatDiffMarkdown_BasicOutput(t *testing.T) {
 	diff := CompareAnalyses(baseResult, headResult)
 	markdown := FormatDiffMarkdown(diff, headResult, nil)
 
-	assertContains(t, markdown, "## Kaizen Code Analysis")
+	assertContains(t, markdown, "🟡 Kaizen Code Analysis")
 	assertContains(t, markdown, "Grade B")
 	assertContains(t, markdown, "82/100")
-	assertContains(t, markdown, "### Metrics")
+	assertContains(t, markdown, "📊 Metrics")
 	assertContains(t, markdown, "Overall Score")
 	assertContains(t, markdown, "Avg Complexity")
 	assertContains(t, markdown, "Avg Maintainability")
@@ -47,10 +47,10 @@ func TestFormatDiffMarkdown_WithHotspotChanges(t *testing.T) {
 	diff := CompareAnalyses(baseResult, headResult)
 	markdown := FormatDiffMarkdown(diff, headResult, nil)
 
-	assertContains(t, markdown, "### Hotspot Changes")
-	assertContains(t, markdown, ":x: New")
+	assertContains(t, markdown, "🔥 Hotspot Changes")
+	assertContains(t, markdown, "🔴 New")
 	assertContains(t, markdown, "pkg/b.go:newHotspot")
-	assertContains(t, markdown, ":white_check_mark: Fixed")
+	assertContains(t, markdown, "✅ Fixed")
 	assertContains(t, markdown, "pkg/a.go:oldHotspot")
 }
 
@@ -76,11 +76,11 @@ func TestFormatDiffMarkdown_WithBlastRadiusConcerns(t *testing.T) {
 	diff := CompareAnalyses(baseResult, headResult)
 	markdown := FormatDiffMarkdown(diff, headResult, concerns)
 
-	assertContains(t, markdown, "### Blast-Radius Warnings")
+	assertContains(t, markdown, "💥 Blast-Radius Warnings")
 	assertContains(t, markdown, "CompareAnalyses")
 	assertContains(t, markdown, "cmd/kaizen/diff.go")
 	assertContains(t, markdown, "12")
-	assertContains(t, markdown, "warning")
+	assertContains(t, markdown, "🟠 warning")
 }
 
 func TestFormatDiffMarkdown_NoConcernsOmitsSection(t *testing.T) {
@@ -90,10 +90,10 @@ func TestFormatDiffMarkdown_NoConcernsOmitsSection(t *testing.T) {
 	diff := CompareAnalyses(baseResult, headResult)
 	markdown := FormatDiffMarkdown(diff, headResult, nil)
 
-	if strings.Contains(markdown, "### Blast-Radius Warnings") {
+	if strings.Contains(markdown, "💥 Blast-Radius Warnings") {
 		t.Error("should not contain blast-radius section when no concerns")
 	}
-	if strings.Contains(markdown, "### Hotspot Changes") {
+	if strings.Contains(markdown, "🔥 Hotspot Changes") {
 		t.Error("should not contain hotspot changes when no changes")
 	}
 }
@@ -184,20 +184,89 @@ func TestLoadConcernsFromFile(t *testing.T) {
 	}
 }
 
-func TestDeltaArrow(t *testing.T) {
+func TestGradeToEmoji(t *testing.T) {
+	tests := []struct {
+		grade    string
+		expected string
+	}{
+		{"A", "🟢"},
+		{"A+", "🟢"},
+		{"B", "🟡"},
+		{"B-", "🟡"},
+		{"C", "🟠"},
+		{"D", "🔴"},
+		{"F", "🔴"},
+		{"N/A", "⚪"},
+	}
+
+	for _, test := range tests {
+		result := gradeToEmoji(test.grade)
+		if result != test.expected {
+			t.Errorf("gradeToEmoji(%s) = %s, want %s", test.grade, result, test.expected)
+		}
+	}
+}
+
+func TestScoreDeltaIndicator(t *testing.T) {
 	tests := []struct {
 		delta    float64
 		expected string
 	}{
-		{1.5, "\u2b06\ufe0f"},
-		{-1.5, "\u2b07\ufe0f"},
-		{0.0, "\u27a1\ufe0f"},
+		{10.0, "🎉 +"},   // Large improvement
+		{2.0, "✅ +"},    // Improvement
+		{0.0, "➡️"},      // No change
+		{-2.0, "⚠️"},     // Small regression
+		{-10.0, "❌"},    // Large regression
 	}
 
 	for _, test := range tests {
-		result := deltaArrow(test.delta)
+		result := scoreDeltaIndicator(test.delta)
 		if result != test.expected {
-			t.Errorf("deltaArrow(%.1f) = %s, want %s", test.delta, result, test.expected)
+			t.Errorf("scoreDeltaIndicator(%.1f) = %s, want %s", test.delta, result, test.expected)
+		}
+	}
+}
+
+func TestMetricDeltaIndicator(t *testing.T) {
+	tests := []struct {
+		delta   float64
+		invert  bool
+		expected string
+	}{
+		{0.0, false, "➖"},      // No change
+		{2.0, false, "✅"},      // Good large change
+		{0.5, false, "🟢"},     // Good small change
+		{-2.0, false, "❌"},    // Bad large change
+		{-0.5, false, "🔴"},    // Bad small change
+		{2.0, true, "❌"},      // Inverted: increase is bad
+		{-2.0, true, "✅"},     // Inverted: decrease is good
+	}
+
+	for _, test := range tests {
+		result := metricDeltaIndicator(test.delta, test.invert)
+		if result != test.expected {
+			t.Errorf("metricDeltaIndicator(%.1f, %v) = %s, want %s",
+				test.delta, test.invert, result, test.expected)
+		}
+	}
+}
+
+func TestSeverityToEmoji(t *testing.T) {
+	tests := []struct {
+		severity string
+		expected string
+	}{
+		{"critical", "🔴"},
+		{"Critical", "🔴"},
+		{"warning", "🟠"},
+		{"info", "🔵"},
+		{"unknown", "⚪"},
+	}
+
+	for _, test := range tests {
+		result := severityToEmoji(test.severity)
+		if result != test.expected {
+			t.Errorf("severityToEmoji(%s) = %s, want %s", test.severity, result, test.expected)
 		}
 	}
 }
