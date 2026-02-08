@@ -397,37 +397,36 @@ func (config *Config) GetExcludePatterns() []string {
 func (config *Config) ValidateConfiguration() []string {
 	var errors []string
 
-	// Validate threshold values
-	if config.Thresholds.CyclomaticComplexity < 1 || config.Thresholds.CyclomaticComplexity > 100 {
-		errors = append(errors, "cyclomatic complexity threshold must be between 1 and 100")
+	// Validate severity thresholds (info < warning < critical)
+	errors = append(errors, validateSeverityThresholds("complexity", config.Thresholds.Complexity, 1, 100)...)
+	errors = append(errors, validateSeverityThresholds("cognitive_complexity", config.Thresholds.CognitiveComplexity, 1, 100)...)
+	errors = append(errors, validateSeverityThresholds("function_length", config.Thresholds.FunctionLength, 10, 1000)...)
+	errors = append(errors, validateSeverityThresholds("nesting_depth", config.Thresholds.NestingDepth, 1, 20)...)
+	errors = append(errors, validateSeverityThresholds("parameter_count", config.Thresholds.ParameterCount, 1, 20)...)
+	errors = append(errors, validateSeverityThresholds("churn", config.Thresholds.Churn, 1, 1000)...)
+
+	// Validate maintainability thresholds (inverted: critical < warning < info)
+	errors = append(errors, validateMaintainabilityThresholds(config.Thresholds.MaintainabilityIndex)...)
+
+	// Validate god function thresholds
+	if config.Thresholds.GodFunction.MinParameters < 1 || config.Thresholds.GodFunction.MinParameters > 20 {
+		errors = append(errors, "god_function min_parameters must be between 1 and 20")
+	}
+	if config.Thresholds.GodFunction.MinFanIn < 1 || config.Thresholds.GodFunction.MinFanIn > 100 {
+		errors = append(errors, "god_function min_fan_in must be between 1 and 100")
 	}
 
-	if config.Thresholds.CognitiveComplexity < 1 || config.Thresholds.CognitiveComplexity > 100 {
-		errors = append(errors, "cognitive complexity threshold must be between 1 and 100")
+	// Validate hotspot thresholds
+	if config.Thresholds.Hotspot.MinComplexity < 1 || config.Thresholds.Hotspot.MinComplexity > 100 {
+		errors = append(errors, "hotspot min_complexity must be between 1 and 100")
 	}
-
-	if config.Thresholds.FunctionLength < 10 || config.Thresholds.FunctionLength > 1000 {
-		errors = append(errors, "function length threshold must be between 10 and 1000")
-	}
-
-	if config.Thresholds.NestingDepth < 1 || config.Thresholds.NestingDepth > 20 {
-		errors = append(errors, "nesting depth threshold must be between 1 and 20")
-	}
-
-	if config.Thresholds.ParameterCount < 1 || config.Thresholds.ParameterCount > 20 {
-		errors = append(errors, "parameter count threshold must be between 1 and 20")
-	}
-
-	if config.Thresholds.MaintainabilityIndex < 0 || config.Thresholds.MaintainabilityIndex > 100 {
-		errors = append(errors, "maintainability index threshold must be between 0 and 100")
+	if config.Thresholds.Hotspot.MinChurn < 1 || config.Thresholds.Hotspot.MinChurn > 1000 {
+		errors = append(errors, "hotspot min_churn must be between 1 and 1000")
 	}
 
 	// Validate analysis settings
 	if config.Analysis.MaxWorkers < 0 {
-		errors = append(errors, "max workers must be non-negative")
-	} else if config.Analysis.MaxWorkers == 0 {
-		// Default to number of CPUs if not set
-		config.Analysis.MaxWorkers = 4
+		errors = append(errors, "max_workers must be non-negative")
 	}
 
 	// Validate language settings
@@ -447,11 +446,84 @@ func (config *Config) ValidateConfiguration() []string {
 	}
 
 	// Validate storage settings
-	if config.Storage.Backend != "" && config.Storage.Backend != "sqlite" {
-		errors = append(errors, "unsupported storage backend: "+config.Storage.Backend)
+	if config.Storage.Type != "" && config.Storage.Type != "sqlite" {
+		errors = append(errors, "unsupported storage type: "+config.Storage.Type)
 	}
 
 	return errors
+}
+
+// validateSeverityThresholds checks that info < warning < critical and all are in valid range
+func validateSeverityThresholds(name string, thresholds SeverityThresholds, min, max int) []string {
+	var errors []string
+
+	if thresholds.Info < min || thresholds.Info > max {
+		errors = append(errors, name+" info threshold must be between "+stringFromInt(min)+" and "+stringFromInt(max))
+	}
+	if thresholds.Warning < min || thresholds.Warning > max {
+		errors = append(errors, name+" warning threshold must be between "+stringFromInt(min)+" and "+stringFromInt(max))
+	}
+	if thresholds.Critical < min || thresholds.Critical > max {
+		errors = append(errors, name+" critical threshold must be between "+stringFromInt(min)+" and "+stringFromInt(max))
+	}
+
+	if thresholds.Info >= thresholds.Warning {
+		errors = append(errors, name+" info threshold must be less than warning threshold")
+	}
+	if thresholds.Warning >= thresholds.Critical {
+		errors = append(errors, name+" warning threshold must be less than critical threshold")
+	}
+
+	return errors
+}
+
+// validateMaintainabilityThresholds checks that critical < warning < info (inverted)
+func validateMaintainabilityThresholds(thresholds MaintainabilityThresholds) []string {
+	var errors []string
+
+	if thresholds.Info < 0 || thresholds.Info > 100 {
+		errors = append(errors, "maintainability_index info threshold must be between 0 and 100")
+	}
+	if thresholds.Warning < 0 || thresholds.Warning > 100 {
+		errors = append(errors, "maintainability_index warning threshold must be between 0 and 100")
+	}
+	if thresholds.Critical < 0 || thresholds.Critical > 100 {
+		errors = append(errors, "maintainability_index critical threshold must be between 0 and 100")
+	}
+
+	// Inverted: lower is worse, so critical < warning < info
+	if thresholds.Critical >= thresholds.Warning {
+		errors = append(errors, "maintainability_index critical threshold must be less than warning threshold")
+	}
+	if thresholds.Warning >= thresholds.Info {
+		errors = append(errors, "maintainability_index warning threshold must be less than info threshold")
+	}
+
+	return errors
+}
+
+// stringFromInt converts an int to string
+func stringFromInt(num int) string {
+	if num == 0 {
+		return "0"
+	}
+
+	isNegative := num < 0
+	if isNegative {
+		num = -num
+	}
+
+	digits := []byte{}
+	for num > 0 {
+		digit := num % 10
+		digits = append([]byte{byte('0' + digit)}, digits...)
+		num = num / 10
+	}
+
+	if isNegative {
+		return "-" + string(digits)
+	}
+	return string(digits)
 }
 
 // IsValid checks if the configuration is valid

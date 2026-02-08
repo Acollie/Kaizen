@@ -14,53 +14,82 @@ func TestValidateConfiguration(t *testing.T) {
 		{
 			name: "valid configuration",
 			config: &Config{
-				Thresholds: ThresholdConfig{
-					CyclomaticComplexity: 10,
-					CognitiveComplexity:  15,
-					FunctionLength:       100,
-					NestingDepth:         4,
-					ParameterCount:       5,
-					MaintainabilityIndex: 20,
-				},
+				Thresholds: DefaultConfig().Thresholds,
 				Analysis: AnalysisConfig{
 					Languages:  []string{"go", "python"},
 					MaxWorkers: 4,
 				},
 				Storage: StorageConfig{
-					Backend: "sqlite",
+					Type: "sqlite",
 				},
 			},
 			expectedCount: 0,
 		},
 		{
-			name: "invalid cyclomatic complexity",
+			name: "invalid complexity thresholds - out of order",
 			config: &Config{
 				Thresholds: ThresholdConfig{
-					CyclomaticComplexity: 0,
-					CognitiveComplexity:  15,
-					FunctionLength:       100,
-					NestingDepth:         4,
-					ParameterCount:       5,
-					MaintainabilityIndex: 20,
+					Complexity: SeverityThresholds{
+						Info:     10,
+						Warning:  5, // Warning less than info
+						Critical: 20,
+					},
+					CognitiveComplexity:  DefaultConfig().Thresholds.CognitiveComplexity,
+					FunctionLength:       DefaultConfig().Thresholds.FunctionLength,
+					NestingDepth:         DefaultConfig().Thresholds.NestingDepth,
+					ParameterCount:       DefaultConfig().Thresholds.ParameterCount,
+					MaintainabilityIndex: DefaultConfig().Thresholds.MaintainabilityIndex,
+					Churn:                DefaultConfig().Thresholds.Churn,
+					GodFunction:          DefaultConfig().Thresholds.GodFunction,
+					Hotspot:              DefaultConfig().Thresholds.Hotspot,
 				},
 			},
 			expectedCount: 1,
-			shouldContain: "cyclomatic complexity",
+			shouldContain: "info threshold must be less than warning",
 		},
 		{
-			name: "invalid function length",
+			name: "invalid function length - out of range",
 			config: &Config{
 				Thresholds: ThresholdConfig{
-					CyclomaticComplexity: 10,
-					CognitiveComplexity:  15,
-					FunctionLength:       5000,
-					NestingDepth:         4,
-					ParameterCount:       5,
-					MaintainabilityIndex: 20,
+					Complexity:          DefaultConfig().Thresholds.Complexity,
+					CognitiveComplexity: DefaultConfig().Thresholds.CognitiveComplexity,
+					FunctionLength: SeverityThresholds{
+						Info:     5000, // Too high
+						Warning:  6000,
+						Critical: 7000,
+					},
+					NestingDepth:         DefaultConfig().Thresholds.NestingDepth,
+					ParameterCount:       DefaultConfig().Thresholds.ParameterCount,
+					MaintainabilityIndex: DefaultConfig().Thresholds.MaintainabilityIndex,
+					Churn:                DefaultConfig().Thresholds.Churn,
+					GodFunction:          DefaultConfig().Thresholds.GodFunction,
+					Hotspot:              DefaultConfig().Thresholds.Hotspot,
 				},
 			},
-			expectedCount: 1,
-			shouldContain: "function length",
+			expectedCount: 3,
+			shouldContain: "function_length",
+		},
+		{
+			name: "invalid maintainability index - wrong order",
+			config: &Config{
+				Thresholds: ThresholdConfig{
+					Complexity:          DefaultConfig().Thresholds.Complexity,
+					CognitiveComplexity: DefaultConfig().Thresholds.CognitiveComplexity,
+					FunctionLength:      DefaultConfig().Thresholds.FunctionLength,
+					NestingDepth:        DefaultConfig().Thresholds.NestingDepth,
+					ParameterCount:      DefaultConfig().Thresholds.ParameterCount,
+					MaintainabilityIndex: MaintainabilityThresholds{
+						Info:     20,
+						Warning:  40,
+						Critical: 60, // Should be lowest
+					},
+					Churn:       DefaultConfig().Thresholds.Churn,
+					GodFunction: DefaultConfig().Thresholds.GodFunction,
+					Hotspot:     DefaultConfig().Thresholds.Hotspot,
+				},
+			},
+			expectedCount: 2,
+			shouldContain: "maintainability_index",
 		},
 		{
 			name: "invalid language",
@@ -74,29 +103,47 @@ func TestValidateConfiguration(t *testing.T) {
 			shouldContain: "unsupported language",
 		},
 		{
-			name: "invalid storage backend",
+			name: "invalid storage type",
 			config: &Config{
 				Thresholds: DefaultConfig().Thresholds,
 				Storage: StorageConfig{
-					Backend: "postgresql",
+					Type: "postgresql",
 				},
 			},
 			expectedCount: 1,
-			shouldContain: "unsupported storage backend",
+			shouldContain: "unsupported storage type",
 		},
 		{
-			name: "multiple validation errors",
+			name: "invalid god function thresholds",
 			config: &Config{
 				Thresholds: ThresholdConfig{
-					CyclomaticComplexity: 200,
-					CognitiveComplexity:  0,
-					FunctionLength:       5,
-					NestingDepth:         4,
-					ParameterCount:       5,
-					MaintainabilityIndex: 20,
+					Complexity:           DefaultConfig().Thresholds.Complexity,
+					CognitiveComplexity:  DefaultConfig().Thresholds.CognitiveComplexity,
+					FunctionLength:       DefaultConfig().Thresholds.FunctionLength,
+					NestingDepth:         DefaultConfig().Thresholds.NestingDepth,
+					ParameterCount:       DefaultConfig().Thresholds.ParameterCount,
+					MaintainabilityIndex: DefaultConfig().Thresholds.MaintainabilityIndex,
+					Churn:                DefaultConfig().Thresholds.Churn,
+					GodFunction: GodFunctionThresholds{
+						MinParameters: 0,   // Too low
+						MinFanIn:      200, // Too high
+					},
+					Hotspot: DefaultConfig().Thresholds.Hotspot,
 				},
 			},
-			expectedCount: 3,
+			expectedCount: 2,
+			shouldContain: "god_function",
+		},
+		{
+			name: "negative max workers",
+			config: &Config{
+				Thresholds: DefaultConfig().Thresholds,
+				Analysis: AnalysisConfig{
+					MaxWorkers: -1,
+				},
+			},
+			expectedCount: 1,
+			shouldContain: "max_workers",
 		},
 	}
 
@@ -131,15 +178,23 @@ func TestIsValid(t *testing.T) {
 			Languages:  []string{"go"},
 			MaxWorkers: 4,
 		},
+		Storage: StorageConfig{
+			Type: "sqlite",
+		},
 	}
 
 	if !validConfig.IsValid() {
-		t.Error("expected valid configuration to return true")
+		errors := validConfig.ValidateConfiguration()
+		t.Errorf("expected valid configuration to return true, but got errors: %v", errors)
 	}
 
 	invalidConfig := &Config{
 		Thresholds: ThresholdConfig{
-			CyclomaticComplexity: 200,
+			Complexity: SeverityThresholds{
+				Info:     200, // Out of range
+				Warning:  300,
+				Critical: 400,
+			},
 		},
 	}
 
