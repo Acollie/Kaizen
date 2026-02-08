@@ -2,6 +2,7 @@ package python
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -11,14 +12,20 @@ import (
 
 	"github.com/alexcollie/kaizen/pkg/analyzer"
 	"github.com/alexcollie/kaizen/pkg/models"
+	"github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/python"
 )
 
 // PythonAnalyzer implements the LanguageAnalyzer interface for Python
-type PythonAnalyzer struct{}
+type PythonAnalyzer struct {
+	language *sitter.Language
+}
 
 // NewPythonAnalyzer creates a new Python analyzer
 func NewPythonAnalyzer() analyzer.LanguageAnalyzer {
-	return &PythonAnalyzer{}
+	return &PythonAnalyzer{
+		language: python.GetLanguage(),
+	}
 }
 
 // Name returns the language name
@@ -55,15 +62,30 @@ func (pyAnalyzer *PythonAnalyzer) AnalyzeFile(filePath string) (*models.FileAnal
 	}
 	sourceCode := string(sourceBytes)
 
+	// Keep existing line counting (works well for docstrings/comments)
 	totalLines, codeLines, commentLines, blankLines := pyAnalyzer.countLines(sourceCode)
 	commentDensity := 0.0
 	if totalLines > 0 {
 		commentDensity = float64(commentLines) / float64(totalLines) * 100
 	}
 
+	// Keep existing import counting (simple and effective)
 	importCount := pyAnalyzer.countImports(sourceCode)
-	functions := pyAnalyzer.extractFunctions(sourceCode)
-	types := pyAnalyzer.extractClasses(sourceCode)
+
+	// Parse with tree-sitter
+	parser := sitter.NewParser()
+	parser.SetLanguage(pyAnalyzer.language)
+	tree, err := parser.ParseCtx(context.Background(), nil, sourceBytes)
+	if err != nil || tree == nil {
+		return nil, fmt.Errorf("failed to parse Python file: %w", err)
+	}
+	defer tree.Close()
+
+	// Extract functions using AST
+	functions := pyAnalyzer.extractFunctions(tree.RootNode(), sourceBytes)
+
+	// Extract types using AST
+	types := pyAnalyzer.extractTypes(tree.RootNode(), sourceBytes)
 
 	return &models.FileAnalysis{
 		Path:                  filePath,
@@ -141,290 +163,96 @@ func (pyAnalyzer *PythonAnalyzer) countImports(sourceCode string) int {
 	return len(matches)
 }
 
-// extractFunctions extracts and analyzes all functions in the file
-func (pyAnalyzer *PythonAnalyzer) extractFunctions(sourceCode string) []models.FunctionAnalysis {
+// extractFunctions extracts and analyzes all functions using AST walking
+func (pyAnalyzer *PythonAnalyzer) extractFunctions(rootNode *sitter.Node, sourceBytes []byte) []models.FunctionAnalysis {
 	var functions []models.FunctionAnalysis
-	lines := strings.Split(sourceCode, "\n")
 
-	// Pattern to match function definitions
-	funcPattern := regexp.MustCompile(`^(\s*)def\s+(\w+)\s*\(([^)]*)\)`)
+	cursor := sitter.NewTreeCursor(rootNode)
+	defer cursor.Close()
 
-	for lineIndex := 0; lineIndex < len(lines); lineIndex++ {
-		match := funcPattern.FindStringSubmatch(lines[lineIndex])
-		if match == nil {
-			continue
-		}
-
-		indent := len(match[1])
-		funcName := match[2]
-		params := match[3]
-		startLine := lineIndex + 1
-
-		// Find the end of the function by looking for the next line with same or less indent
-		endLine := pyAnalyzer.findFunctionEnd(lines, lineIndex, indent)
-		funcLines := lines[lineIndex:endLine]
-		funcCode := strings.Join(funcLines, "\n")
-
-		paramCount := pyAnalyzer.countParameters(params)
-		localVars := pyAnalyzer.countLocalVariables(funcCode)
-		returnCount := pyAnalyzer.countReturns(funcCode)
-		cyclomaticComplexity := pyAnalyzer.calculateCyclomaticComplexity(funcCode)
-		cognitiveComplexity := pyAnalyzer.calculateCognitiveComplexity(funcCode, indent)
-		nestingDepth := pyAnalyzer.calculateNestingDepth(funcLines, indent)
-		halsteadVol, halsteadDiff := pyAnalyzer.calculateHalsteadMetrics(funcCode)
-		logicalLines := pyAnalyzer.countLogicalLines(funcCode)
-
-		maintainabilityIndex := pyAnalyzer.calculateMaintainabilityIndex(
-			halsteadVol,
-			cyclomaticComplexity,
-			endLine-lineIndex,
-		)
-
-		functionAnalysis := models.FunctionAnalysis{
-			Name:                 funcName,
-			StartLine:            startLine,
-			EndLine:              endLine,
-			Length:               endLine - lineIndex,
-			LogicalLines:         logicalLines,
-			ParameterCount:       paramCount,
-			LocalVariableCount:   localVars,
-			ReturnCount:          returnCount,
-			CyclomaticComplexity: cyclomaticComplexity,
-			CognitiveComplexity:  cognitiveComplexity,
-			NestingDepth:         nestingDepth,
-			HalsteadVolume:       halsteadVol,
-			HalsteadDifficulty:   halsteadDiff,
-			MaintainabilityIndex: maintainabilityIndex,
-			FanIn:                0,
-			FanOut:               pyAnalyzer.countFunctionCalls(funcCode),
-		}
-
-		functions = append(functions, functionAnalysis)
-	}
-
+	pyAnalyzer.walkFunctions(cursor, sourceBytes, &functions)
 	return functions
 }
 
-// findFunctionEnd finds the line where a function ends based on indentation
-func (pyAnalyzer *PythonAnalyzer) findFunctionEnd(lines []string, startIndex, baseIndent int) int {
-	// Start from the line after the def statement
-	for lineIndex := startIndex + 1; lineIndex < len(lines); lineIndex++ {
-		line := lines[lineIndex]
+// walkFunctions recursively walks the AST to find all function definitions
+func (pyAnalyzer *PythonAnalyzer) walkFunctions(cursor *sitter.TreeCursor, sourceBytes []byte, functions *[]models.FunctionAnalysis) {
+	node := cursor.CurrentNode()
+	nodeType := node.Type()
 
-		// Skip empty lines and comments
-		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") {
-			continue
-		}
-
-		// Calculate the indent of this line
-		currentIndent := len(line) - len(strings.TrimLeft(line, " \t"))
-
-		// If we find a line with less or equal indent than the function definition,
-		// the function has ended (unless it's a decorator or another def at same level)
-		if currentIndent <= baseIndent {
-			return lineIndex
-		}
+	// Handle both regular and async functions
+	if nodeType == "function_definition" || nodeType == "async_function_definition" {
+		funcAnalysis := pyAnalyzer.analyzeFunctionNode(node, sourceBytes)
+		*functions = append(*functions, funcAnalysis)
 	}
 
-	return len(lines)
-}
-
-// countParameters counts function parameters
-func (pyAnalyzer *PythonAnalyzer) countParameters(params string) int {
-	params = strings.TrimSpace(params)
-	if params == "" {
-		return 0
-	}
-
-	// Split by comma, but handle default values and type hints
-	count := 0
-	depth := 0
-	current := ""
-
-	for _, char := range params {
-		switch char {
-		case '(':
-			depth++
-			current += string(char)
-		case ')':
-			depth--
-			current += string(char)
-		case '[':
-			depth++
-			current += string(char)
-		case ']':
-			depth--
-			current += string(char)
-		case ',':
-			if depth == 0 {
-				param := strings.TrimSpace(current)
-				if param != "" && param != "self" && param != "cls" {
-					count++
+	// Handle decorated functions (decorators wrap the function_definition node)
+	if nodeType == "decorated_definition" {
+		// Find the actual function definition within the decorator
+		decoratedCursor := sitter.NewTreeCursor(node)
+		if decoratedCursor.GoToFirstChild() {
+			for {
+				childNode := decoratedCursor.CurrentNode()
+				childType := childNode.Type()
+				if childType == "function_definition" || childType == "async_function_definition" {
+					funcAnalysis := pyAnalyzer.analyzeFunctionNode(childNode, sourceBytes)
+					*functions = append(*functions, funcAnalysis)
+					break
 				}
-				current = ""
-			} else {
-				current += string(char)
-			}
-		default:
-			current += string(char)
-		}
-	}
-
-	// Don't forget the last parameter
-	param := strings.TrimSpace(current)
-	if param != "" && param != "self" && param != "cls" {
-		count++
-	}
-
-	return count
-}
-
-// countLocalVariables counts local variable assignments
-func (pyAnalyzer *PythonAnalyzer) countLocalVariables(funcCode string) int {
-	// Match assignment patterns like: var = or var: type =
-	assignPattern := regexp.MustCompile(`(?m)^\s+(\w+)\s*(?::\s*\S+)?\s*=\s*[^=]`)
-	matches := assignPattern.FindAllStringSubmatch(funcCode, -1)
-
-	// Use a set to count unique variable names
-	varSet := make(map[string]bool)
-	for _, match := range matches {
-		if len(match) > 1 {
-			varName := match[1]
-			// Exclude self, cls, and common constants
-			if varName != "self" && varName != "cls" && !isAllCaps(varName) {
-				varSet[varName] = true
+				if !decoratedCursor.GoToNextSibling() {
+					break
+				}
 			}
 		}
+		decoratedCursor.Close()
 	}
 
-	return len(varSet)
-}
-
-// isAllCaps checks if a string is all uppercase (constant)
-func isAllCaps(str string) bool {
-	return str == strings.ToUpper(str) && len(str) > 1
-}
-
-// countReturns counts return statements
-func (pyAnalyzer *PythonAnalyzer) countReturns(funcCode string) int {
-	returnPattern := regexp.MustCompile(`(?m)^\s*return\b`)
-	matches := returnPattern.FindAllString(funcCode, -1)
-	return len(matches)
-}
-
-// calculateCyclomaticComplexity calculates cyclomatic complexity for Python
-func (pyAnalyzer *PythonAnalyzer) calculateCyclomaticComplexity(funcCode string) int {
-	complexity := 1 // Base complexity
-
-	// Decision points in Python
-	patterns := []string{
-		`\bif\b`,
-		`\belif\b`,
-		`\bfor\b`,
-		`\bwhile\b`,
-		`\bexcept\b`,
-		`\band\b`,
-		`\bor\b`,
-		`\bif\s+\S+\s+else\b`, // Ternary operator
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindAllString(funcCode, -1)
-		complexity += len(matches)
-	}
-
-	// Handle list/dict/set comprehension conditions
-	comprehensionPattern := regexp.MustCompile(`\bfor\s+\w+\s+in\b.*\bif\b`)
-	compMatches := comprehensionPattern.FindAllString(funcCode, -1)
-	complexity += len(compMatches)
-
-	return complexity
-}
-
-// calculateCognitiveComplexity calculates cognitive complexity with nesting penalties
-func (pyAnalyzer *PythonAnalyzer) calculateCognitiveComplexity(funcCode string, baseIndent int) int {
-	complexity := 0
-	lines := strings.Split(funcCode, "\n")
-
-	// Keywords that add complexity and increase nesting
-	nestingKeywords := map[string]bool{
-		"if": true, "elif": true, "else": true,
-		"for": true, "while": true,
-		"try": true, "except": true, "finally": true,
-		"with": true,
-	}
-
-	// Keywords that only add complexity
-	flatKeywords := map[string]bool{
-		"and": true, "or": true,
-	}
-
-	currentNesting := 0
-	indentStack := []int{baseIndent}
-
-	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") {
-			continue
-		}
-
-		currentIndent := len(line) - len(strings.TrimLeft(line, " \t"))
-
-		// Update nesting level based on indent
-		for len(indentStack) > 0 && currentIndent <= indentStack[len(indentStack)-1] {
-			if len(indentStack) > 1 {
-				indentStack = indentStack[:len(indentStack)-1]
-				currentNesting--
-			} else {
+	// Recurse to children
+	if cursor.GoToFirstChild() {
+		for {
+			pyAnalyzer.walkFunctions(cursor, sourceBytes, functions)
+			if !cursor.GoToNextSibling() {
 				break
 			}
 		}
-
-		// Check for nesting keywords
-		for keyword := range nestingKeywords {
-			pattern := regexp.MustCompile(`\b` + keyword + `\b`)
-			if pattern.MatchString(trimmedLine) {
-				// Add 1 for the keyword + nesting penalty
-				complexity += 1 + currentNesting
-				indentStack = append(indentStack, currentIndent)
-				currentNesting++
-				break
-			}
-		}
-
-		// Check for flat keywords (and/or)
-		for keyword := range flatKeywords {
-			pattern := regexp.MustCompile(`\b` + keyword + `\b`)
-			matches := pattern.FindAllString(trimmedLine, -1)
-			complexity += len(matches)
-		}
+		cursor.GoToParent()
 	}
-
-	return complexity
 }
 
-// calculateNestingDepth calculates maximum nesting depth
-func (pyAnalyzer *PythonAnalyzer) calculateNestingDepth(funcLines []string, baseIndent int) int {
-	maxDepth := 0
+// analyzeFunctionNode analyzes a single function node
+func (pyAnalyzer *PythonAnalyzer) analyzeFunctionNode(node *sitter.Node, sourceBytes []byte) models.FunctionAnalysis {
+	pythonFunc := NewPythonFunction(node, sourceBytes)
 
-	for _, line := range funcLines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
+	// Calculate Halstead metrics
+	funcCode := node.Content(sourceBytes)
+	halsteadVol, halsteadDiff := pyAnalyzer.calculateHalsteadMetrics(funcCode)
 
-		currentIndent := len(line) - len(strings.TrimLeft(line, " \t"))
-		// Calculate depth relative to function indent
-		// Assuming 4 spaces per indent level (Python standard)
-		depth := (currentIndent - baseIndent) / 4
-		if depth > maxDepth {
-			maxDepth = depth
-		}
+	// Calculate maintainability index
+	maintainabilityIndex := pyAnalyzer.calculateMaintainabilityIndex(
+		halsteadVol,
+		pythonFunc.CalculateCyclomaticComplexity(),
+		pythonFunc.LineCount(),
+	)
+
+	return models.FunctionAnalysis{
+		Name:                 pythonFunc.Name(),
+		StartLine:            pythonFunc.StartLine(),
+		EndLine:              pythonFunc.EndLine(),
+		Length:               pythonFunc.LineCount(),
+		LogicalLines:         pythonFunc.LogicalLineCount(),
+		ParameterCount:       pythonFunc.ParameterCount(),
+		LocalVariableCount:   pythonFunc.CountLocalVariables(),
+		ReturnCount:          pythonFunc.ReturnCount(),
+		CyclomaticComplexity: pythonFunc.CalculateCyclomaticComplexity(),
+		CognitiveComplexity:  pythonFunc.CalculateCognitiveComplexity(),
+		NestingDepth:         pythonFunc.MaxNestingDepth(),
+		HalsteadVolume:       halsteadVol,
+		HalsteadDifficulty:   halsteadDiff,
+		MaintainabilityIndex: maintainabilityIndex,
+		FanIn:                0,
+		FanOut:               pythonFunc.CountFunctionCalls(),
 	}
-
-	return maxDepth
 }
+
 
 // calculateHalsteadMetrics calculates Halstead complexity metrics for Python
 func (pyAnalyzer *PythonAnalyzer) calculateHalsteadMetrics(funcCode string) (volume, difficulty float64) {
@@ -510,49 +338,6 @@ func (pyAnalyzer *PythonAnalyzer) calculateHalsteadMetrics(funcCode string) (vol
 	return volume, difficulty
 }
 
-// countLogicalLines counts actual code statements
-func (pyAnalyzer *PythonAnalyzer) countLogicalLines(funcCode string) int {
-	count := 0
-	lines := strings.Split(funcCode, "\n")
-
-	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		// Skip empty lines, comments, and docstrings
-		if trimmedLine == "" ||
-			strings.HasPrefix(trimmedLine, "#") ||
-			strings.HasPrefix(trimmedLine, `"""`) ||
-			strings.HasPrefix(trimmedLine, `'''`) {
-			continue
-		}
-		count++
-	}
-
-	return count
-}
-
-// countFunctionCalls counts function/method calls (fan-out)
-func (pyAnalyzer *PythonAnalyzer) countFunctionCalls(funcCode string) int {
-	// Match function calls: name( or name.method(
-	callPattern := regexp.MustCompile(`\b\w+\s*\(`)
-	matches := callPattern.FindAllString(funcCode, -1)
-
-	// Exclude the function definition itself and keywords
-	keywords := map[string]bool{
-		"if": true, "elif": true, "while": true, "for": true,
-		"def": true, "class": true, "except": true, "with": true,
-		"print": true, // Built-in, but still a call
-	}
-
-	count := 0
-	for _, match := range matches {
-		name := strings.TrimSpace(strings.TrimSuffix(match, "("))
-		if !keywords[name] {
-			count++
-		}
-	}
-
-	return count
-}
 
 // calculateMaintainabilityIndex calculates the maintainability index
 func (pyAnalyzer *PythonAnalyzer) calculateMaintainabilityIndex(halsteadVolume float64, cyclomaticComplexity int, linesOfCode int) float64 {
@@ -582,33 +367,130 @@ func (pyAnalyzer *PythonAnalyzer) calculateMaintainabilityIndex(halsteadVolume f
 	return maintainabilityIndex
 }
 
-// extractClasses extracts class definitions
-func (pyAnalyzer *PythonAnalyzer) extractClasses(sourceCode string) []models.TypeAnalysis {
+// extractTypes extracts class definitions using AST
+func (pyAnalyzer *PythonAnalyzer) extractTypes(rootNode *sitter.Node, sourceBytes []byte) []models.TypeAnalysis {
 	var types []models.TypeAnalysis
 
-	classPattern := regexp.MustCompile(`(?m)^class\s+(\w+)`)
-	matches := classPattern.FindAllStringSubmatch(sourceCode, -1)
+	cursor := sitter.NewTreeCursor(rootNode)
+	defer cursor.Close()
 
-	for _, match := range matches {
-		if len(match) > 1 {
-			typeAnalysis := models.TypeAnalysis{
-				Name:                    match[1],
-				Kind:                    "class",
-				AfferentCoupling:        0,
-				EfferentCoupling:        0,
-				Instability:             0,
-				LCOM:                    0,
-				DepthOfInheritance:      0,
-				NumberOfChildren:        0,
-				MethodCount:             0,
-				WeightedMethodsPerClass: 0,
-				PublicMethodCount:       0,
+	pyAnalyzer.walkTypes(cursor, sourceBytes, &types)
+	return types
+}
+
+// walkTypes recursively walks the AST to find all class definitions
+func (pyAnalyzer *PythonAnalyzer) walkTypes(cursor *sitter.TreeCursor, sourceBytes []byte, types *[]models.TypeAnalysis) {
+	node := cursor.CurrentNode()
+	nodeType := node.Type()
+
+	if nodeType == "class_definition" {
+		typeAnalysis := pyAnalyzer.analyzeClassNode(node, sourceBytes)
+		*types = append(*types, typeAnalysis)
+	}
+
+	// Handle decorated classes
+	if nodeType == "decorated_definition" {
+		decoratedCursor := sitter.NewTreeCursor(node)
+		if decoratedCursor.GoToFirstChild() {
+			for {
+				childNode := decoratedCursor.CurrentNode()
+				if childNode.Type() == "class_definition" {
+					typeAnalysis := pyAnalyzer.analyzeClassNode(childNode, sourceBytes)
+					*types = append(*types, typeAnalysis)
+					break
+				}
+				if !decoratedCursor.GoToNextSibling() {
+					break
+				}
 			}
-			types = append(types, typeAnalysis)
+		}
+		decoratedCursor.Close()
+	}
+
+	// Recurse to children
+	if cursor.GoToFirstChild() {
+		for {
+			pyAnalyzer.walkTypes(cursor, sourceBytes, types)
+			if !cursor.GoToNextSibling() {
+				break
+			}
+		}
+		cursor.GoToParent()
+	}
+}
+
+// analyzeClassNode analyzes a single class node
+func (pyAnalyzer *PythonAnalyzer) analyzeClassNode(node *sitter.Node, sourceBytes []byte) models.TypeAnalysis {
+	className := pyAnalyzer.extractClassName(node, sourceBytes)
+	methodCount := pyAnalyzer.countMethods(node)
+
+	return models.TypeAnalysis{
+		Name:                    className,
+		Kind:                    "class",
+		AfferentCoupling:        0,
+		EfferentCoupling:        0,
+		Instability:             0,
+		LCOM:                    0,
+		DepthOfInheritance:      0,
+		NumberOfChildren:        0,
+		MethodCount:             methodCount,
+		WeightedMethodsPerClass: 0,
+		PublicMethodCount:       0,
+	}
+}
+
+// extractClassName extracts the class name from a class_definition node
+func (pyAnalyzer *PythonAnalyzer) extractClassName(node *sitter.Node, sourceBytes []byte) string {
+	cursor := sitter.NewTreeCursor(node)
+	defer cursor.Close()
+
+	if cursor.GoToFirstChild() {
+		for {
+			childNode := cursor.CurrentNode()
+			if childNode.Type() == "identifier" {
+				return childNode.Content(sourceBytes)
+			}
+			if !cursor.GoToNextSibling() {
+				break
+			}
 		}
 	}
 
-	return types
+	return "unknown"
+}
+
+// countMethods counts methods in a class
+func (pyAnalyzer *PythonAnalyzer) countMethods(classNode *sitter.Node) int {
+	count := 0
+	cursor := sitter.NewTreeCursor(classNode)
+	defer cursor.Close()
+
+	pyAnalyzer.countMethodsRecursive(cursor, &count)
+	return count
+}
+
+// countMethodsRecursive recursively counts function definitions within a class
+func (pyAnalyzer *PythonAnalyzer) countMethodsRecursive(cursor *sitter.TreeCursor, count *int) {
+	node := cursor.CurrentNode()
+	nodeType := node.Type()
+
+	// Count function definitions (methods)
+	if nodeType == "function_definition" || nodeType == "async_function_definition" {
+		*count++
+		// Don't recurse into nested functions within methods
+		return
+	}
+
+	// Recurse to children
+	if cursor.GoToFirstChild() {
+		for {
+			pyAnalyzer.countMethodsRecursive(cursor, count)
+			if !cursor.GoToNextSibling() {
+				break
+			}
+		}
+		cursor.GoToParent()
+	}
 }
 
 // ReadFileByLine reads a file line by line for efficient processing

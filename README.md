@@ -15,7 +15,7 @@
 
 - 🎯 **A-F Health Grades** with 0-100 scores across complexity, maintainability, churn, function size, and code structure
 - 📈 **Cyclomatic & Cognitive Complexity**, Halstead Metrics, Maintainability Index, and hotspot detection
-- 🌍 **Multi-Language** — Go (native AST), Kotlin & Swift (tree-sitter), Python (stub)
+- 🌍 **Multi-Language** — Go (native AST), Python, Kotlin & Swift (tree-sitter)
 - 🎨 **Interactive Visualizations** — HTML treemaps, Sankey diagrams, call graphs, terminal charts
 - 🛡️ **CI Quality Gate** — blast-radius detection with exit codes for pipelines
 - 🤖 **GitHub PR Action** — automatic PR comments with score deltas, hotspot tracking, and call graph diffs
@@ -276,8 +276,8 @@ The default `${{ github.token }}` works for most cases. If you need to trigger o
 ### 🚀 Planned Features
 - [x] 📊 Web dashboard for team health monitoring
 - [x] 🤖 GitHub integration (automatic PR comments via reusable Action)
+- [x] 🐍 Complete Python analyzer with tree-sitter AST parsing
 - [ ] 📈 Advanced trend prediction
-- [ ] 🐍 Complete Python analyzer
 - [ ] 🦀 Rust analyzer
 - [ ] 📱 TypeScript/JavaScript analyzer
 - [ ] ☕ Java analyzer
@@ -297,7 +297,7 @@ The default `${{ github.token }}` works for most cases. If you need to trigger o
 Kaizen uses a modular, language-agnostic architecture:
 
 - 🔌 **Interface-based language analyzers** — easy to add new languages
-- 🌳 **Tree-sitter AST parsing** — accurate syntax understanding (Kotlin, Swift)
+- 🌳 **Tree-sitter AST parsing** — accurate syntax understanding (Python, Kotlin, Swift)
 - 🐹 **Go's `ast` package** — native support for Go analysis
 - 💾 **SQLite time-series database** — efficient historical tracking
 - ⌨️ **Cobra CLI framework** — professional command structure
@@ -309,9 +309,9 @@ Kaizen uses a modular, language-agnostic architecture:
 | Language | Status | Parser | Coverage |
 |----------|--------|--------|----------|
 | 🐹 Go | ✅ Full | go/ast | 95%+ |
+| 🐍 Python | ✅ Full | tree-sitter | 90%+ |
 | 🟣 Kotlin | ✅ Full | tree-sitter | 90%+ |
 | 🍎 Swift | ✅ Full | tree-sitter | 90%+ |
-| 🐍 Python | 🚧 Stub | tree-sitter | Ready for implementation |
 
 ### 📏 What It Analyzes
 
