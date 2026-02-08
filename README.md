@@ -72,6 +72,44 @@ Kaizen practices what it preaches. Here are the results from analyzing its own c
 
 ---
 
+## 🤖 GitHub Action — PR Analysis
+
+Add Kaizen to any repository to get automatic code quality comments on every pull request.
+
+### ⚡ Quick Setup
+
+Create `.github/workflows/kaizen.yml` in your repository:
+
+```yaml
+name: Kaizen PR Analysis
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  kaizen:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: acollie/kaizen@v0.1.0-beta
+        with:
+          path: "."
+          base-branch: main
+```
+
+Every PR will receive a comment showing score changes, complexity metrics, and hotspot status. The comment is updated in-place on each push — never duplicated.
+
+👉 See [full Action docs](#-inputs) for all inputs, outputs, and examples.
+
+---
+
 ## 🚀 Quick Start
 
 ### 📦 Installation
@@ -143,39 +181,7 @@ kaizen history list
 
 ---
 
-## 🤖 GitHub Action — PR Analysis
-
-Add Kaizen to any repository to get automatic code quality comments on every pull request.
-
-### ⚡ Quick Setup
-
-Create `.github/workflows/kaizen.yml` in your repository:
-
-```yaml
-name: Kaizen PR Analysis
-
-on:
-  pull_request:
-    branches: [main]
-
-jobs:
-  kaizen:
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: acollie/kaizen@v0.1.0-beta
-        with:
-          path: "."
-          base-branch: main
-```
-
-Every PR will receive a comment showing score changes, complexity metrics, and hotspot status. The comment is updated in-place on each push — never duplicated.
+## 🤖 GitHub Action — Full Reference
 
 ### 📥 Inputs
 
