@@ -117,17 +117,19 @@ runs:
       run: |
         $RUNNER_TEMP/kaizen callgraph \
           --path="${{ inputs.path }}" \
-          --format=html \
-          --output="$RUNNER_TEMP/kaizen-callgraph.html" \
-          --min-calls=1 || true
+          --base="${{ inputs.base-branch }}" \
+          --format=svg \
+          --output="$RUNNER_TEMP/kaizen-callgraph.svg" \
+          --open=false || true
 
     - name: Upload call graph artifact
-      if: inputs.include-callgraph == 'true' && hashFiles('$RUNNER_TEMP/kaizen-callgraph.html') != ''
+      if: inputs.include-callgraph == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: kaizen-callgraph
-        path: ${{ runner.temp }}/kaizen-callgraph.html
+        path: ${{ runner.temp }}/kaizen-callgraph.svg
         retention-days: 90
+        if-no-files-found: ignore
 
     - name: Generate PR comment
       id: generate-comment
@@ -139,7 +141,7 @@ runs:
         fi
 
         CALLGRAPH_URL=""
-        if [ -f "$RUNNER_TEMP/kaizen-callgraph.html" ]; then
+        if [ -f "$RUNNER_TEMP/kaizen-callgraph.svg" ]; then
           # Generate artifact URL for the call graph
           CALLGRAPH_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         fi
@@ -155,7 +157,7 @@ runs:
           echo "" >> "$RUNNER_TEMP/kaizen-comment.md"
           echo "### 🔗 Call Graph Visualization" >> "$RUNNER_TEMP/kaizen-comment.md"
           echo "" >> "$RUNNER_TEMP/kaizen-comment.md"
-          echo "An interactive call graph has been generated for this PR. [View Call Graph Artifact]($CALLGRAPH_URL)" >> "$RUNNER_TEMP/kaizen-comment.md"
+          echo "An SVG call graph of changed functions has been generated. [Download Call Graph Artifact]($CALLGRAPH_URL)" >> "$RUNNER_TEMP/kaizen-comment.md"
           echo "" >> "$RUNNER_TEMP/kaizen-comment.md"
         fi
 

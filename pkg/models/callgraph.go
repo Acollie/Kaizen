@@ -81,6 +81,62 @@ func (graph *CallGraph) AddEdge(edge CallEdge) {
 	graph.Edges = append(graph.Edges, edge)
 }
 
+// FilterByFunctionNames returns a new CallGraph containing only the named functions
+// and their immediate callers and callees (one hop in each direction).
+func (graph *CallGraph) FilterByFunctionNames(names []string) *CallGraph {
+	if len(names) == 0 {
+		return graph
+	}
+
+	// Build set of seed node names
+	seeds := make(map[string]bool, len(names))
+	for _, name := range names {
+		seeds[name] = true
+	}
+
+	// Collect seed nodes + immediate neighbors (callers and callees)
+	included := make(map[string]bool)
+	for _, name := range names {
+		if _, exists := graph.Nodes[name]; exists {
+			included[name] = true
+		}
+	}
+
+	// Add neighbors via edges
+	for _, edge := range graph.Edges {
+		_, fromIsSeed := seeds[edge.From]
+		_, toIsSeed := seeds[edge.To]
+		if fromIsSeed {
+			included[edge.To] = true
+			included[edge.From] = true
+		}
+		if toIsSeed {
+			included[edge.From] = true
+			included[edge.To] = true
+		}
+	}
+
+	// Build filtered graph
+	filtered := NewCallGraph()
+	for fullName := range included {
+		if node, exists := graph.Nodes[fullName]; exists {
+			nodeCopy := *node
+			filtered.Nodes[fullName] = &nodeCopy
+		}
+	}
+
+	for _, edge := range graph.Edges {
+		_, fromExists := filtered.Nodes[edge.From]
+		_, toExists := filtered.Nodes[edge.To]
+		if fromExists && toExists {
+			filtered.Edges = append(filtered.Edges, edge)
+		}
+	}
+
+	filtered.CalculateStats()
+	return filtered
+}
+
 // FilterByMinCalls returns a new CallGraph with only nodes that have at least minCalls
 func (graph *CallGraph) FilterByMinCalls(minCalls int) *CallGraph {
 	if minCalls <= 0 {
