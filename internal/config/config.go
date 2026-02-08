@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,14 +37,44 @@ type AnalysisConfig struct {
 	MaxWorkers     int      `yaml:"max_workers"`     // Number of parallel workers
 }
 
-// ThresholdConfig contains metric thresholds
+// ThresholdConfig contains all configurable thresholds for concern detection
 type ThresholdConfig struct {
-	CyclomaticComplexity int `yaml:"cyclomatic_complexity"` // Warn if > this value
-	CognitiveComplexity  int `yaml:"cognitive_complexity"`  // Warn if > this value
-	FunctionLength       int `yaml:"function_length"`       // Warn if > this value
-	NestingDepth         int `yaml:"nesting_depth"`         // Warn if > this value
-	ParameterCount       int `yaml:"parameter_count"`       // Warn if > this value
-	MaintainabilityIndex int `yaml:"maintainability_index"` // Warn if < this value
+	Complexity           SeverityThresholds        `yaml:"complexity"`
+	CognitiveComplexity  SeverityThresholds        `yaml:"cognitive_complexity"`
+	FunctionLength       SeverityThresholds        `yaml:"function_length"`
+	NestingDepth         SeverityThresholds        `yaml:"nesting_depth"`
+	ParameterCount       SeverityThresholds        `yaml:"parameter_count"`
+	MaintainabilityIndex MaintainabilityThresholds `yaml:"maintainability_index"`
+	Churn                SeverityThresholds        `yaml:"churn"`
+	GodFunction          GodFunctionThresholds     `yaml:"god_function"`
+	Hotspot              HotspotThresholds         `yaml:"hotspot"`
+}
+
+// SeverityThresholds defines info/warning/critical levels for upward metrics
+// (higher values = worse, e.g. complexity, churn)
+type SeverityThresholds struct {
+	Info     int `yaml:"info"`
+	Warning  int `yaml:"warning"`
+	Critical int `yaml:"critical"`
+}
+
+// MaintainabilityThresholds are inverted (lower values = worse)
+type MaintainabilityThresholds struct {
+	Info     int `yaml:"info"`     // Below this = info concern
+	Warning  int `yaml:"warning"`  // Below this = warning concern
+	Critical int `yaml:"critical"` // Below this = critical concern
+}
+
+// GodFunctionThresholds require both conditions to be met
+type GodFunctionThresholds struct {
+	MinParameters int `yaml:"min_parameters"`
+	MinFanIn      int `yaml:"min_fan_in"`
+}
+
+// HotspotThresholds require both conditions to be met
+type HotspotThresholds struct {
+	MinComplexity int `yaml:"min_complexity"`
+	MinChurn      int `yaml:"min_churn"`
 }
 
 // VisualizationConfig contains visualization settings
@@ -74,12 +105,33 @@ func DefaultConfig() *Config {
 			MaxWorkers: 8,
 		},
 		Thresholds: ThresholdConfig{
-			CyclomaticComplexity: 10,
-			CognitiveComplexity:  15,
-			FunctionLength:       50,
-			NestingDepth:         4,
-			ParameterCount:       5,
-			MaintainabilityIndex: 60,
+			Complexity: SeverityThresholds{
+				Info: 5, Warning: 10, Critical: 20,
+			},
+			CognitiveComplexity: SeverityThresholds{
+				Info: 10, Warning: 15, Critical: 25,
+			},
+			FunctionLength: SeverityThresholds{
+				Info: 30, Warning: 50, Critical: 100,
+			},
+			NestingDepth: SeverityThresholds{
+				Info: 4, Warning: 5, Critical: 7,
+			},
+			ParameterCount: SeverityThresholds{
+				Info: 5, Warning: 7, Critical: 10,
+			},
+			MaintainabilityIndex: MaintainabilityThresholds{
+				Info: 60, Warning: 40, Critical: 20,
+			},
+			Churn: SeverityThresholds{
+				Info: 5, Warning: 10, Critical: 20,
+			},
+			GodFunction: GodFunctionThresholds{
+				MinParameters: 6, MinFanIn: 10,
+			},
+			Hotspot: HotspotThresholds{
+				MinComplexity: 10, MinChurn: 10,
+			},
 		},
 		Visualization: VisualizationConfig{
 			DefaultMetric:   "hotspot",
@@ -135,7 +187,107 @@ func (config *Config) loadYAML(path string) error {
 		return err
 	}
 
+	// Fill in zero values with defaults (partial YAML config support)
+	config.Thresholds.applyDefaultThresholds()
+
 	return nil
+}
+
+// Validate ensures threshold values follow correct ordering
+func (tc *ThresholdConfig) Validate() error {
+	if err := validateSeverityOrder("complexity", tc.Complexity); err != nil {
+		return err
+	}
+	if err := validateSeverityOrder("cognitive_complexity", tc.CognitiveComplexity); err != nil {
+		return err
+	}
+	if err := validateSeverityOrder("function_length", tc.FunctionLength); err != nil {
+		return err
+	}
+	if err := validateSeverityOrder("nesting_depth", tc.NestingDepth); err != nil {
+		return err
+	}
+	if err := validateSeverityOrder("parameter_count", tc.ParameterCount); err != nil {
+		return err
+	}
+	if err := validateSeverityOrder("churn", tc.Churn); err != nil {
+		return err
+	}
+	// Maintainability is inverted: critical <= warning <= info
+	mi := tc.MaintainabilityIndex
+	if mi.Critical > mi.Warning {
+		return fmt.Errorf("maintainability_index: critical (%d) must be <= warning (%d)", mi.Critical, mi.Warning)
+	}
+	if mi.Warning > mi.Info {
+		return fmt.Errorf("maintainability_index: warning (%d) must be <= info (%d)", mi.Warning, mi.Info)
+	}
+	return nil
+}
+
+func validateSeverityOrder(name string, thresholds SeverityThresholds) error {
+	if thresholds.Info > thresholds.Warning {
+		return fmt.Errorf("%s: info (%d) must be <= warning (%d)", name, thresholds.Info, thresholds.Warning)
+	}
+	if thresholds.Warning > thresholds.Critical {
+		return fmt.Errorf("%s: warning (%d) must be <= critical (%d)", name, thresholds.Warning, thresholds.Critical)
+	}
+	return nil
+}
+
+// applyDefaultThresholds fills in zero values with defaults from DefaultConfig
+func (tc *ThresholdConfig) applyDefaultThresholds() {
+	defaults := DefaultConfig().Thresholds
+	applySeverityDefaults(&tc.Complexity, defaults.Complexity)
+	applySeverityDefaults(&tc.CognitiveComplexity, defaults.CognitiveComplexity)
+	applySeverityDefaults(&tc.FunctionLength, defaults.FunctionLength)
+	applySeverityDefaults(&tc.NestingDepth, defaults.NestingDepth)
+	applySeverityDefaults(&tc.ParameterCount, defaults.ParameterCount)
+	applySeverityDefaults(&tc.Churn, defaults.Churn)
+	applyMaintainabilityDefaults(&tc.MaintainabilityIndex, defaults.MaintainabilityIndex)
+	applyGodFunctionDefaults(&tc.GodFunction, defaults.GodFunction)
+	applyHotspotDefaults(&tc.Hotspot, defaults.Hotspot)
+}
+
+func applySeverityDefaults(target *SeverityThresholds, defaults SeverityThresholds) {
+	if target.Info == 0 {
+		target.Info = defaults.Info
+	}
+	if target.Warning == 0 {
+		target.Warning = defaults.Warning
+	}
+	if target.Critical == 0 {
+		target.Critical = defaults.Critical
+	}
+}
+
+func applyMaintainabilityDefaults(target *MaintainabilityThresholds, defaults MaintainabilityThresholds) {
+	if target.Info == 0 {
+		target.Info = defaults.Info
+	}
+	if target.Warning == 0 {
+		target.Warning = defaults.Warning
+	}
+	if target.Critical == 0 {
+		target.Critical = defaults.Critical
+	}
+}
+
+func applyGodFunctionDefaults(target *GodFunctionThresholds, defaults GodFunctionThresholds) {
+	if target.MinParameters == 0 {
+		target.MinParameters = defaults.MinParameters
+	}
+	if target.MinFanIn == 0 {
+		target.MinFanIn = defaults.MinFanIn
+	}
+}
+
+func applyHotspotDefaults(target *HotspotThresholds, defaults HotspotThresholds) {
+	if target.MinComplexity == 0 {
+		target.MinComplexity = defaults.MinComplexity
+	}
+	if target.MinChurn == 0 {
+		target.MinChurn = defaults.MinChurn
+	}
 }
 
 // loadIgnoreFile loads ignore patterns from .kaizenignore file

@@ -1,6 +1,7 @@
 package reports
 
 import (
+	"github.com/alexcollie/kaizen/internal/config"
 	"github.com/alexcollie/kaizen/pkg/models"
 )
 
@@ -36,7 +37,7 @@ func WeightsWithoutChurn() ScoreWeights {
 }
 
 // GenerateScoreReport calculates the overall score report for an analysis result
-func GenerateScoreReport(result *models.AnalysisResult, hasChurnData bool) *models.ScoreReport {
+func GenerateScoreReport(result *models.AnalysisResult, hasChurnData bool, thresholds config.ThresholdConfig) *models.ScoreReport {
 	// Handle empty codebase
 	if result.Summary.TotalFunctions == 0 {
 		return createEmptyCodebaseReport()
@@ -47,10 +48,10 @@ func GenerateScoreReport(result *models.AnalysisResult, hasChurnData bool) *mode
 		weights = WeightsWithoutChurn()
 	}
 
-	componentScores := calculateComponentScores(result, hasChurnData, weights)
+	componentScores := calculateComponentScores(result, hasChurnData, weights, thresholds)
 	overallScore := calculateOverallScore(componentScores, weights)
 	overallGrade := CalculateGrade(overallScore)
-	concerns := DetectConcerns(result, hasChurnData)
+	concerns := DetectConcerns(result, hasChurnData, thresholds)
 
 	return &models.ScoreReport{
 		OverallGrade:    overallGrade,
@@ -86,12 +87,13 @@ func calculateComponentScores(
 	result *models.AnalysisResult,
 	hasChurnData bool,
 	weights ScoreWeights,
+	thresholds config.ThresholdConfig,
 ) models.ComponentScores {
 	complexityScore := calculateComplexityScore(result)
 	maintainabilityScore := calculateMaintainabilityScore(result)
 	churnScore := calculateChurnScore(result, hasChurnData)
 	functionSizeScore := calculateFunctionSizeScore(result)
-	codeStructureScore := calculateCodeStructureScore(result)
+	codeStructureScore := calculateCodeStructureScore(result, thresholds)
 
 	return models.ComponentScores{
 		Complexity: models.CategoryScore{
@@ -178,7 +180,7 @@ func calculateFunctionSizeScore(result *models.AnalysisResult) float64 {
 }
 
 // calculateCodeStructureScore: 100 - (highNestingPct * 40 + highParamPct * 30 + veryHighCCPct * 30)
-func calculateCodeStructureScore(result *models.AnalysisResult) float64 {
+func calculateCodeStructureScore(result *models.AnalysisResult, thresholds config.ThresholdConfig) float64 {
 	summary := result.Summary
 	if summary.TotalFunctions == 0 {
 		return 100
@@ -190,10 +192,10 @@ func calculateCodeStructureScore(result *models.AnalysisResult) float64 {
 
 	for _, file := range result.Files {
 		for _, function := range file.Functions {
-			if function.NestingDepth > 5 {
+			if function.NestingDepth > thresholds.NestingDepth.Warning {
 				highNestingCount++
 			}
-			if function.ParameterCount > 7 {
+			if function.ParameterCount > thresholds.ParameterCount.Warning {
 				highParamCount++
 			}
 		}

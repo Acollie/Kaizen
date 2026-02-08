@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alexcollie/kaizen/internal/config"
 	"github.com/alexcollie/kaizen/pkg/models"
 )
 
@@ -12,7 +13,7 @@ func TestDetectConcernsEmpty(t *testing.T) {
 		Files: []models.FileAnalysis{},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 	if len(concerns) != 0 {
 		t.Errorf("Empty result should have no concerns, got %d", len(concerns))
 	}
@@ -37,7 +38,7 @@ func TestDetectConcernsNoConcerns(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 	if len(concerns) != 0 {
 		t.Errorf("Clean code should have no concerns, got %d: %+v", len(concerns), concerns)
 	}
@@ -62,7 +63,7 @@ func TestDetectChurnComplexityHotspots(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, true)
+	concerns := DetectConcerns(result, true, config.DefaultConfig().Thresholds)
 
 	foundHotspot := false
 	for _, concern := range concerns {
@@ -101,7 +102,7 @@ func TestDetectHighChurnLongFunctions(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, true)
+	concerns := DetectConcerns(result, true, config.DefaultConfig().Thresholds)
 
 	foundLongChurn := false
 	for _, concern := range concerns {
@@ -134,7 +135,7 @@ func TestDetectLowMaintainabilityCritical(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 
 	foundMaintain := false
 	for _, concern := range concerns {
@@ -171,7 +172,7 @@ func TestDetectLowMaintainabilityWarning(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 
 	foundMaintain := false
 	for _, concern := range concerns {
@@ -201,7 +202,7 @@ func TestDetectDeepNestingWarning(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 
 	foundNesting := false
 	for _, concern := range concerns {
@@ -231,7 +232,7 @@ func TestDetectDeepNestingInfo(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 
 	foundNesting := false
 	for _, concern := range concerns {
@@ -261,7 +262,7 @@ func TestDetectTooManyParametersWarning(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 
 	foundParams := false
 	for _, concern := range concerns {
@@ -291,7 +292,7 @@ func TestDetectTooManyParametersInfo(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 
 	foundParams := false
 	for _, concern := range concerns {
@@ -322,7 +323,7 @@ func TestDetectGodFunctions(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 
 	foundGod := false
 	for _, concern := range concerns {
@@ -365,7 +366,7 @@ func TestConcernsSortedBySeverity(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, true)
+	concerns := DetectConcerns(result, true, config.DefaultConfig().Thresholds)
 
 	if len(concerns) == 0 {
 		t.Skip("No concerns detected")
@@ -442,7 +443,7 @@ func TestBuildMaintainabilityDescription(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			desc := buildMaintainabilityDescription(testCase.items, ThresholdLowMaintainability)
+			desc := buildMaintainabilityDescription(testCase.items, config.DefaultConfig().Thresholds.MaintainabilityIndex.Warning)
 			for _, expected := range testCase.contains {
 				if !strings.Contains(desc, expected) {
 					t.Errorf("Description should contain '%s', got: %s", expected, desc)
@@ -517,11 +518,58 @@ func TestNoChurnConcernsWithoutChurnData(t *testing.T) {
 		},
 	}
 
-	concerns := DetectConcerns(result, false)
+	concerns := DetectConcerns(result, false, config.DefaultConfig().Thresholds)
 
 	for _, concern := range concerns {
 		if concern.Type == "churn_complexity_hotspot" || concern.Type == "high_churn_long_function" {
 			t.Errorf("Should not detect churn-related concerns without churn data: %v", concern.Type)
 		}
+	}
+}
+
+func TestDetectConcernsWithCustomThresholds(t *testing.T) {
+	customThresholds := config.DefaultConfig().Thresholds
+	customThresholds.Hotspot.MinComplexity = 5
+	customThresholds.Hotspot.MinChurn = 5
+
+	churn := &models.ChurnMetric{TotalCommits: 7}
+
+	result := &models.AnalysisResult{
+		Files: []models.FileAnalysis{
+			{
+				Path: "test.go",
+				Functions: []models.FunctionAnalysis{
+					{
+						Name:                 "testFunc",
+						CyclomaticComplexity: 7, // Between 5 and default 10
+						Churn:                churn,
+					},
+				},
+			},
+		},
+	}
+
+	// With default thresholds (min_complexity=10, min_churn=10), no hotspot
+	defaultConcerns := DetectConcerns(result, true, config.DefaultConfig().Thresholds)
+	foundDefaultHotspot := false
+	for _, concern := range defaultConcerns {
+		if concern.Type == "churn_complexity_hotspot" {
+			foundDefaultHotspot = true
+		}
+	}
+	if foundDefaultHotspot {
+		t.Error("Should NOT detect hotspot with default thresholds")
+	}
+
+	// With custom lower thresholds, should detect hotspot
+	customConcerns := DetectConcerns(result, true, customThresholds)
+	foundCustomHotspot := false
+	for _, concern := range customConcerns {
+		if concern.Type == "churn_complexity_hotspot" {
+			foundCustomHotspot = true
+		}
+	}
+	if !foundCustomHotspot {
+		t.Error("Should detect hotspot with custom lower thresholds")
 	}
 }

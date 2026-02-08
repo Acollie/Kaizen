@@ -7,19 +7,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexcollie/kaizen/internal/config"
 	"github.com/alexcollie/kaizen/pkg/models"
 	"github.com/alexcollie/kaizen/pkg/reports"
 )
 
 // AnalysisOptions contains configuration for the analysis
 type AnalysisOptions struct {
-	RootPath          string
-	Since             time.Time
-	IncludeLanguages  []string
-	ExcludePatterns   []string
-	IncludeChurn      bool
-	MaxWorkers        int
-	ProgressCallback  func(file string, current int, total int)
+	RootPath         string
+	Since            time.Time
+	IncludeLanguages []string
+	ExcludePatterns  []string
+	IncludeChurn     bool
+	MaxWorkers       int
+	Thresholds       config.ThresholdConfig
+	ProgressCallback func(file string, current int, total int)
 }
 
 // Pipeline orchestrates the analysis process
@@ -95,7 +97,7 @@ func (pipeline *Pipeline) Analyze(options AnalysisOptions) (*models.AnalysisResu
 
 	// Generate score report
 	hasChurnData := options.IncludeChurn && pipeline.churnAnalyzer != nil
-	result.ScoreReport = reports.GenerateScoreReport(result, hasChurnData)
+	result.ScoreReport = reports.GenerateScoreReport(result, hasChurnData, options.Thresholds)
 
 	return result, nil
 }
@@ -210,12 +212,12 @@ func (pipeline *Pipeline) analyzeFile(filePath string, options AnalysisOptions) 
 		}
 	}
 
-	// Mark hotspots
+	// Mark hotspots using configurable thresholds
 	for index := range analysis.Functions {
 		function := &analysis.Functions[index]
 		if function.Churn != nil {
-			// Simple hotspot detection: high churn (>10 commits) + high complexity (>10)
-			if function.Churn.TotalCommits > 10 && function.CyclomaticComplexity > 10 {
+			if function.Churn.TotalCommits > options.Thresholds.Hotspot.MinChurn &&
+				function.CyclomaticComplexity > options.Thresholds.Hotspot.MinComplexity {
 				function.IsHotspot = true
 			}
 		}
