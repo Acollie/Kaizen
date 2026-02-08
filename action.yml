@@ -46,9 +46,6 @@ outputs:
   has-concerns:
     description: "Whether blast-radius concerns were found"
     value: ${{ steps.check-blast-radius.outputs.has-concerns }}
-  comment-body:
-    description: "The generated markdown comment body"
-    value: ${{ steps.generate-comment.outputs.comment-body }}
 
 runs:
   using: "composite"
@@ -166,13 +163,8 @@ runs:
         echo "score-delta=$SCORE_DELTA" >> "$GITHUB_OUTPUT"
         echo "grade=$GRADE" >> "$GITHUB_OUTPUT"
 
-        # Store comment body (handle multiline)
-        COMMENT_BODY=$(cat "$RUNNER_TEMP/kaizen-comment.md")
-        {
-          echo "comment-body<<KAIZEN_EOF"
-          echo "$COMMENT_BODY"
-          echo "KAIZEN_EOF"
-        } >> "$GITHUB_OUTPUT"
+        # Note: comment-body output removed to avoid argument list size limits
+        # The markdown is available in $RUNNER_TEMP/kaizen-comment.md
 
     - name: Post or update PR comment
       shell: bash
@@ -185,7 +177,6 @@ runs:
           exit 0
         fi
 
-        COMMENT_BODY=$(cat "$RUNNER_TEMP/kaizen-comment.md")
         MARKER="<!-- kaizen-pr-analysis -->"
 
         # Find existing comment by marker
@@ -195,13 +186,16 @@ runs:
           2>/dev/null | head -1)
 
         if [ -n "$EXISTING_COMMENT_ID" ]; then
+          # Update existing comment using JSON file to avoid arg list limits
+          jq -n --rawfile body "$RUNNER_TEMP/kaizen-comment.md" '{body: $body}' > "$RUNNER_TEMP/payload.json"
           gh api \
             "repos/${{ github.repository }}/issues/comments/${EXISTING_COMMENT_ID}" \
             --method PATCH \
-            --field body="$COMMENT_BODY"
+            --input "$RUNNER_TEMP/payload.json"
           echo "Updated existing comment #${EXISTING_COMMENT_ID}"
         else
-          gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
+          # Post new comment using --body-file to avoid arg list limits
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/kaizen-comment.md"
           echo "Posted new comment on PR #${PR_NUMBER}"
         fi
 
