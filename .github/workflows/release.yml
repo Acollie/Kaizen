@@ -47,23 +47,63 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.goarch == 'arm64'
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Build binary
+      - name: Build binary (Linux AMD64)
+        if: matrix.name == 'linux-amd64'
         env:
-          CGO_ENABLED: 1
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CC: ${{ matrix.goarch == 'arm64' && matrix.os == 'ubuntu-latest' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
+          CGO_ENABLED: "1"
+          GOOS: linux
+          GOARCH: amd64
+          CC: gcc
         run: |
           VERSION=${{ github.ref_name }}
           OUTPUT_NAME=kaizen-${VERSION}-${{ matrix.name }}
           go build -ldflags="-s -w -X github.com/alexcollie/kaizen/internal.Version=${VERSION}" \
             -o "${OUTPUT_NAME}" ./cmd/kaizen
-
-          # Create tarball
           tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}" README.md LICENSE CHANGELOG.md
-
-          # Generate checksum
           sha256sum "${OUTPUT_NAME}.tar.gz" > "${OUTPUT_NAME}.tar.gz.sha256"
+
+      - name: Build binary (Linux ARM64)
+        if: matrix.name == 'linux-arm64'
+        env:
+          CGO_ENABLED: "1"
+          GOOS: linux
+          GOARCH: arm64
+          CC: aarch64-linux-gnu-gcc
+        run: |
+          VERSION=${{ github.ref_name }}
+          OUTPUT_NAME=kaizen-${VERSION}-${{ matrix.name }}
+          go build -ldflags="-s -w -X github.com/alexcollie/kaizen/internal.Version=${VERSION}" \
+            -o "${OUTPUT_NAME}" ./cmd/kaizen
+          tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}" README.md LICENSE CHANGELOG.md
+          sha256sum "${OUTPUT_NAME}.tar.gz" > "${OUTPUT_NAME}.tar.gz.sha256"
+
+      - name: Build binary (Darwin AMD64)
+        if: matrix.name == 'darwin-amd64'
+        env:
+          CGO_ENABLED: "1"
+          GOOS: darwin
+          GOARCH: amd64
+        run: |
+          VERSION=${{ github.ref_name }}
+          OUTPUT_NAME=kaizen-${VERSION}-${{ matrix.name }}
+          go build -ldflags="-s -w -X github.com/alexcollie/kaizen/internal.Version=${VERSION}" \
+            -o "${OUTPUT_NAME}" ./cmd/kaizen
+          tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}" README.md LICENSE CHANGELOG.md
+          shasum -a 256 "${OUTPUT_NAME}.tar.gz" > "${OUTPUT_NAME}.tar.gz.sha256"
+
+      - name: Build binary (Darwin ARM64)
+        if: matrix.name == 'darwin-arm64'
+        env:
+          CGO_ENABLED: "1"
+          GOOS: darwin
+          GOARCH: arm64
+        run: |
+          VERSION=${{ github.ref_name }}
+          OUTPUT_NAME=kaizen-${VERSION}-${{ matrix.name }}
+          go build -ldflags="-s -w -X github.com/alexcollie/kaizen/internal.Version=${VERSION}" \
+            -o "${OUTPUT_NAME}" ./cmd/kaizen
+          tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}" README.md LICENSE CHANGELOG.md
+          shasum -a 256 "${OUTPUT_NAME}.tar.gz" > "${OUTPUT_NAME}.tar.gz.sha256"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
