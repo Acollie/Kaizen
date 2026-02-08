@@ -2,7 +2,7 @@
 
 [![Build Status](https://github.com/acollie/kaizen/workflows/CI/badge.svg)](https://github.com/acollie/kaizen/actions)
 [![codecov](https://codecov.io/github/Acollie/Kaizen/graph/badge.svg?token=9V3XZY7JAF)](https://codecov.io/github/Acollie/Kaizen)
-[![Go Report Card](https://goreportcard.com/badge/github.com/collie/kaizen)](https://goreportcard.com/report/github.com/acollie/kaizen)
+[![Go Report Card](https://goreportcard.com/badge/github.com/acollie/kaizen)](https://goreportcard.com/report/github.com/acollie/kaizen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/go-1.21%2B-blue)](https://golang.org/)
 [![Latest Release](https://img.shields.io/github/v/release/acollie/kaizen)](https://github.com/acollie/kaizen/releases)
@@ -66,8 +66,6 @@
 - **Time-Series Database** - SQLite storage for historical snapshots
 - **Trend Comparison** - View metric evolution with diff reporting
 - **Team Metrics** - Understand ownership patterns and dependencies
-
----
 
 ---
 
@@ -211,7 +209,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: acollie/kaizen@main
+      - uses: acollie/kaizen@v0.1.0-beta
         with:
           path: "."
           base-branch: main
@@ -259,7 +257,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: acollie/kaizen@main
+      - uses: acollie/kaizen@v0.1.0-beta
         id: kaizen
         with:
           path: "."
@@ -290,12 +288,24 @@ Each PR comment includes:
 
 The comment is updated in-place on each push to the PR, so there's never duplicate comments.
 
+### Pinning a Version
+
+Pin to a specific release tag for stability:
+
+```yaml
+      # Pin to a specific release (recommended)
+      - uses: acollie/kaizen@v0.1.0-beta
+
+      # Or track the latest on main (may include breaking changes)
+      - uses: acollie/kaizen@main
+```
+
 ### Using with a Custom Token
 
 The default `${{ github.token }}` works for most cases. If you need to trigger other workflows from the comment, use a Personal Access Token or GitHub App token:
 
 ```yaml
-      - uses: acollie/kaizen@main
+      - uses: acollie/kaizen@v0.1.0-beta
         with:
           github-token: ${{ secrets.KAIZEN_TOKEN }}
 ```
