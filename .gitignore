@@ -4,12 +4,22 @@
 *.so
 *.dylib
 
-# Test outputs
+# Test outputs and analysis results
 *-test*.html
 *-analysis.json
 kaizen-*.html
+kaizen-*.json
 test-sankey*.html
 final-sankey-test.html
+analysis.json
+final-analysis.json
+ownership-report.json
+trend-export.json
+*.json
+!go.mod
+!go.sum
+!package.json
+!tsconfig.json
 
 # Database
 .kaizen/
