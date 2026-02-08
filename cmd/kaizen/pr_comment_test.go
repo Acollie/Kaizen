@@ -16,7 +16,7 @@ func TestFormatDiffMarkdown_BasicOutput(t *testing.T) {
 	headResult := createTestAnalysisResult(82.0, "B", 4.8, 85.4, 3, 358, 52)
 
 	diff := CompareAnalyses(baseResult, headResult)
-	markdown := FormatDiffMarkdown(diff, headResult, nil, "")
+	markdown := FormatDiffMarkdown(diff, headResult, nil)
 
 	assertContains(t, markdown, "## Kaizen Code Analysis")
 	assertContains(t, markdown, "Grade B")
@@ -33,7 +33,7 @@ func TestFormatDiffMarkdown_ScoreDelta(t *testing.T) {
 	headResult := createTestAnalysisResult(82.0, "B", 4.8, 85.4, 3, 358, 52)
 
 	diff := CompareAnalyses(baseResult, headResult)
-	markdown := FormatDiffMarkdown(diff, headResult, nil, "")
+	markdown := FormatDiffMarkdown(diff, headResult, nil)
 
 	assertContains(t, markdown, "-2.3")
 }
@@ -45,7 +45,7 @@ func TestFormatDiffMarkdown_WithHotspotChanges(t *testing.T) {
 		[]hotspotEntry{{file: "pkg/b.go", function: "newHotspot"}})
 
 	diff := CompareAnalyses(baseResult, headResult)
-	markdown := FormatDiffMarkdown(diff, headResult, nil, "")
+	markdown := FormatDiffMarkdown(diff, headResult, nil)
 
 	assertContains(t, markdown, "### Hotspot Changes")
 	assertContains(t, markdown, ":x: New")
@@ -74,7 +74,7 @@ func TestFormatDiffMarkdown_WithBlastRadiusConcerns(t *testing.T) {
 	}
 
 	diff := CompareAnalyses(baseResult, headResult)
-	markdown := FormatDiffMarkdown(diff, headResult, concerns, "")
+	markdown := FormatDiffMarkdown(diff, headResult, concerns)
 
 	assertContains(t, markdown, "### Blast-Radius Warnings")
 	assertContains(t, markdown, "CompareAnalyses")
@@ -88,7 +88,7 @@ func TestFormatDiffMarkdown_NoConcernsOmitsSection(t *testing.T) {
 	headResult := createTestAnalysisResult(80.0, "B", 4.0, 85.0, 0, 100, 10)
 
 	diff := CompareAnalyses(baseResult, headResult)
-	markdown := FormatDiffMarkdown(diff, headResult, nil, "")
+	markdown := FormatDiffMarkdown(diff, headResult, nil)
 
 	if strings.Contains(markdown, "### Blast-Radius Warnings") {
 		t.Error("should not contain blast-radius section when no concerns")
@@ -103,7 +103,7 @@ func TestFormatDiffMarkdown_ContainsExplainer(t *testing.T) {
 	headResult := createTestAnalysisResult(80.0, "B", 4.0, 85.0, 0, 100, 10)
 
 	diff := CompareAnalyses(baseResult, headResult)
-	markdown := FormatDiffMarkdown(diff, headResult, nil, "")
+	markdown := FormatDiffMarkdown(diff, headResult, nil)
 
 	assertContains(t, markdown, "<details>")
 	assertContains(t, markdown, "What do these metrics mean?")
@@ -182,20 +182,6 @@ func TestLoadConcernsFromFile(t *testing.T) {
 	if loaded[0].Title != "Test concern" {
 		t.Errorf("expected title 'Test concern', got '%s'", loaded[0].Title)
 	}
-}
-
-func TestFormatDiffMarkdown_WithCallGraph(t *testing.T) {
-	baseResult := createTestAnalysisResult(80.0, "B", 4.0, 85.0, 0, 100, 10)
-	headResult := createTestAnalysisResult(78.0, "C", 5.0, 83.0, 0, 105, 11)
-
-	svgContent := `<svg width="100" height="100"><circle cx="50" cy="50" r="40"/></svg>`
-
-	diff := CompareAnalyses(baseResult, headResult)
-	markdown := FormatDiffMarkdown(diff, headResult, nil, svgContent)
-
-	assertContains(t, markdown, "### Call Graph of Changed Functions")
-	assertContains(t, markdown, "<details>")
-	assertContains(t, markdown, svgContent)
 }
 
 func TestDeltaArrow(t *testing.T) {

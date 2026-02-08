@@ -117,9 +117,17 @@ runs:
       run: |
         $RUNNER_TEMP/kaizen callgraph \
           --path="${{ inputs.path }}" \
-          --format=svg \
-          --output="$RUNNER_TEMP/kaizen-callgraph.svg" \
+          --format=html \
+          --output="$RUNNER_TEMP/kaizen-callgraph.html" \
           --min-calls=1 || true
+
+    - name: Upload call graph artifact
+      if: inputs.include-callgraph == 'true' && hashFiles('$RUNNER_TEMP/kaizen-callgraph.html') != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: kaizen-callgraph
+        path: ${{ runner.temp }}/kaizen-callgraph.html
+        retention-days: 90
 
     - name: Generate PR comment
       id: generate-comment
@@ -130,17 +138,26 @@ runs:
           CHECK_FLAG="--check-json=$RUNNER_TEMP/kaizen-check.json"
         fi
 
-        CALLGRAPH_FLAG=""
-        if [ -f "$RUNNER_TEMP/kaizen-callgraph.svg" ]; then
-          CALLGRAPH_FLAG="--callgraph-svg=$RUNNER_TEMP/kaizen-callgraph.svg"
+        CALLGRAPH_URL=""
+        if [ -f "$RUNNER_TEMP/kaizen-callgraph.html" ]; then
+          # Generate artifact URL for the call graph
+          CALLGRAPH_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         fi
 
         $RUNNER_TEMP/kaizen pr-comment \
           --base-analysis="$RUNNER_TEMP/kaizen-base.json" \
           --head-analysis="$RUNNER_TEMP/kaizen-head.json" \
           $CHECK_FLAG \
-          $CALLGRAPH_FLAG \
           --output="$RUNNER_TEMP/kaizen-comment.md"
+
+        # Append call graph link if generated
+        if [ -n "$CALLGRAPH_URL" ]; then
+          echo "" >> "$RUNNER_TEMP/kaizen-comment.md"
+          echo "### 🔗 Call Graph Visualization" >> "$RUNNER_TEMP/kaizen-comment.md"
+          echo "" >> "$RUNNER_TEMP/kaizen-comment.md"
+          echo "An interactive call graph has been generated for this PR. [View Call Graph Artifact]($CALLGRAPH_URL)" >> "$RUNNER_TEMP/kaizen-comment.md"
+          echo "" >> "$RUNNER_TEMP/kaizen-comment.md"
+        fi
 
         # Extract score delta and grade from head analysis for outputs
         SCORE_DELTA=$(python3 -c "

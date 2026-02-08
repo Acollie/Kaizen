@@ -11,11 +11,10 @@ import (
 )
 
 var (
-	prBaseAnalysis  string
-	prHeadAnalysis  string
-	prCheckJSON     string
-	prCallGraphSVG  string
-	prOutput        string
+	prBaseAnalysis string
+	prHeadAnalysis string
+	prCheckJSON    string
+	prOutput       string
 )
 
 var prCommentCmd = &cobra.Command{
@@ -36,7 +35,6 @@ func init() {
 	prCommentCmd.Flags().StringVar(&prBaseAnalysis, "base-analysis", "", "Path to baseline analysis JSON")
 	prCommentCmd.Flags().StringVar(&prHeadAnalysis, "head-analysis", "", "Path to current (PR head) analysis JSON")
 	prCommentCmd.Flags().StringVar(&prCheckJSON, "check-json", "", "Path to kaizen check --format=json output (optional)")
-	prCommentCmd.Flags().StringVar(&prCallGraphSVG, "callgraph-svg", "", "Path to call graph SVG file (optional)")
 	prCommentCmd.Flags().StringVarP(&prOutput, "output", "o", "", "Write markdown to file (default: stdout)")
 }
 
@@ -66,18 +64,8 @@ func runPRComment(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	var callGraphSVG string
-	if prCallGraphSVG != "" {
-		svgData, err := os.ReadFile(prCallGraphSVG)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not read call graph SVG: %v\n", err)
-		} else {
-			callGraphSVG = string(svgData)
-		}
-	}
-
 	diff := CompareAnalyses(baseResult, headResult)
-	markdown := FormatDiffMarkdown(diff, headResult, concerns, callGraphSVG)
+	markdown := FormatDiffMarkdown(diff, headResult, concerns)
 
 	if prOutput != "" {
 		err := os.WriteFile(prOutput, []byte(markdown), 0644)
@@ -119,14 +107,13 @@ func loadConcernsFromFile(path string) ([]models.Concern, error) {
 }
 
 // FormatDiffMarkdown generates a GitHub-flavored markdown comment from analysis diff
-func FormatDiffMarkdown(diff *AnalysisDiff, headResult *models.AnalysisResult, concerns []models.Concern, callGraphSVG string) string {
+func FormatDiffMarkdown(diff *AnalysisDiff, headResult *models.AnalysisResult, concerns []models.Concern) string {
 	var builder strings.Builder
 
 	writeHeader(&builder, headResult, diff)
 	writeMetricsTable(&builder, headResult, diff)
 	writeHotspotChanges(&builder, diff)
 	writeBlastRadiusWarnings(&builder, concerns)
-	writeCallGraph(&builder, callGraphSVG)
 	writeMetricsExplainer(&builder)
 	writeFooter(&builder)
 
@@ -240,17 +227,6 @@ func writeBlastRadiusWarnings(builder *strings.Builder, concerns []models.Concer
 	}
 
 	builder.WriteString("\n")
-}
-
-func writeCallGraph(builder *strings.Builder, callGraphSVG string) {
-	if callGraphSVG == "" {
-		return
-	}
-
-	builder.WriteString("### Call Graph of Changed Functions\n\n")
-	builder.WriteString("<details><summary>Click to expand call graph</summary>\n\n")
-	builder.WriteString(callGraphSVG)
-	builder.WriteString("\n\n</details>\n\n")
 }
 
 func writeMetricsExplainer(builder *strings.Builder) {
