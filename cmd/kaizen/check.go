@@ -45,7 +45,7 @@ func runCheck(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	if hunks == nil || len(hunks) == 0 {
+	if len(hunks) == 0 {
 		fmt.Println("No changes detected.")
 		os.Exit(0)
 	}
@@ -57,7 +57,7 @@ func runCheck(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	if changedFunctions == nil || len(changedFunctions) == 0 {
+	if len(changedFunctions) == 0 {
 		fmt.Println("No functions changed.")
 		os.Exit(0)
 	}
@@ -94,8 +94,8 @@ func outputBlastRadiusText(concerns []models.Concern, fanInResults []check.FanIn
 
 	// Create a table writer
 	tabWriter := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tabWriter, "FUNCTION\tFILE\tFAN-IN\tAPPROXIMATE\tSEVERITY")
-	fmt.Fprintln(tabWriter, "--------\t----\t------\t-----------\t--------")
+	_, _ = fmt.Fprintln(tabWriter, "FUNCTION\tFILE\tFAN-IN\tAPPROXIMATE\tSEVERITY")
+	_, _ = fmt.Fprintln(tabWriter, "--------\t----\t------\t-----------\t--------")
 
 	// Only print functions that are in the concerns (have blast-radius)
 	for _, concern := range concerns {
@@ -105,7 +105,7 @@ func outputBlastRadiusText(concerns []models.Concern, fanInResults []check.FanIn
 				approxStr = "yes"
 			}
 
-			fmt.Fprintf(tabWriter, "%s\t%s\t%.0f\t%s\t%s\n",
+			_, _ = fmt.Fprintf(tabWriter, "%s\t%s\t%.0f\t%s\t%s\n",
 				item.FunctionName,
 				item.FilePath,
 				item.Metrics["fan_in"],
@@ -114,7 +114,7 @@ func outputBlastRadiusText(concerns []models.Concern, fanInResults []check.FanIn
 		}
 	}
 
-	tabWriter.Flush()
+	_ = tabWriter.Flush()
 }
 
 // outputBlastRadiusJSON marshals concerns to JSON and prints to stdout

@@ -1,6 +1,7 @@
 package kotlin
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,8 +75,8 @@ func (kotlinAnalyzer *KotlinAnalyzer) AnalyzeFile(filePath string) (*models.File
 	// Parse with tree-sitter
 	parser := sitter.NewParser()
 	parser.SetLanguage(kotlinAnalyzer.language)
-	tree := parser.Parse(nil, sourceBytes)
-	if tree == nil {
+	tree, err := parser.ParseCtx(context.Background(), nil, sourceBytes)
+	if err != nil || tree == nil {
 		return nil, fmt.Errorf("failed to parse Kotlin file")
 	}
 	defer tree.Close()

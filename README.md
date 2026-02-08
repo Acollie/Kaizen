@@ -47,6 +47,14 @@
 - **Branch Diffing** - Compares current branch against a base branch (default: main)
 - **Text or JSON Output** - Machine-readable format for pipeline integration
 
+### 🤖 GitHub PR Analysis Action
+- **Automatic PR Comments** - Posts a code quality summary on every pull request
+- **Score Delta** - See exactly how your changes affect the overall health grade
+- **Hotspot Tracking** - New, fixed, and persistent hotspots highlighted
+- **Blast-Radius Warnings** - Flags high fan-in functions modified in the PR
+- **Call Graph of Changes** - Optional SVG call graph filtered to changed functions
+- **Idempotent Updates** - Comment is updated on each push, never duplicated
+
 ### 🔗 Call Graph Analysis
 - **Function Call Graph** - Interactive D3.js force-directed graph showing who calls whom
 - **Fan-In / Fan-Out** - Identify heavily-depended-on functions and coupling
@@ -66,7 +74,7 @@
 ## ✅ Quality Assurance
 
 ### Test Coverage
-All code changes are tested across multiple Go versions (1.21, 1.22, 1.23) and operating systems (Linux, macOS, Windows):
+All code changes are tested across multiple Go versions (1.21, 1.22, 1.23) on Linux:
 
 - **Unit Tests**: 50+ test files covering analyzers, metrics, and language parsers
 - **Integration Tests**: End-to-end analysis and visualization pipeline validation
@@ -174,6 +182,123 @@ kaizen history list
 ```
 
 **→ See [Usage Guide](./GUIDE.md) for detailed examples**
+
+---
+
+## 🤖 GitHub Action — PR Analysis
+
+Kaizen ships as a reusable GitHub Action that automatically posts a code quality comment on every pull request. Add it to any repository to get score deltas, hotspot tracking, blast-radius warnings, and optional call graph visualizations on every PR.
+
+### Quick Setup
+
+Create `.github/workflows/kaizen.yml` in your repository:
+
+```yaml
+name: Kaizen PR Analysis
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  kaizen:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: acollie/kaizen@main
+        with:
+          path: "."
+          base-branch: main
+```
+
+That's it. Every PR will now receive a comment showing score changes, complexity metrics, and hotspot status.
+
+### Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `path` | Directory to analyze | `.` |
+| `base-branch` | Branch to compare against | `main` |
+| `skip-churn` | Skip git churn analysis for faster runs | `true` |
+| `github-token` | GitHub token for posting PR comments | `${{ github.token }}` |
+| `fail-on-regression` | Fail the action if the score drops | `false` |
+| `languages` | Comma-separated list of languages to include | all |
+| `include-callgraph` | Include SVG call graph of changed functions (Go only) | `false` |
+
+### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `score-delta` | Numeric score change between base and head |
+| `grade` | Current grade letter (A-F) |
+| `has-concerns` | Whether blast-radius concerns were found |
+
+### Full Example with All Options
+
+```yaml
+name: Kaizen PR Analysis
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  kaizen:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: acollie/kaizen@main
+        id: kaizen
+        with:
+          path: "."
+          base-branch: main
+          skip-churn: "true"
+          fail-on-regression: "true"
+          languages: "go,kotlin"
+          include-callgraph: "true"
+
+      # Use outputs in subsequent steps
+      - name: Check results
+        run: |
+          echo "Score delta: ${{ steps.kaizen.outputs.score-delta }}"
+          echo "Grade: ${{ steps.kaizen.outputs.grade }}"
+          echo "Has concerns: ${{ steps.kaizen.outputs.has-concerns }}"
+```
+
+### What the PR Comment Shows
+
+Each PR comment includes:
+
+- **Grade and Score** — Overall health grade (A-F) with numeric score out of 100
+- **Score Delta** — How much the score changed compared to the base branch
+- **Metrics Table** — Overall score, average complexity, maintainability, hotspot count, and function count with deltas
+- **Hotspot Changes** — New hotspots introduced, hotspots fixed, and persistent hotspots
+- **Blast-Radius Warnings** — Functions with high fan-in (many callers) that were modified
+- **Call Graph** (optional) — SVG artifact showing changed functions and their callers/callees
+
+The comment is updated in-place on each push to the PR, so there's never duplicate comments.
+
+### Using with a Custom Token
+
+The default `${{ github.token }}` works for most cases. If you need to trigger other workflows from the comment, use a Personal Access Token or GitHub App token:
+
+```yaml
+      - uses: acollie/kaizen@main
+        with:
+          github-token: ${{ secrets.KAIZEN_TOKEN }}
+```
 
 ---
 
@@ -303,6 +428,7 @@ Score Trend (30 days):
 | `kaizen visualize` | Generate interactive heatmaps (HTML, SVG, or terminal) |
 | `kaizen check` | CI quality gate — warn on high blast-radius function changes |
 | `kaizen callgraph` | Generate interactive function call graph (D3.js force-directed) |
+| `kaizen pr-comment` | Generate a GitHub PR comment from base vs head analysis comparison |
 | `kaizen sankey` | Generate Sankey diagram of code ownership flow |
 | `kaizen diff` | Compare current analysis with previous snapshot |
 | `kaizen trend` | Visualize metric trends over time (ASCII, HTML, or JSON) |
@@ -421,7 +547,7 @@ Built with:
 
 ### Planned Features
 - [x] 📊 Web dashboard for team health monitoring
-- [ ] 🔌 GitHub/GitLab integration (automatic PR comments)
+- [x] 🔌 GitHub integration (automatic PR comments via reusable Action)
 - [ ] 📈 Advanced trend prediction
 - [ ] 🐍 Complete Python analyzer
 - [ ] 🦀 Rust analyzer

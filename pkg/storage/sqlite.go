@@ -137,7 +137,7 @@ func (backend *SQLiteBackend) insertRepositoryMetrics(snapshotID int64, result *
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	metrics := map[string]float64{
 		"overall_score":                 0,
@@ -175,7 +175,7 @@ func (backend *SQLiteBackend) insertFolderMetrics(snapshotID int64, result *mode
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	folderMetricNames := []string{
 		"complexity_score",
@@ -224,7 +224,7 @@ func (backend *SQLiteBackend) insertFunctionHistory(snapshotID int64, result *mo
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, fileAnalysis := range result.Files {
 		for _, funcAnalysis := range fileAnalysis.Functions {
@@ -370,7 +370,7 @@ func (backend *SQLiteBackend) GetRange(start, end time.Time, limit int) ([]Snaps
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshots: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var summaries []SnapshotSummary
 	for rows.Next() {
@@ -417,7 +417,7 @@ func (backend *SQLiteBackend) GetTimeSeries(metricName, scopePath string, start,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var points []TimeSeriesPoint
 	for rows.Next() {
@@ -496,7 +496,7 @@ func (backend *SQLiteBackend) ListSnapshots(limit int) ([]SnapshotSummary, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshots: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var summaries []SnapshotSummary
 	for rows.Next() {
@@ -586,7 +586,7 @@ func (backend *SQLiteBackend) SaveOwnershipData(snapshotID int64, fileOwnership 
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for filePath, owners := range fileOwnership {
 		for _, owner := range owners {
@@ -608,7 +608,7 @@ func (backend *SQLiteBackend) SaveOwnershipData(snapshotID int64, fileOwnership 
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, metric := range ownerMetrics {
 		_, err := stmt.Exec(
@@ -639,7 +639,7 @@ func (backend *SQLiteBackend) GetOwnerMetrics(snapshotID int64) ([]OwnerMetric, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var metrics []OwnerMetric
 	for rows.Next() {
@@ -671,7 +671,7 @@ func (backend *SQLiteBackend) GetFileOwnership(snapshotID int64) (map[string][]s
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	ownership := make(map[string][]string)
 	for rows.Next() {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/alexcollie/kaizen/internal/config"
 	"github.com/alexcollie/kaizen/pkg/analyzer"
+	"github.com/alexcollie/kaizen/pkg/check"
 	"github.com/alexcollie/kaizen/pkg/churn"
 	"github.com/alexcollie/kaizen/pkg/languages"
 	"github.com/alexcollie/kaizen/pkg/languages/golang"
@@ -39,7 +40,6 @@ var (
 	topLimit     int
 	outputFormat string
 	htmlOutput   string
-	svgOutput    string
 	svgWidth     int
 	svgHeight    int
 	openBrowser  bool
@@ -55,7 +55,6 @@ var (
 	trendOpen    bool
 
 	// Report flags
-	reportSnapshotID int64
 	reportFormat     string
 	reportOutput     string
 	reportOpen       bool
@@ -65,6 +64,7 @@ var (
 	callgraphPath   string
 	callgraphOutput string
 	callgraphFormat string
+	callgraphBase   string
 	saveJSON        bool
 	minCalls        int
 
@@ -212,6 +212,7 @@ func init() {
 	rootCmd.AddCommand(reportCmd)
 	rootCmd.AddCommand(diffCmd)
 	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(prCommentCmd)
 
 	// Report subcommands
 	reportOwnersCmd := &cobra.Command{
@@ -286,6 +287,7 @@ func init() {
 	callgraphCmd.Flags().BoolVar(&openBrowser, "open", true, "Open HTML in browser automatically")
 	callgraphCmd.Flags().BoolVar(&saveJSON, "save-json", false, "Also save call graph data as JSON")
 	callgraphCmd.Flags().IntVar(&minCalls, "min-calls", 0, "Minimum call count to include a function (filters noise)")
+	callgraphCmd.Flags().StringVarP(&callgraphBase, "base", "b", "", "Base branch to diff against (filters to changed functions only)")
 
 	// Sankey flags
 	sankeyCmd.Flags().StringVarP(&sankeyInput, "input", "i", "kaizen-results.json", "Input analysis file")
@@ -413,7 +415,7 @@ func runAnalyze(cmd *cobra.Command, args []string) {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not create storage backend: %v\n", err)
 		} else {
-			defer storageBackend.Close()
+			defer func() { _ = storageBackend.Close() }()
 
 			// Save to database
 			metadata := storage.SnapshotMetadata{
@@ -881,7 +883,7 @@ func runReportOwners(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Get snapshot
 	var snapshot *models.AnalysisResult
@@ -1003,7 +1005,7 @@ func runHistoryList(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Get snapshots
 	snapshots, err := backend.ListSnapshots(historyLimit)
@@ -1078,7 +1080,7 @@ func runHistoryShow(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Get snapshot
 	summary, err := backend.GetByIDSummary(snapshotID)
@@ -1130,7 +1132,7 @@ func runHistoryPrune(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Prune old snapshots
 	deleted, err := backend.Prune(historyLimit)
@@ -1167,7 +1169,7 @@ func runTrend(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Calculate time range
 	endTime := time.Now()
@@ -1282,6 +1284,11 @@ func runCallGraph(cmd *cobra.Command, args []string) {
 	fmt.Printf("✅ Call graph analysis complete!\n\n")
 	printCallGraphSummary(graph)
 
+	// Filter to changed functions when --base is provided
+	if callgraphBase != "" {
+		graph = filterGraphByDiff(graph, callgraphPath, callgraphBase)
+	}
+
 	// Apply min-calls filter if specified
 	if minCalls > 0 {
 		originalCount := len(graph.Nodes)
@@ -1339,6 +1346,74 @@ func printCallGraphSummary(graph *models.CallGraph) {
 	fmt.Printf("  Max fan-in:         %d (%s)\n", graph.Stats.MaxFanIn, graph.Stats.MostCalledFunc)
 	fmt.Printf("  Max fan-out:        %d\n", graph.Stats.MaxFanOut)
 	fmt.Printf("  Unreachable funcs:  %d\n\n", graph.Stats.UnreachableFuncs)
+}
+
+// filterGraphByDiff uses git diff to find changed functions, then filters the
+// call graph to only include those functions and their immediate callers/callees.
+func filterGraphByDiff(graph *models.CallGraph, repoPath, baseBranch string) *models.CallGraph {
+	diffOutput, err := check.RunGitDiff(repoPath, baseBranch)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not run git diff: %v\n", err)
+		return graph
+	}
+
+	hunks, err := check.ParseDiffOutput(diffOutput)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not parse diff: %v\n", err)
+		return graph
+	}
+
+	if len(hunks) == 0 {
+		fmt.Printf("No changed hunks found, showing full call graph\n\n")
+		return graph
+	}
+
+	changedFunctions, err := check.MapHunksToFunctions(hunks, repoPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not map hunks to functions: %v\n", err)
+		return graph
+	}
+
+	if len(changedFunctions) == 0 {
+		fmt.Printf("No changed functions found in diff, showing full call graph\n\n")
+		return graph
+	}
+
+	// Build full names matching the call graph node keys (package.Function or package.Receiver.Function)
+	fullNames := buildFullNamesFromChangedFunctions(changedFunctions, graph)
+
+	originalCount := len(graph.Nodes)
+	filtered := graph.FilterByFunctionNames(fullNames)
+	fmt.Printf("🔍 Filtered to %d changed functions (+ callers/callees)\n", len(changedFunctions))
+	fmt.Printf("   %d → %d functions\n\n", originalCount, len(filtered.Nodes))
+	return filtered
+}
+
+// buildFullNamesFromChangedFunctions matches ChangedFunction entries to call graph node keys.
+// It tries exact package.Function matching, and falls back to name-only matching.
+func buildFullNamesFromChangedFunctions(changedFunctions []check.ChangedFunction, graph *models.CallGraph) []string {
+	var fullNames []string
+	matched := make(map[string]bool)
+
+	for _, changedFunc := range changedFunctions {
+		// Try to find matching node by file path and function name
+		for fullName, node := range graph.Nodes {
+			if matched[fullName] {
+				continue
+			}
+			// Match by file suffix (diff paths are repo-relative, node.File may be absolute)
+			if !strings.HasSuffix(node.File, changedFunc.FilePath) {
+				continue
+			}
+			// Match function name
+			if node.Name == changedFunc.Name {
+				fullNames = append(fullNames, fullName)
+				matched[fullName] = true
+			}
+		}
+	}
+
+	return fullNames
 }
 
 func generateCallGraphHTML(graph *models.CallGraph) {
@@ -1544,7 +1619,7 @@ func runDiff(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: could not open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Get the last snapshot for comparison
 	lastSnapshot, err := backend.GetLatest()

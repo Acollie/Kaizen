@@ -305,9 +305,10 @@ func calculateSankeyStats(
 	functionCount := 0
 
 	for _, node := range nodes {
-		if node.Type == "owner" {
+		switch node.Type {
+		case "owner":
 			ownerCount++
-		} else if node.Type == "function" {
+		case "function":
 			functionCount++
 		}
 	}

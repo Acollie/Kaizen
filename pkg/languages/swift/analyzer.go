@@ -1,6 +1,7 @@
 package swift
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,8 +75,8 @@ func (swiftAnalyzer *SwiftAnalyzer) AnalyzeFile(filePath string) (*models.FileAn
 	// Parse with tree-sitter
 	parser := sitter.NewParser()
 	parser.SetLanguage(swiftAnalyzer.language)
-	tree := parser.Parse(nil, sourceBytes)
-	if tree == nil {
+	tree, err := parser.ParseCtx(context.Background(), nil, sourceBytes)
+	if err != nil || tree == nil {
 		return nil, fmt.Errorf("failed to parse Swift file")
 	}
 	defer tree.Close()

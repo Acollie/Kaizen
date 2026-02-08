@@ -9,10 +9,9 @@ on:
 jobs:
   test:
     name: Test
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         go: ['1.21', '1.22', '1.23']
     steps:
       - name: Checkout code
@@ -31,11 +30,11 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Generate coverage report
-        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.23'
+        if: matrix.go == '1.23'
         run: go tool cover -html=coverage.out -o coverage.html
 
       - name: Upload coverage to codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.23'
+        if: matrix.go == '1.23'
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.out
@@ -44,7 +43,7 @@ jobs:
           verbose: true
 
       - name: Report coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.23' && github.event_name == 'pull_request'
+        if: matrix.go == '1.23' && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
@@ -69,10 +68,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -84,13 +80,13 @@ jobs:
           cache: true
 
       - name: Build binary
-        run: go build -v -o kaizen${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./cmd/kaizen
+        run: go build -v -o kaizen ./cmd/kaizen
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kaizen-${{ matrix.os }}
-          path: kaizen${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          name: kaizen-linux
+          path: kaizen
 
   lint:
     name: Lint
