@@ -70,7 +70,7 @@ func renderChart(metricName, scopePath string, points []storage.TimeSeriesPoint,
 	for row := height - 1; row >= 0; row-- {
 		// Y-axis label
 		yValue := minVal + (float64(row)/float64(height-1))*valueRange
-		output.WriteString(fmt.Sprintf("%7.1f │ ", yValue))
+		fmt.Fprintf(&output, "%7.1f │ ", yValue)
 
 		// Chart line
 		for col := 0; col < len(normalized); col++ {
@@ -95,7 +95,7 @@ func renderChart(metricName, scopePath string, points []storage.TimeSeriesPoint,
 	if len(points) > 0 {
 		startTime := points[0].Timestamp.Format("Jan 02")
 		endTime := points[len(points)-1].Timestamp.Format("Jan 02")
-		output.WriteString(fmt.Sprintf("         %s to %s (%d snapshots)\n", startTime, endTime, len(points)))
+		fmt.Fprintf(&output, "         %s to %s (%d snapshots)\n", startTime, endTime, len(points))
 	}
 
 	// Statistics
@@ -198,13 +198,13 @@ func RenderComparisonTable(snapshot1, snapshot2 *storage.SnapshotSummary) string
 	}
 
 	// Render table
-	output.WriteString(fmt.Sprintf("%-35s │ %-25s │ %-25s\n", "Metric", "Snapshot 1", "Snapshot 2"))
+	fmt.Fprintf(&output, "%-35s │ %-25s │ %-25s\n", "Metric", "Snapshot 1", "Snapshot 2")
 	output.WriteString("─────────────────────────────────────┼──────────────────────────┼──────────────────────────\n")
 
 	for _, row := range rows {
 		val1Str := fmt.Sprintf("%v", row.val1)
 		val2Str := fmt.Sprintf("%v", row.val2)
-		output.WriteString(fmt.Sprintf("%-35s │ %-25s │ %-25s\n", row.label, val1Str, val2Str))
+		fmt.Fprintf(&output, "%-35s │ %-25s │ %-25s\n", row.label, val1Str, val2Str)
 	}
 
 	return output.String()

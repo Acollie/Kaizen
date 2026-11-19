@@ -127,9 +127,9 @@ func FormatDiffReport(diff *AnalysisDiff, showTeams bool) string {
 
 	// Time comparison
 	sb.WriteString("📅 Analysis Timeline\n")
-	sb.WriteString(fmt.Sprintf("Previous: %s\n", diff.PreviousTimestamp.Format("2006-01-02 15:04:05")))
-	sb.WriteString(fmt.Sprintf("Current:  %s\n", diff.CurrentTimestamp.Format("2006-01-02 15:04:05")))
-	sb.WriteString(fmt.Sprintf("Delta:    %v\n\n", diff.CurrentTimestamp.Sub(diff.PreviousTimestamp)))
+	fmt.Fprintf(&sb, "Previous: %s\n", diff.PreviousTimestamp.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&sb, "Current:  %s\n", diff.CurrentTimestamp.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&sb, "Delta:    %v\n\n", diff.CurrentTimestamp.Sub(diff.PreviousTimestamp))
 
 	// Overall metrics
 	sb.WriteString("📈 Overall Metrics\n")
@@ -143,7 +143,7 @@ func FormatDiffReport(diff *AnalysisDiff, showTeams bool) string {
 	} else {
 		scoreStr = scoreStr + " ➡️"
 	}
-	sb.WriteString(fmt.Sprintf("Overall Score:        %s\n", scoreStr))
+	fmt.Fprintf(&sb, "Overall Score:        %s\n", scoreStr)
 
 	complexityStr := fmt.Sprintf("%.2f", diff.GlobalMetrics.ComplexityDelta)
 	if diff.GlobalMetrics.ComplexityDelta < 0 {
@@ -153,7 +153,7 @@ func FormatDiffReport(diff *AnalysisDiff, showTeams bool) string {
 	} else {
 		complexityStr = complexityStr + " ➡️"
 	}
-	sb.WriteString(fmt.Sprintf("Avg Complexity:       %s\n", complexityStr))
+	fmt.Fprintf(&sb, "Avg Complexity:       %s\n", complexityStr)
 
 	maintStr := fmt.Sprintf("%.1f", diff.GlobalMetrics.MaintainabilityDelta)
 	if diff.GlobalMetrics.MaintainabilityDelta > 0 {
@@ -163,13 +163,13 @@ func FormatDiffReport(diff *AnalysisDiff, showTeams bool) string {
 	} else {
 		maintStr = maintStr + " ➡️"
 	}
-	sb.WriteString(fmt.Sprintf("Avg Maintainability: %s\n", maintStr))
+	fmt.Fprintf(&sb, "Avg Maintainability: %s\n", maintStr)
 
 	filesStr := fmt.Sprintf("%+d", diff.GlobalMetrics.FileCountDelta)
-	sb.WriteString(fmt.Sprintf("Files:                %s\n", filesStr))
+	fmt.Fprintf(&sb, "Files:                %s\n", filesStr)
 
 	functionsStr := fmt.Sprintf("%+d", diff.GlobalMetrics.FunctionCountDelta)
-	sb.WriteString(fmt.Sprintf("Functions:            %s\n", functionsStr))
+	fmt.Fprintf(&sb, "Functions:            %s\n", functionsStr)
 
 	hotspotsStr := fmt.Sprintf("%+d", diff.GlobalMetrics.HotspotCountDelta)
 	if diff.GlobalMetrics.HotspotCountDelta < 0 {
@@ -177,35 +177,35 @@ func FormatDiffReport(diff *AnalysisDiff, showTeams bool) string {
 	} else if diff.GlobalMetrics.HotspotCountDelta > 0 {
 		hotspotsStr = hotspotsStr + " ⬆️ (worsened)"
 	}
-	sb.WriteString(fmt.Sprintf("Hotspots:             %s\n", hotspotsStr))
+	fmt.Fprintf(&sb, "Hotspots:             %s\n", hotspotsStr)
 
 	// Hotspot changes
 	sb.WriteString("\n🔥 Hotspot Changes\n")
 	sb.WriteString("─────────────────────────────────────────────────────────────────\n")
 
 	if len(diff.HotspotChanges.New) > 0 {
-		sb.WriteString(fmt.Sprintf("❌ New Hotspots (%d):\n", len(diff.HotspotChanges.New)))
+		fmt.Fprintf(&sb, "❌ New Hotspots (%d):\n", len(diff.HotspotChanges.New))
 		for _, spot := range diff.HotspotChanges.New {
-			sb.WriteString(fmt.Sprintf("  - %s\n", spot))
+			fmt.Fprintf(&sb, "  - %s\n", spot)
 		}
 	}
 
 	if len(diff.HotspotChanges.Removed) > 0 {
-		sb.WriteString(fmt.Sprintf("✅ Fixed Hotspots (%d):\n", len(diff.HotspotChanges.Removed)))
+		fmt.Fprintf(&sb, "✅ Fixed Hotspots (%d):\n", len(diff.HotspotChanges.Removed))
 		for _, spot := range diff.HotspotChanges.Removed {
-			sb.WriteString(fmt.Sprintf("  - %s\n", spot))
+			fmt.Fprintf(&sb, "  - %s\n", spot)
 		}
 	}
 
 	if len(diff.HotspotChanges.Persistent) > 0 {
-		sb.WriteString(fmt.Sprintf("⚠️  Persistent Hotspots (%d):\n", len(diff.HotspotChanges.Persistent)))
+		fmt.Fprintf(&sb, "⚠️  Persistent Hotspots (%d):\n", len(diff.HotspotChanges.Persistent))
 		for i, spot := range diff.HotspotChanges.Persistent {
 			if i < 10 { // Show first 10
-				sb.WriteString(fmt.Sprintf("  - %s\n", spot))
+				fmt.Fprintf(&sb, "  - %s\n", spot)
 			}
 		}
 		if len(diff.HotspotChanges.Persistent) > 10 {
-			sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(diff.HotspotChanges.Persistent)-10))
+			fmt.Fprintf(&sb, "  ... and %d more\n", len(diff.HotspotChanges.Persistent)-10)
 		}
 	}
 
