@@ -1351,40 +1351,13 @@ func filterGraphByDiff(graph *models.CallGraph, repoPath, baseBranch string) *mo
 	}
 
 	// Build full names matching the call graph node keys (package.Function or package.Receiver.Function)
-	fullNames := buildFullNamesFromChangedFunctions(changedFunctions, graph)
+	fullNames := check.MatchCallGraphNames(changedFunctions, graph, repoPath)
 
 	originalCount := len(graph.Nodes)
 	filtered := graph.FilterByFunctionNames(fullNames)
 	fmt.Printf("🔍 Filtered to %d changed functions (+ callers/callees)\n", len(changedFunctions))
 	fmt.Printf("   %d → %d functions\n\n", originalCount, len(filtered.Nodes))
 	return filtered
-}
-
-// buildFullNamesFromChangedFunctions matches ChangedFunction entries to call graph node keys.
-// It tries exact package.Function matching, and falls back to name-only matching.
-func buildFullNamesFromChangedFunctions(changedFunctions []check.ChangedFunction, graph *models.CallGraph) []string {
-	var fullNames []string
-	matched := make(map[string]bool)
-
-	for _, changedFunc := range changedFunctions {
-		// Try to find matching node by file path and function name
-		for fullName, node := range graph.Nodes {
-			if matched[fullName] {
-				continue
-			}
-			// Match by file suffix (diff paths are repo-relative, node.File may be absolute)
-			if !strings.HasSuffix(node.File, changedFunc.FilePath) {
-				continue
-			}
-			// Match function name
-			if node.Name == changedFunc.Name {
-				fullNames = append(fullNames, fullName)
-				matched[fullName] = true
-			}
-		}
-	}
-
-	return fullNames
 }
 
 func generateCallGraphHTML(graph *models.CallGraph) {

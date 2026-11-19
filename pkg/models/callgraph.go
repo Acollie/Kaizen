@@ -1,10 +1,24 @@
 package models
 
+import "sync"
+
 // CallGraph represents the function call relationships in a codebase
 type CallGraph struct {
 	Nodes map[string]*CallNode `json:"nodes"` // Key is function full name
 	Edges []CallEdge           `json:"edges"`
 	Stats CallGraphStats       `json:"stats"`
+
+	// edgeIndex is a lazily built lookup from node full name to edge positions.
+	// It is rebuilt whenever the number of edges changes.
+	indexMutex sync.Mutex
+	edgeIndex  *callEdgeIndex
+}
+
+// callEdgeIndex maps a function full name to the positions of its edges in CallGraph.Edges
+type callEdgeIndex struct {
+	edgeCount    int
+	incomingByTo map[string][]int
+	outgoingFrom map[string][]int
 }
 
 // CallNode represents a function in the call graph
@@ -203,4 +217,54 @@ func (graph *CallGraph) CalculateStats() {
 	if len(graph.Nodes) > 0 {
 		graph.Stats.AvgCallsPerFunc = float64(totalCalls) / float64(len(graph.Nodes))
 	}
+}
+
+// Callers returns the edges whose callee is fullName (who calls this function).
+// The result is a copy and safe to modify; the order follows CallGraph.Edges.
+func (graph *CallGraph) Callers(fullName string) []CallEdge {
+	index := graph.currentEdgeIndex()
+	return graph.edgesAt(index.incomingByTo[fullName])
+}
+
+// Callees returns the edges whose caller is fullName (what this function calls).
+// The result is a copy and safe to modify; the order follows CallGraph.Edges.
+func (graph *CallGraph) Callees(fullName string) []CallEdge {
+	index := graph.currentEdgeIndex()
+	return graph.edgesAt(index.outgoingFrom[fullName])
+}
+
+// currentEdgeIndex returns the edge index, rebuilding it if edges were added since it was built
+func (graph *CallGraph) currentEdgeIndex() *callEdgeIndex {
+	graph.indexMutex.Lock()
+	defer graph.indexMutex.Unlock()
+
+	if graph.edgeIndex != nil && graph.edgeIndex.edgeCount == len(graph.Edges) {
+		return graph.edgeIndex
+	}
+
+	index := &callEdgeIndex{
+		edgeCount:    len(graph.Edges),
+		incomingByTo: make(map[string][]int),
+		outgoingFrom: make(map[string][]int),
+	}
+	for position, edge := range graph.Edges {
+		index.incomingByTo[edge.To] = append(index.incomingByTo[edge.To], position)
+		index.outgoingFrom[edge.From] = append(index.outgoingFrom[edge.From], position)
+	}
+
+	graph.edgeIndex = index
+	return index
+}
+
+// edgesAt copies the edges at the given positions
+func (graph *CallGraph) edgesAt(positions []int) []CallEdge {
+	if len(positions) == 0 {
+		return nil
+	}
+
+	edges := make([]CallEdge, 0, len(positions))
+	for _, position := range positions {
+		edges = append(edges, graph.Edges[position])
+	}
+	return edges
 }
