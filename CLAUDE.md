@@ -486,7 +486,7 @@ Churn analysis requires:
 
 **CI/CD**: GitHub Actions runs on every PR
 - Multi-platform (Linux, macOS, Windows)
-- Multi-version (Go 1.21, 1.22, 1.23)
+- Multi-version (Go 1.25, 1.26)
 - Linting with `golangci-lint`
 - Coverage uploaded to codecov
 

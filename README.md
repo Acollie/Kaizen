@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/github/Acollie/Kaizen/graph/badge.svg?token=9V3XZY7JAF)](https://codecov.io/github/Acollie/Kaizen)
 [![Go Report Card](https://goreportcard.com/badge/github.com/acollie/kaizen)](https://goreportcard.com/report/github.com/acollie/kaizen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/go-1.21%2B-blue)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/go-1.25%2B-blue)](https://golang.org/)
 [![Latest Release](https://img.shields.io/github/v/release/acollie/kaizen)](https://github.com/acollie/kaizen/releases)
 
 **Continuous improvement starts with visibility.** Kaizen analyzes code quality, complexity, and churn to identify technical debt and hotspots in your codebase. It generates health grades, actionable concerns, and interactive visualizations.
@@ -367,7 +367,7 @@ We welcome contributions! See [CONTRIBUTING.md](./CONTRIBUTING.md) for code styl
 
 ## ✅ Quality Assurance
 
-All code changes are tested across Go versions 1.21, 1.22, and 1.23 on Linux:
+All code changes are tested across Go versions 1.25 and 1.26 on Linux:
 
 - 🧪 **Unit Tests**: 50+ test files covering analyzers, metrics, and language parsers
 - 🔗 **Integration Tests**: end-to-end analysis and visualization pipeline validation
@@ -380,7 +380,7 @@ All code changes are tested across Go versions 1.21, 1.22, and 1.23 on Linux:
 
 ## 📋 Requirements
 
-- 🐹 **Go 1.21+**
+- 🐹 **Go 1.25+**
 - 🔀 **Git** (optional — use `--skip-churn` without it)
 - 🌳 **Tree-sitter libraries** for Kotlin/Swift (auto-installed)
 
