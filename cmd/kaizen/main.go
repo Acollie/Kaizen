@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -762,7 +760,7 @@ func generateHTMLOutput(result *models.AnalysisResult) {
 	// Open in browser
 	if openBrowser {
 		fmt.Printf("🌐 Opening in browser...\n")
-		err = openInBrowser(htmlOutput)
+		err = visualization.OpenInBrowser(htmlOutput)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", htmlOutput)
@@ -804,34 +802,6 @@ func generateSVGOutput(result *models.AnalysisResult) {
 	fmt.Printf("   Dimensions: %dx%d pixels\n", svgWidth, svgHeight)
 	fmt.Printf("   Metric: %s\n", metric)
 	fmt.Printf("\nOpen the file in a browser or image viewer to view the heat map.\n")
-}
-
-// openInBrowser opens a file in the default browser (cross-platform)
-func openInBrowser(filename string) error {
-	// Convert to absolute path
-	absPath, err := filepath.Abs(filename)
-	if err != nil {
-		return err
-	}
-
-	// Platform-specific commands
-	var command string
-	var args []string
-
-	switch runtime.GOOS {
-	case "darwin": // macOS
-		command = "open"
-		args = []string{absPath}
-	case "windows":
-		command = "cmd"
-		args = []string{"/c", "start", absPath}
-	default: // linux, freebsd, etc.
-		command = "xdg-open"
-		args = []string{absPath}
-	}
-
-	cmd := exec.Command(command, args...)
-	return cmd.Start()
 }
 
 func findCodeOwnersFile(rootPath string) string {
@@ -975,7 +945,7 @@ func renderReportHTML(report *ownership.OwnerReport, outputPath string, open boo
 
 	if open {
 		fmt.Printf("🌐 Opening in browser...\n")
-		err = openInBrowser(outputPath)
+		err = visualization.OpenInBrowser(outputPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", outputPath)
@@ -1260,7 +1230,7 @@ func renderTrendHTML(metricName, folder string, points []storage.TimeSeriesPoint
 
 	if open {
 		fmt.Printf("🌐 Opening in browser...\n")
-		err = openInBrowser(outputPath)
+		err = visualization.OpenInBrowser(outputPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", outputPath)
@@ -1434,7 +1404,7 @@ func generateCallGraphHTML(graph *models.CallGraph) {
 	// Open in browser
 	if openBrowser {
 		fmt.Printf("🌐 Opening in browser...\n")
-		err = openInBrowser(outputFilename)
+		err = visualization.OpenInBrowser(outputFilename)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", outputFilename)
@@ -1585,7 +1555,7 @@ func runSankey(cmd *cobra.Command, args []string) {
 	// Step 9: Open in browser
 	if sankeyOpen {
 		fmt.Printf("\n🌐 Opening in browser...\n")
-		err = openInBrowser(sankeyOutput)
+		err = visualization.OpenInBrowser(sankeyOutput)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", sankeyOutput)

@@ -158,8 +158,7 @@ func MyFunction() {
 `
 
 	goFunc := parseGoFunction(t, code)
-	// Flat code should have low nesting
-	assert.GreaterOrEqual(t, goFunc.MaxNestingDepth(), 0)
+	assert.Equal(t, 0, goFunc.MaxNestingDepth())
 }
 
 func TestMaxNestingDepthWithControlFlow(t *testing.T) {
@@ -173,8 +172,7 @@ func MyFunction() {
 `
 
 	goFunc := parseGoFunction(t, code)
-	// Should detect nesting in control flow
-	assert.GreaterOrEqual(t, goFunc.MaxNestingDepth(), 0)
+	assert.Equal(t, 1, goFunc.MaxNestingDepth())
 }
 
 func TestMaxNestingDepthDeepNesting(t *testing.T) {
@@ -192,9 +190,33 @@ func MyFunction() {
 `
 
 	goFunc := parseGoFunction(t, code)
-	// Deep nesting should have higher depth than shallow nesting
-	depth := goFunc.MaxNestingDepth()
-	assert.GreaterOrEqual(t, depth, 0)
+	assert.Equal(t, 3, goFunc.MaxNestingDepth())
+}
+
+func TestMaxNestingDepthSiblingsDoNotAccumulate(t *testing.T) {
+	code := `package main
+
+func MyFunction(items []int) {
+	if len(items) == 0 {
+		return
+	}
+	for _, item := range items {
+		if item > 0 {
+			println(item)
+		}
+	}
+	switch len(items) {
+	case 1:
+		println("one")
+	}
+	if true {
+		println("done")
+	}
+}
+`
+
+	goFunc := parseGoFunction(t, code)
+	assert.Equal(t, 2, goFunc.MaxNestingDepth())
 }
 
 func TestCalculateCyclomaticComplexitySimple(t *testing.T) {

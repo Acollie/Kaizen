@@ -86,30 +86,55 @@ func (goFunc *GoFunction) ReturnCount() int {
 	return count
 }
 
-// MaxNestingDepth returns the maximum nesting level
+// MaxNestingDepth returns the maximum nesting level of control-flow statements.
+// ast.Inspect calls the visitor with nil after each node's children, so we keep
+// a stack recording whether each visited node opened a nesting level.
 func (goFunc *GoFunction) MaxNestingDepth() int {
 	maxDepth := 0
 	currentDepth := 0
+	var opensLevel []bool
 
 	ast.Inspect(goFunc.declaration, func(node ast.Node) bool {
 		if node == nil {
-			currentDepth--
-			return false
+			last := len(opensLevel) - 1
+			if opensLevel[last] {
+				currentDepth--
+			}
+			opensLevel = opensLevel[:last]
+			return true
 		}
 
-		switch node.(type) {
-		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt,
-			*ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		isNesting := isNestingNode(node)
+		opensLevel = append(opensLevel, isNesting)
+		if isNesting {
 			currentDepth++
 			if currentDepth > maxDepth {
 				maxDepth = currentDepth
 			}
 		}
-
 		return true
 	})
 
 	return maxDepth
+}
+
+// isNestingNode reports whether a node introduces a control-flow nesting level
+func isNestingNode(node ast.Node) bool {
+	switch node.(type) {
+	case *ast.IfStmt:
+		return true
+	case *ast.ForStmt:
+		return true
+	case *ast.RangeStmt:
+		return true
+	case *ast.SwitchStmt:
+		return true
+	case *ast.TypeSwitchStmt:
+		return true
+	case *ast.SelectStmt:
+		return true
+	}
+	return false
 }
 
 // CalculateCyclomaticComplexity calculates McCabe's cyclomatic complexity
