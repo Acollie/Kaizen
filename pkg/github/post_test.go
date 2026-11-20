@@ -46,6 +46,9 @@ func finding(id string, line, endLine int) review.Finding {
 	}
 }
 
+// aiNote is the attribution line on an AI finding with no source
+const aiNote = "<sub>AI-assisted finding (kaizen review), checked by the reviewer</sub>"
+
 func TestBuildReviewPayloadSplitsInlineAndBody(t *testing.T) {
 	request := review.PostRequest{
 		Summary: "Looks mostly good.",
@@ -67,7 +70,7 @@ func TestBuildReviewPayloadSplitsInlineAndBody(t *testing.T) {
 	assert.Equal(t, "COMMENT", payload.Event)
 
 	require.Len(t, payload.Comments, 3)
-	assert.Equal(t, reviewComment{Path: "pkg/app/run.go", Line: 11, Side: "RIGHT", Body: "**[warning · correctness] Title added**\n\nBody added"}, payload.Comments[0])
+	assert.Equal(t, reviewComment{Path: "pkg/app/run.go", Line: 11, Side: "RIGHT", Body: "**[warning · correctness] Title added**\n\nBody added\n\n" + aiNote}, payload.Comments[0])
 	assert.Equal(t, 14, payload.Comments[1].Line)
 	assert.Zero(t, payload.Comments[1].StartLine)
 
@@ -93,7 +96,7 @@ func TestBuildReviewPayloadSuggestionBlock(t *testing.T) {
 	payload, _, _ := buildReviewPayload(postTestPR(), postTestFiles(), request)
 	require.Len(t, payload.Comments, 1)
 	assert.Equal(t,
-		"**[warning · correctness] Title fix**\n\nBody fix\n\n```suggestion\nb2\nc2\n```",
+		"**[warning · correctness] Title fix**\n\nBody fix\n\n```suggestion\nb2\nc2\n```\n\n"+aiNote,
 		payload.Comments[0].Body)
 	assert.Equal(t, defaultReviewBody, payload.Body, "empty summary gets a default body")
 }
@@ -103,7 +106,7 @@ func TestBuildReviewPayloadSuggestionWithBackticks(t *testing.T) {
 	withSuggestion.Suggestion = "doc := \"```go\""
 	payload, _, _ := buildReviewPayload(postTestPR(), postTestFiles(), review.PostRequest{Findings: []review.Finding{withSuggestion}})
 	assert.Contains(t, payload.Comments[0].Body, "````suggestion\n")
-	assert.True(t, strings.HasSuffix(payload.Comments[0].Body, "\n````"))
+	assert.True(t, strings.HasSuffix(payload.Comments[0].Body, "\n````\n\n"+aiNote))
 }
 
 func TestPostReview(t *testing.T) {
@@ -139,4 +142,104 @@ func TestPostReviewErrors(t *testing.T) {
 	client = &Client{Runner: (&fakeRunner{}).respond("gh api", "", failure)}
 	_, err = client.PostReview(context.Background(), postTestPR(), nil, review.PostRequest{Summary: "x"})
 	assert.ErrorIs(t, err, ErrGHNotAuthenticated)
+}
+
+func userComment(line int, body string) review.Finding {
+	return review.Finding{
+		ID: "c-1", Severity: review.SeveritySuggestion, Category: review.CategoryDesign,
+		File: "pkg/app/run.go", Line: line, Body: body, Confidence: 1, Source: "you",
+	}
+}
+
+func TestUserCommentsArePostedAsWritten(t *testing.T) {
+	request := review.PostRequest{Findings: []review.Finding{
+		userComment(11, "Can we name this `runOnce`?"),
+		userComment(0, "Overall this reads well."),
+	}}
+	payload, inlineCount, bodyCount := buildReviewPayload(postTestPR(), postTestFiles(), request)
+	require.Equal(t, 1, inlineCount)
+	require.Equal(t, 1, bodyCount)
+
+	assert.Equal(t, "Can we name this `runOnce`?", payload.Comments[0].Body, "no heading, no attribution")
+	assert.NotContains(t, payload.Body, "**[")
+	assert.NotContains(t, payload.Body, "AI-assisted")
+	assert.Contains(t, payload.Body, "- (`pkg/app/run.go`)\n\n  Overall this reads well.")
+
+	prLevel := userComment(0, "First line\nSecond line")
+	prLevel.File = ""
+	assert.Equal(t, "- First line\n  Second line\n", formatBodyFinding(prLevel))
+}
+
+func TestAIFindingsCarryAttribution(t *testing.T) {
+	sourced := finding("a", 11, 0)
+	sourced.Source = "security-reviewer"
+	payload, _, _ := buildReviewPayload(postTestPR(), postTestFiles(), review.PostRequest{Findings: []review.Finding{sourced, finding("b", 99, 0)}})
+
+	require.Len(t, payload.Comments, 1)
+	assert.True(t, strings.HasSuffix(payload.Comments[0].Body,
+		"\n\n<sub>AI-assisted finding (kaizen review · security-reviewer), checked by the reviewer</sub>"))
+	assert.Contains(t, payload.Body, "  Body b\n\n  "+aiNote)
+}
+
+// unresolvableLine is what gh prints when GitHub rejects an inline comment's line
+func unresolvableLine() ([]byte, error) {
+	stdout := `{"message":"Unprocessable Entity","errors":["Line could not be resolved"],"status":"422"}`
+	return []byte(stdout), &CommandError{Name: "gh", Stderr: "gh: Unprocessable Entity (HTTP 422)", Err: errors.New("exit status 1")}
+}
+
+// sequenceRunner answers successive calls from a list of responses
+type sequenceRunner struct {
+	fakeRunner
+	outputs [][]byte
+	errs    []error
+}
+
+func (runner *sequenceRunner) RunWithInput(ctx context.Context, dir string, input []byte, name string, args ...string) ([]byte, error) {
+	_, _ = runner.fakeRunner.RunWithInput(ctx, dir, input, name, args...)
+	call := len(runner.commandLines()) - 1
+	return runner.outputs[call], runner.errs[call]
+}
+
+func TestPostReviewFallsBackToBodyOn422(t *testing.T) {
+	failedOutput, failure := unresolvableLine()
+	runner := &sequenceRunner{
+		outputs: [][]byte{failedOutput, []byte(`{"html_url": "https://github.com/acme/widgets/pull/42#pullrequestreview-2"}`)},
+		errs:    []error{failure, nil},
+	}
+	client := &Client{Runner: runner, RepoDir: "/repo"}
+	request := review.PostRequest{Summary: "Summary", Findings: []review.Finding{finding("a", 11, 0), finding("b", 99, 0)}}
+
+	result, err := client.PostReview(context.Background(), postTestPR(), postTestFiles(), request)
+	require.NoError(t, err)
+	assert.True(t, result.FallbackToBody)
+	assert.Equal(t, 0, result.InlineComments)
+	assert.Equal(t, 2, result.BodyFindings)
+	assert.Equal(t, "https://github.com/acme/widgets/pull/42#pullrequestreview-2", result.URL)
+
+	require.Len(t, runner.calls, 2, "retried exactly once")
+	var first, retry reviewPayload
+	require.NoError(t, json.Unmarshal(runner.calls[0].Input, &first))
+	require.NoError(t, json.Unmarshal(runner.calls[1].Input, &retry))
+	assert.Len(t, first.Comments, 1)
+	assert.Empty(t, retry.Comments)
+	assert.Contains(t, retry.Body, "Title a** (`pkg/app/run.go:11`)")
+	assert.Contains(t, retry.Body, "Title b** (`pkg/app/run.go:99`)")
+}
+
+func TestPostReviewDoesNotRetryOtherErrors(t *testing.T) {
+	failure := &CommandError{Name: "gh", Stderr: "gh: Validation Failed (HTTP 422): commit_sha is not part of the pull request", Err: errors.New("exit status 1")}
+	runner := &sequenceRunner{outputs: [][]byte{nil, nil}, errs: []error{failure, nil}}
+	client := &Client{Runner: runner}
+	_, err := client.PostReview(context.Background(), postTestPR(), postTestFiles(), review.PostRequest{Findings: []review.Finding{finding("a", 11, 0)}})
+	require.Error(t, err)
+	assert.Len(t, runner.calls, 1)
+}
+
+func TestPostReviewFallbackFailureIsReported(t *testing.T) {
+	failedOutput, failure := unresolvableLine()
+	runner := &sequenceRunner{outputs: [][]byte{failedOutput, failedOutput}, errs: []error{failure, failure}}
+	client := &Client{Runner: runner}
+	_, err := client.PostReview(context.Background(), postTestPR(), postTestFiles(), review.PostRequest{Findings: []review.Finding{finding("a", 11, 0)}})
+	require.Error(t, err)
+	assert.Len(t, runner.calls, 2, "only one retry")
 }

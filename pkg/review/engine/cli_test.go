@@ -369,6 +369,36 @@ func TestCLIEngineArgs(t *testing.T) {
 	assert.Contains(t, mcpConfig, `"review-mcp","--context"`)
 }
 
+// TestCLIEngineSandboxFlags pins the flags that keep a hostile PR from escaping the
+// review sandbox. --restricted is what stops the PR's .claude/settings.json (hooks,
+// permissions) from loading; removing any of these is a security regression.
+func TestCLIEngineSandboxFlags(t *testing.T) {
+	for _, engine := range []*CLIEngine{
+		{KaizenPath: "/k", Model: "opus", Effort: "high"},
+		{KaizenPath: "/k", Model: "sonnet", Effort: "low", ExtraArgs: []string{"--fallback-model", "haiku"}},
+	} {
+		args, err := engine.buildArgs("/tmp/context.json", review.PullRequest{Number: 1})
+		require.NoError(t, err)
+
+		for _, flag := range []string{"--restricted", "--strict-mcp-config", "--no-session-persistence"} {
+			assert.Contains(t, args, flag)
+		}
+		assertFlag(t, args, "--permission-mode", "dontAsk")
+
+		builtin := strings.Split(flagValue(args, "--tools"), ",")
+		allowed := strings.Fields(flagValue(args, "--allowedTools"))
+		require.NotEmpty(t, builtin)
+		require.NotEmpty(t, allowed)
+		for _, dangerous := range []string{"Bash", "Edit", "Write", "WebFetch", "MultiEdit", "NotebookEdit", "WebSearch"} {
+			assert.NotContains(t, builtin, dangerous, "--tools must not include %s", dangerous)
+			assert.NotContains(t, allowed, dangerous, "--allowedTools must not include %s", dangerous)
+		}
+		for _, tool := range allowed {
+			assert.NotContains(t, tool, "Bash", "no Bash(...) allow rules")
+		}
+	}
+}
+
 func flagValue(args []string, flag string) string {
 	for index, arg := range args {
 		if arg == flag && index+1 < len(args) {

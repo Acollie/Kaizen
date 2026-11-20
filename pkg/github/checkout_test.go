@@ -174,3 +174,113 @@ func TestDiffIgnoresPRGitattributesAndUserDiffConfig(t *testing.T) {
 	assert.NotContains(t, diff, "\x1b[", "no ANSI colour codes")
 	assert.Contains(t, diff, "diff --git a/main.go b/main.go")
 }
+
+const upstreamURL = "https://github.com/acme/widgets.git"
+
+func TestCheckoutFetchesFromBaseRepositoryURL(t *testing.T) {
+	runner := (&fakeRunner{}).respond("git merge-base", "mb999\n", nil)
+	client := &Client{Runner: runner, RepoDir: "/repo"}
+	pr := &review.PullRequest{Number: 42, Owner: "acme", Repo: "widgets", BaseRef: "main", BaseSHA: "base000", HeadSHA: "head111"}
+
+	_, cleanup, err := client.Checkout(context.Background(), pr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cleanup() })
+	assert.Equal(t, "git -c credential.interactive=false fetch --no-tags "+upstreamURL+" pull/42/head main", runner.commandLines()[0])
+	assert.NotContains(t, strings.Join(runner.commandLines(), "\n"), "fetch --no-tags origin", "origin is only a fallback")
+}
+
+func TestBaseRepoURL(t *testing.T) {
+	assert.Equal(t, upstreamURL, baseRepoURL(review.PullRequest{Owner: "acme", Repo: "widgets"}))
+	assert.Equal(t, "https://ghe.example.com/team/svc.git",
+		baseRepoURL(review.PullRequest{URL: "https://ghe.example.com/team/svc/pull/7", Owner: "acme", Repo: "widgets"}),
+		"the PR URL wins, so Enterprise hosts work")
+	assert.Equal(t, upstreamURL, baseRepoURL(review.PullRequest{URL: "not a url", Owner: "acme", Repo: "widgets"}))
+	assert.Empty(t, baseRepoURL(review.PullRequest{}))
+}
+
+func TestCheckoutFallsBackToOrigin(t *testing.T) {
+	failure := &CommandError{Name: "git", Stderr: "fatal: unable to access 'https://github.com/acme/widgets.git/': Could not resolve host", Err: errors.New("exit status 128")}
+	runner := (&fakeRunner{}).
+		respond("git -c credential.interactive=false fetch", "", failure).
+		respond("git merge-base", "mb\n", nil)
+	client := &Client{Runner: runner}
+	pr := &review.PullRequest{Number: 42, Owner: "acme", Repo: "widgets", BaseRef: "main", BaseSHA: "b", HeadSHA: "h"}
+
+	_, cleanup, err := client.Checkout(context.Background(), pr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cleanup() })
+	assert.Equal(t, "git fetch --no-tags origin pull/42/head main", runner.commandLines()[1])
+}
+
+func TestCheckoutAuthFailureMentionsSetupGit(t *testing.T) {
+	authFailure := &CommandError{Name: "git", Stderr: "remote: Repository not found.\nfatal: repository 'https://github.com/acme/widgets.git/' not found", Err: errors.New("exit status 128")}
+	originFailure := &CommandError{Name: "git", Stderr: "fatal: couldn't find remote ref pull/42/head", Err: errors.New("exit status 128")}
+	runner := (&fakeRunner{}).
+		respond("git -c credential.interactive=false fetch", "", authFailure).
+		respond("git fetch --no-tags origin", "", originFailure)
+	client := &Client{Runner: runner}
+	pr := &review.PullRequest{Number: 42, Owner: "acme", Repo: "widgets", BaseSHA: "b", HeadSHA: "h"}
+
+	_, _, err := client.Checkout(context.Background(), pr)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrFetchAuth)
+	assert.ErrorContains(t, err, "gh auth setup-git")
+	assert.ErrorContains(t, err, "couldn't find remote ref", "the origin failure is reported too")
+
+	// A non-auth failure does not suggest gh auth setup-git
+	runner = (&fakeRunner{}).respond("git", "", originFailure)
+	_, _, err = (&Client{Runner: runner}).Checkout(context.Background(), pr)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrFetchAuth)
+	assert.NotContains(t, err.Error(), "gh auth setup-git")
+}
+
+// TestCheckoutFromUpstreamWhenOriginIsAFork reproduces a contributor's clone: origin
+// is their fork (no PR refs), the PR lives on the upstream repository. The upstream
+// URL is redirected to a local bare repository with url.<path>.insteadOf.
+func TestCheckoutFromUpstreamWhenOriginIsAFork(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	ctx := context.Background()
+	work := t.TempDir()
+	source := filepath.Join(work, "source")
+	gitRun(t, work, "init", "-q", "-b", "main", source)
+	writeFile(t, source, "a.txt", "one\n")
+	gitRun(t, source, "add", ".")
+	gitRun(t, source, "commit", "-q", "-m", "base")
+	baseSHA := strings.TrimSpace(gitRun(t, source, "rev-parse", "HEAD"))
+	gitRun(t, source, "checkout", "-q", "-b", "feature")
+	writeFile(t, source, "a.txt", "one\ntwo\n")
+	gitRun(t, source, "commit", "-q", "-am", "head")
+	headSHA := strings.TrimSpace(gitRun(t, source, "rev-parse", "HEAD"))
+	gitRun(t, source, "checkout", "-q", "main")
+
+	// upstream: bare, exposes refs/pull/9/head like GitHub
+	upstream := filepath.Join(work, "upstream.git")
+	gitRun(t, work, "clone", "-q", "--bare", source, upstream)
+	gitRun(t, upstream, "update-ref", "refs/pull/9/head", headSHA)
+
+	// fork: has main only, no PR refs and not the feature commit
+	fork := filepath.Join(work, "fork.git")
+	gitRun(t, work, "clone", "-q", "--bare", "--no-local", "--single-branch", "--branch", "main", source, fork)
+
+	clone := filepath.Join(work, "clone")
+	gitRun(t, work, "clone", "-q", fork, clone)
+	gitRun(t, clone, "remote", "add", "upstream", upstream)
+	gitRun(t, clone, "config", "url."+upstream+".insteadOf", upstreamURL)
+
+	client := NewClient(clone)
+	pr := &review.PullRequest{Number: 9, Owner: "acme", Repo: "widgets", BaseRef: "main", BaseSHA: baseSHA, HeadSHA: headSHA}
+	worktree, cleanup, err := client.Checkout(ctx, pr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cleanup() })
+	assert.Equal(t, baseSHA, pr.MergeBase)
+	content, err := os.ReadFile(filepath.Join(worktree, "a.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "one\ntwo\n", string(content))
+
+	// Before the fix, origin was the only source and the fetch failed
+	_, originErr := client.git(ctx, clone, "fetch", "--no-tags", "origin", "pull/9/head")
+	assert.Error(t, originErr, "the fork really has no PR ref")
+}

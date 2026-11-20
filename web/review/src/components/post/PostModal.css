@@ -55,6 +55,13 @@
 .pm-outcome-counts { color: var(--text-2); }
 .pm-outcome-link { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-xs); }
 .pm-outcome-error { color: var(--sev-critical); overflow-wrap: anywhere; }
+.pm-outcome-repost { box-shadow: inset 0 1px 0 var(--line), inset 2px 0 0 var(--sev-warning); }
+.pm-outcome-repost > span:first-child { color: var(--sev-warning); font-weight: 600; }
+.pm-outcome-question { flex-basis: 100%; color: var(--text); }
+.pm-outcome-fallback {
+  flex-basis: 100%; margin: 0; padding-left: var(--space-3);
+  box-shadow: inset 2px 0 0 var(--sev-warning); color: var(--text-2); line-height: 1.45;
+}
 
 .pm-buttons { display: flex; gap: var(--space-2); }
 .pm-buttons .btn-primary:disabled { opacity: 1; background: var(--bg-active); color: var(--text-3); }

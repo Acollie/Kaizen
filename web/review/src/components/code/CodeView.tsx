@@ -18,6 +18,7 @@ import { useFileModel } from './useFileModel';
 import { useReveal } from './useReveal';
 import { useViewTracking } from './useViewTracking';
 import { isUserComment } from '../../state/comments';
+import { WithheldNotice } from './WithheldNotice';
 import './CodeView.css';
 
 /** Keeps --cv-viewport at the scroll container's visible width so cards stay in view */
@@ -95,8 +96,14 @@ export function CodeView() {
             hiddenLines={hiddenLineCount(model.rows)} onExpandAll={() => void api.expandAll()}
           />
         ) : null}
-        <div ref={containerRef} className={`cv-scroll${wrap ? ' cv-wrap' : ''}${model.plain ? ' cv-plain' : ''}`}>
-          <CodeStatus model={model} binary={Boolean(diff?.binary)} />
+        <div ref={containerRef} className={`cv-scroll${wrap ? ' cv-wrap' : ''}${model.plain || model.withheld ? ' cv-plain' : ''}`}>
+          {diff?.generated && !model.plain ? (
+            <WithheldNotice
+              diff={diff} shown={model.withheld && model.status === 'ready'} loading={model.status === 'loading'}
+              onShow={() => void api.showWithheld(diff.path)}
+            />
+          ) : null}
+          <CodeStatus model={model} binary={Boolean(diff?.binary)} withheld={Boolean(diff?.generated)} />
           <FileNotes placement={placement} path={model.path} language={language} activate={activate} onShowLine={showLine} />
           {model.status === 'ready' ? (
             <CodeRows
@@ -110,11 +117,12 @@ export function CodeView() {
   );
 }
 
-function CodeStatus({ model, binary }: { model: ReturnType<typeof useFileModel>['model']; binary: boolean }) {
+function CodeStatus({ model, binary, withheld }: { model: ReturnType<typeof useFileModel>['model']; binary: boolean; withheld: boolean }) {
   if (!model.path) return <div className="empty">Select a file or function to review.</div>;
   if (model.status === 'loading') return <div className="empty cv-status"><span className="spinner" /> Loading {model.path}</div>;
   if (model.status === 'error') return <div className="empty cv-status cv-error">Could not load {model.path}: {model.error}</div>;
   if (model.status === 'ready' && binary) return <div className="empty">Binary file not shown.</div>;
-  if (model.status === 'ready' && model.rows.length === 0) return <div className="empty">No textual changes.</div>;
+  // A generated file's empty diff is withheld, not unchanged: WithheldNotice explains it
+  if (model.status === 'ready' && model.rows.length === 0 && !withheld) return <div className="empty">No textual changes.</div>;
   return null;
 }

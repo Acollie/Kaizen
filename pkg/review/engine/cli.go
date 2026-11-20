@@ -171,6 +171,15 @@ func (engine *CLIEngine) buildArgs(contextFile string, pr review.PullRequest) ([
 	if err != nil {
 		return nil, fmt.Errorf("encode agents: %w", err)
 	}
+	// The sandbox flags below are pinned by TestCLIEngineSandboxFlags. The CLI runs
+	// inside the PR's own checkout, so:
+	//   --restricted ignores user, project and local settings files (claude --help),
+	//     which is what stops a PR's .claude/settings.json hooks and permissions from
+	//     loading; it also drops Bash and WebFetch and confines file tools to the worktree
+	//   --strict-mcp-config ignores the PR's .mcp.json; only Kaizen's server runs
+	//   --permission-mode dontAsk denies every tool not in --allowedTools
+	//   --tools removes Bash, Edit, Write, WebFetch etc. outright
+	//   --no-session-persistence leaves no transcript of PR content on disk
 	args := []string{
 		"-p", leadPrompt(pr),
 		"--output-format", "stream-json",

@@ -73,6 +73,45 @@ describe('PostModal', () => {
     expect(button('Retry')).toBeTruthy();
   });
 
+  it('notes when GitHub forced every finding into the body', async () => {
+    setup({ accept: ['inline'] });
+    vi.spyOn(api, 'postReview').mockResolvedValue({
+      url: 'https://github.com/o/r/pull/7#review', inline_comments: 0, body_findings: 1, fallback_to_body: true,
+    });
+    fireEvent.click(button('Post 1 accepted finding'));
+    await waitFor(() => expect(screen.getByText('Review posted')).toBeTruthy());
+    expect(screen.getByText(/every finding was\s+posted in the review body instead/)).toBeTruthy();
+  });
+
+  it('asks before posting again when the server says this session already posted', async () => {
+    setup({ accept: ['inline'] });
+    const post = vi.spyOn(api, 'postReview')
+      .mockRejectedValueOnce(new api.AlreadyPostedError('https://github.com/o/r/pull/7#review-1'))
+      .mockResolvedValueOnce({ url: 'https://github.com/o/r/pull/7#review-2', inline_comments: 1, body_findings: 0 });
+    fireEvent.click(button('Post 1 accepted finding'));
+    await waitFor(() => expect(screen.getByText('Already posted:')).toBeTruthy());
+    expect(screen.getByRole('link', { hidden: true }).getAttribute('href')).toBe('https://github.com/o/r/pull/7#review-1');
+    expect(screen.queryByText(/Posting failed/)).toBeNull();
+    expect(post.mock.calls[0]?.[0].confirm_repost).toBeUndefined();
+
+    fireEvent.click(button('Yes, post again'));
+    await waitFor(() => expect(screen.getByText('Review posted')).toBeTruthy());
+    expect(post.mock.calls[1]?.[0].confirm_repost).toBe(true);
+  });
+
+  it('reopening after a post asks before posting again', async () => {
+    const store = setup({ accept: ['inline'] });
+    vi.spyOn(api, 'postReview').mockResolvedValue({ url: 'https://github.com/o/r/pull/7#review', inline_comments: 1, body_findings: 0 });
+    fireEvent.click(button('Post 1 accepted finding'));
+    await waitFor(() => expect(screen.getByText('Review posted')).toBeTruthy());
+    expect((button('Posted') as HTMLButtonElement).disabled).toBe(true);
+
+    act(() => store.getState().setPostOpen(false));
+    act(() => store.getState().setPostOpen(true));
+    expect(screen.getByText('Already posted:')).toBeTruthy();
+    expect(button('Yes, post again')).toBeTruthy();
+  });
+
   it('does not link unsafe URLs', async () => {
     setup({ accept: ['inline'] });
     vi.spyOn(api, 'postReview').mockResolvedValue({ url: 'javascript:alert(1)', inline_comments: 0, body_findings: 0 });

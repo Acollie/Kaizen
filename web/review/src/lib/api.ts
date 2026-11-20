@@ -39,6 +39,17 @@ export function fetchFileLines(path: string, from: number, to: number): Promise<
   return getJSON<FileSlice>(`/api/file?${params}`);
 }
 
+/** Thrown by postReview when this session already posted and confirm_repost was not set */
+export class AlreadyPostedError extends Error {
+  readonly previousUrl: string;
+
+  constructor(previousUrl: string) {
+    super('A review was already posted in this session');
+    this.name = 'AlreadyPostedError';
+    this.previousUrl = previousUrl;
+  }
+}
+
 export async function postReview(request: PostRequest): Promise<PostResult> {
   const response = await fetch('/api/post', {
     method: 'POST',
@@ -46,6 +57,10 @@ export async function postReview(request: PostRequest): Promise<PostResult> {
     credentials: 'same-origin',
     body: JSON.stringify(request),
   });
+  if (response.status === 409) {
+    const body = (await response.json().catch(() => ({}))) as { previous_url?: string };
+    throw new AlreadyPostedError(body.previous_url ?? '');
+  }
   return readJSON<PostResult>(response);
 }
 

@@ -310,9 +310,10 @@ func runReviewEngine(ctx context.Context, run reviewRun) {
 	}
 }
 
-// replayCachedReview emits a cached review for this PR head and reports whether it did
+// replayCachedReview emits a cached review for this PR head made by the selected
+// engine, and reports whether it did
 func replayCachedReview(run reviewRun) bool {
-	cached, err := review.LoadReviewCache(run.cachePath, run.context.PR)
+	cached, err := review.LoadReviewCache(run.cachePath, run.context.PR, run.engine.Name())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: ignoring unreadable cached review: %v\n", err)
 		return false

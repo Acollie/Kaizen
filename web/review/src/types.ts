@@ -236,12 +236,16 @@ export type ReviewEvent =
 export interface PostRequest {
   summary: string;
   findings: Finding[];
+  /** Required to post again after this session already posted a review (else 409) */
+  confirm_repost?: boolean;
 }
 
 export interface PostResult {
   url: string;
   inline_comments: number;
   body_findings: number;
+  /** GitHub rejected an inline comment's line, so every finding was posted in the body */
+  fallback_to_body?: boolean;
 }
 
 /** GET /api/file response */

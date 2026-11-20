@@ -53,7 +53,7 @@ func SaveReviewCache(path string, pr PullRequest, engine string, events []Event)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := ensureCacheDir(filepath.Dir(path)); err != nil {
 		return err
 	}
 	temporary := path + ".tmp"
@@ -63,9 +63,28 @@ func SaveReviewCache(path string, pr PullRequest, engine string, events []Event)
 	return os.Rename(temporary, path)
 }
 
+// ensureCacheDir creates the reviews directory. When the .kaizen directory above it
+// (often inside someone else's repository) has no .gitignore, one holding "*" is
+// written so the cache ignores itself and never shows up in git status.
+func ensureCacheDir(reviewsDir string) error {
+	if err := os.MkdirAll(reviewsDir, 0o755); err != nil {
+		return err
+	}
+	kaizenDir := filepath.Dir(reviewsDir)
+	if filepath.Base(kaizenDir) != ".kaizen" {
+		return nil
+	}
+	ignorePath := filepath.Join(kaizenDir, ".gitignore")
+	if _, err := os.Lstat(ignorePath); !errors.Is(err, os.ErrNotExist) {
+		return nil // keep any existing .gitignore
+	}
+	return os.WriteFile(ignorePath, []byte("*\n"), 0o644)
+}
+
 // LoadReviewCache reads a cached review. It returns (nil, nil) when there is no cache
-// for this PR head, and an error only for a cache that exists but cannot be used.
-func LoadReviewCache(path string, pr PullRequest) (*CachedReview, error) {
+// for this PR head and engine (so --engine=api never replays a claude-cli review), and
+// an error only for a cache that exists but cannot be used.
+func LoadReviewCache(path string, pr PullRequest, engine string) (*CachedReview, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -77,7 +96,7 @@ func LoadReviewCache(path string, pr PullRequest) (*CachedReview, error) {
 	if err := json.Unmarshal(data, &cached); err != nil {
 		return nil, fmt.Errorf("reading cached review %s: %w", path, err)
 	}
-	if cached.Version != cacheVersion || cached.HeadSHA != pr.HeadSHA || !hasResult(cached.Events) {
+	if cached.Version != cacheVersion || cached.HeadSHA != pr.HeadSHA || cached.Engine != engine || !hasResult(cached.Events) {
 		return nil, nil
 	}
 	return &cached, nil
