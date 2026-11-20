@@ -23,11 +23,12 @@ import (
 var staticFiles embed.FS
 
 const (
-	defaultAddr       = "127.0.0.1:0"
-	tokenHeader       = "X-Kaizen-Token"
-	tokenQueryParam   = "t"
-	defaultHeartbeat  = 15 * time.Second
-	readHeaderTimeout = 10 * time.Second
+	defaultAddr        = "127.0.0.1:0"
+	tokenHeader        = "X-Kaizen-Token"
+	tokenQueryParam    = "t"
+	defaultHeartbeat   = 15 * time.Second
+	defaultPostTimeout = 2 * time.Minute
+	readHeaderTimeout  = 10 * time.Second
 
 	contentSecurityPolicy = "default-src 'self'; " +
 		"script-src 'self'; " +
@@ -41,6 +42,11 @@ type Options struct {
 	Events  *EventLog             // optional; an empty log is created when nil
 	Poster  review.Poster         // optional; POST /api/post returns 501 when nil
 	Addr    string                // listen address, default 127.0.0.1:0
+	// StatePath is the JSON file GET/PUT /api/state read and write: the reviewer's
+	// triage, notes, comments and viewed state. Optional; empty disables the endpoints.
+	StatePath string
+	// PostTimeout bounds one POST /api/post call to the Poster; default 2 minutes
+	PostTimeout time.Duration
 }
 
 // Server serves the review UI and its JSON/SSE API on a loopback address
@@ -59,6 +65,8 @@ type Server struct {
 	// clicks (or tabs) can never both post a review
 	postMutex sync.Mutex
 	lastPost  *review.PostResult // the session's successful post, nil until one
+
+	stateMutex sync.Mutex // serialises state file reads and writes
 }
 
 // New validates the options and prepares a server; call Start to listen
@@ -71,6 +79,9 @@ func New(options Options) (*Server, error) {
 	}
 	if options.Addr == "" {
 		options.Addr = defaultAddr
+	}
+	if options.PostTimeout <= 0 {
+		options.PostTimeout = defaultPostTimeout
 	}
 	token, err := newSessionToken()
 	if err != nil {
@@ -139,6 +150,8 @@ func (server *Server) Handler() http.Handler {
 	mux.Handle("GET /api/events", server.requireToken(http.HandlerFunc(server.handleEvents)))
 	mux.Handle("GET /api/file", server.requireToken(http.HandlerFunc(server.handleFile)))
 	mux.HandleFunc("POST /api/post", server.handlePost)
+	mux.HandleFunc("GET /api/state", server.handleGetState)
+	mux.HandleFunc("PUT /api/state", server.handlePutState)
 	return server.checkHost(securityHeaders(mux))
 }
 

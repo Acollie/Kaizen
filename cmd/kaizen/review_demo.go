@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -51,13 +52,21 @@ func runReviewDemo(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
+	// A throwaway state file: the demo never touches a real review's saved work
+	stateDir, err := os.MkdirTemp("", "kaizen-review-demo-state-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(stateDir) }()
+
 	output := cmd.OutOrStdout()
 	eventLog := reviewui.NewEventLog()
 	server, err := reviewui.New(reviewui.Options{
-		Context: reviewContext,
-		Events:  eventLog,
-		Poster:  &demoPoster{output: output},
-		Addr:    fmt.Sprintf("127.0.0.1:%d", reviewDemoPort),
+		Context:   reviewContext,
+		Events:    eventLog,
+		Poster:    &demoPoster{output: output},
+		Addr:      fmt.Sprintf("127.0.0.1:%d", reviewDemoPort),
+		StatePath: filepath.Join(stateDir, "state.json"),
 	})
 	if err != nil {
 		return err

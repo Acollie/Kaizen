@@ -114,6 +114,9 @@ func runReview(cmd *cobra.Command, args []string) error {
 		Events:  events,
 		Poster:  client,
 		Addr:    fmt.Sprintf("127.0.0.1:%d", reviewOptions.port),
+		// The reviewer's triage, notes and viewed state, next to the review cache, so
+		// they survive a restart on a new port (localStorage is per-origin)
+		StatePath: reviewui.StatePathFor(review.ReviewCachePath(repoRoot(reviewOptions.repoPath), reviewContext.PR)),
 	})
 	if err != nil {
 		return err
