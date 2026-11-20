@@ -8,6 +8,7 @@ import { FindingSections } from './FindingSections';
 import { SummarySection } from './SummarySection';
 import { FocusSection } from './FocusSection';
 import { ConcernsSection } from './ConcernsSection';
+import { BlindSpots } from './BlindSpots';
 import './ReviewPanel.css';
 
 export function ReviewPanel() {
@@ -17,6 +18,7 @@ export function ReviewPanel() {
     <div className="rv">
       <Headline findings={findings} />
       <FindingSections findings={findings} />
+      <BlindSpots />
       {hasResult && <SummarySection />}
       <FocusSection />
       <ConcernsSection />
