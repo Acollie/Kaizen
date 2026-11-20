@@ -78,6 +78,7 @@ type FileDiff struct {
 	Additions int        `json:"additions"`
 	Deletions int        `json:"deletions"`
 	Binary    bool       `json:"binary"`
+	Generated bool       `json:"generated,omitempty"` // lockfile or minified output: hunks omitted
 	Hunks     []Hunk     `json:"hunks"`
 	LineCount int        `json:"line_count"` // total lines in the head version, for context expansion bounds
 	RiskScore float64    `json:"risk_score"` // max of the file's own risk and its riskiest changed function

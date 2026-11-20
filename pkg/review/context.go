@@ -54,6 +54,9 @@ func BuildContext(ctx context.Context, pr PullRequest, worktree string, displayD
 		return nil, fmt.Errorf("parse display diff: %w", err)
 	}
 	quarantined := quarantineUnsafeFiles(files, root)
+	for path := range markGeneratedFiles(files) {
+		quarantined[path] = true
+	}
 	setLineCounts(files, root)
 
 	entries, err := findChangedFunctions(mappingDiff, files, root, quarantined)

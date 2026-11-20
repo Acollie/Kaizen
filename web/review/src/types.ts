@@ -50,6 +50,8 @@ export interface FileDiff {
   additions: number;
   deletions: number;
   binary: boolean;
+  /** Lockfile or minified output: hunks are omitted (see risk_reasons) */
+  generated?: boolean;
   hunks: Hunk[];
   /** Total lines in the head version (bounds for context expansion) */
   line_count: number;
