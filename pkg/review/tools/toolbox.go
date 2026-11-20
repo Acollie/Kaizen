@@ -17,13 +17,14 @@ import (
 
 // Tool names, as the model sees them
 const (
-	ToolGetRiskRanking = "get_risk_ranking"
-	ToolGetFunction    = "get_function"
-	ToolGetCallers     = "get_callers"
-	ToolGetCallees     = "get_callees"
-	ToolGetFileDiff    = "get_file_diff"
-	ToolReadLines      = "read_lines"
-	ToolReportFinding  = "report_finding"
+	ToolGetRiskRanking     = "get_risk_ranking"
+	ToolGetPackageOverview = "get_package_overview"
+	ToolGetFunction        = "get_function"
+	ToolGetCallers         = "get_callers"
+	ToolGetCallees         = "get_callees"
+	ToolGetFileDiff        = "get_file_diff"
+	ToolReadLines          = "read_lines"
+	ToolReportFinding      = "report_finding"
 )
 
 // maxOutputBytes caps every tool result sent to the model
@@ -87,6 +88,7 @@ type toolSpec struct {
 
 var specs = []toolSpec{
 	{ToolGetRiskRanking, descriptionRiskRanking, RiskRankingInput{}, bind((*Toolbox).GetRiskRanking)},
+	{ToolGetPackageOverview, descriptionPackageOverview, PackageOverviewInput{}, bind((*Toolbox).GetPackageOverview)},
 	{ToolGetFunction, descriptionGetFunction, FunctionInput{}, bind((*Toolbox).GetFunction)},
 	{ToolGetCallers, descriptionGetCallers, FunctionInput{}, bind((*Toolbox).GetCallers)},
 	{ToolGetCallees, descriptionGetCallees, FunctionInput{}, bind((*Toolbox).GetCallees)},

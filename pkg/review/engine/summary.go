@@ -47,6 +47,8 @@ func summarizeKnownTool(name string, arguments toolArguments, worktreePath strin
 	switch name {
 	case tools.ToolGetRiskRanking:
 		return "get_risk_ranking()"
+	case tools.ToolGetPackageOverview:
+		return "get_package_overview()"
 	case tools.ToolGetFunction, tools.ToolGetCallers, tools.ToolGetCallees:
 		return fmt.Sprintf("%s(%s)", name, arguments.ID)
 	case tools.ToolGetFileDiff:
