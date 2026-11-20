@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -131,6 +132,7 @@ func runReview(cmd *cobra.Command, args []string) error {
 	}
 
 	cachePath := review.ReviewCachePath(repoRoot(reviewOptions.repoPath), reviewContext.PR)
+	cacheKey := reviewCacheKey(selectedEngine, reviewOptions)
 	engineDone := make(chan struct{})
 	go func() {
 		defer close(engineDone)
@@ -139,12 +141,15 @@ func runReview(cmd *cobra.Command, args []string) error {
 			context:   reviewContext,
 			events:    events,
 			cachePath: cachePath,
+			cacheKey:  cacheKey,
 			useCache:  !reviewOptions.rerun,
 		})
 	}()
 
 	<-ctx.Done()
-	fmt.Println("\nShutting down…")
+	// Restore default signal handling so a second Ctrl+C force-quits a slow shutdown
+	stop()
+	fmt.Println("\nShutting down… (press Ctrl+C again to force quit)")
 	// Let the engine stop its claude process group before the deferred cleanup
 	// removes the worktree it runs in
 	select {
@@ -195,7 +200,7 @@ func prepareReviewContext(ctx context.Context, client *github.Client, number int
 	if err != nil {
 		return nil, nil, err
 	}
-	fmt.Printf("✓ #%d %s (+%d/-%d)\n", pr.Number, pr.Title, pr.Additions, pr.Deletions)
+	fmt.Printf("✓ #%d %s (+%d/-%d)\n", pr.Number, terminalSafe(pr.Title), pr.Additions, pr.Deletions)
 
 	worktree, removeWorktree, err := client.Checkout(ctx, pr)
 	if err != nil {
@@ -255,7 +260,7 @@ func printRiskSummary(reviewContext *review.ReviewContext, elapsed time.Duration
 		if len(function.RiskReasons) > 0 {
 			reason = " · " + function.RiskReasons[0]
 		}
-		fmt.Printf("  ★ %5.1f  %s (%s:%d)%s\n", function.RiskScore, function.Name, function.File, function.StartLine, reason)
+		fmt.Printf("  ★ %5.1f  %s (%s:%d)%s\n", function.RiskScore, terminalSafe(function.Name), terminalSafe(function.File), function.StartLine, terminalSafe(reason))
 	}
 }
 
@@ -265,7 +270,17 @@ type reviewRun struct {
 	context   *review.ReviewContext
 	events    *reviewui.EventLog
 	cachePath string
+	cacheKey  string // engine plus the settings that change its output
 	useCache  bool
+}
+
+// reviewCacheKey identifies what produced a review, so changing --model, --effort or
+// --focus (or the engine) runs a fresh review instead of replaying a cached one
+func reviewCacheKey(selected review.Engine, options reviewFlags) string {
+	if selected == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s model=%s effort=%s focus=%d", selected.Name(), options.model, options.effort, options.focus)
 }
 
 // runReviewEngine runs the AI review (or replays a cached one for the same PR head)
@@ -303,7 +318,7 @@ func runReviewEngine(ctx context.Context, run reviewRun) {
 		return
 	}
 	fmt.Printf("✓ review complete: %s, %d findings\n", result.Verdict, len(result.Findings))
-	if saveErr := review.SaveReviewCache(run.cachePath, run.context.PR, run.engine.Name(), events.Since(0)); saveErr != nil {
+	if saveErr := review.SaveReviewCache(run.cachePath, run.context.PR, run.cacheKey, events.Since(0)); saveErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not cache the review: %v\n", saveErr)
 	} else {
 		fmt.Printf("  saved to %s (reopening this PR head replays it; --rerun for a fresh review)\n", run.cachePath)
@@ -313,7 +328,7 @@ func runReviewEngine(ctx context.Context, run reviewRun) {
 // replayCachedReview emits a cached review for this PR head made by the selected
 // engine, and reports whether it did
 func replayCachedReview(run reviewRun) bool {
-	cached, err := review.LoadReviewCache(run.cachePath, run.context.PR, run.engine.Name())
+	cached, err := review.LoadReviewCache(run.cachePath, run.context.PR, run.cacheKey)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: ignoring unreadable cached review: %v\n", err)
 		return false
@@ -352,4 +367,16 @@ func shortSHA(sha string) string {
 		return sha[:8]
 	}
 	return sha
+}
+
+// terminalSafe strips control characters (ANSI escapes, carriage returns, bells) from
+// PR-controlled text before it is printed, so a crafted PR title or path cannot rewrite
+// or clear the reviewer's terminal
+func terminalSafe(text string) string {
+	return strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return -1
+		}
+		return character
+	}, text)
 }

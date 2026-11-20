@@ -1,6 +1,7 @@
 package reviewui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -164,7 +165,9 @@ func (server *Server) handlePost(writer http.ResponseWriter, request *http.Reque
 	}
 
 	reviewContext := server.options.Context
-	result, err := server.options.Poster.PostReview(request.Context(), reviewContext.PR, reviewContext.Files, postRequest)
+	// Detached from the request: if the browser disconnects mid-post, gh must finish,
+	// or GitHub could hold a review the repost guard never recorded
+	result, err := server.options.Poster.PostReview(context.WithoutCancel(request.Context()), reviewContext.PR, reviewContext.Files, postRequest)
 	if err != nil {
 		writeError(writer, http.StatusBadGateway, err.Error())
 		return

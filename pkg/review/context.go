@@ -363,7 +363,7 @@ func attachRelationships(entries []*changedEntry, callGraph *models.CallGraph, r
 		if entry.risk.Language == "Go" && callGraph != nil {
 			if fullName := check.MatchCallGraphName(entry.source, callGraph, root); fullName != "" {
 				attachGoRelationships(entry, callGraph, fullName, root)
-				results = append(results, fanInResult(entry, false))
+				results = append(results, fanInResult(entry, entry.risk.FanInApproximate))
 				continue
 			}
 		}
