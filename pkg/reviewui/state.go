@@ -18,8 +18,8 @@ const maxStateBodyBytes = 2 << 20
 // errStateNotObject rejects a state document that is not a JSON object
 var errStateNotObject = errors.New("state must be a JSON object")
 
-// handleGetState returns the reviewer's saved work for this PR head, or 404 when
-// nothing has been saved yet (or persistence is not configured)
+// handleGetState returns the reviewer's saved work for this PR head, 204 when nothing
+// has been saved yet, or 404 when persistence is not configured
 func (server *Server) handleGetState(writer http.ResponseWriter, request *http.Request) {
 	if !server.checkWriteGuards(writer, request, false) {
 		return
@@ -32,7 +32,8 @@ func (server *Server) handleGetState(writer http.ResponseWriter, request *http.R
 	content, err := os.ReadFile(server.options.StatePath)
 	server.stateMutex.Unlock()
 	if errors.Is(err, os.ErrNotExist) {
-		writeError(writer, http.StatusNotFound, "no saved state")
+		// Nothing saved yet is normal, not an error (a 404 would log one in the console)
+		writer.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if err != nil {

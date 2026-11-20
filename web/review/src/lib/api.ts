@@ -49,7 +49,7 @@ export async function fetchState(): Promise<unknown> {
       headers: { [TOKEN_HEADER]: sessionToken(), Accept: 'application/json' },
       credentials: 'same-origin',
     });
-    if (!response.ok) return null;
+    if (!response.ok || response.status === 204) return null;
     return (await response.json()) as unknown;
   } catch {
     return null;

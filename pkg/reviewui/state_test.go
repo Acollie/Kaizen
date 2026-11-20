@@ -68,8 +68,8 @@ func TestStateRoundTrip(t *testing.T) {
 	ts, statePath := stateServer(t)
 	headers := goodStateHeaders(ts)
 
-	if status, _ := stateRequest(t, ts, http.MethodGet, "/api/state", "", headers); status != http.StatusNotFound {
-		t.Fatalf("GET before any save = %d, want 404", status)
+	if status, _ := stateRequest(t, ts, http.MethodGet, "/api/state", "", headers); status != http.StatusNoContent {
+		t.Fatalf("GET before any save = %d, want 204", status)
 	}
 	document := `{"version":1,"triage":{"f1":{"state":"accepted","note":"checked"}}}`
 	if status, body := stateRequest(t, ts, http.MethodPut, "/api/state", document, headers); status != http.StatusNoContent {
