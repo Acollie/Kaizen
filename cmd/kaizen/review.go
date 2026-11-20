@@ -7,8 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -82,7 +80,7 @@ func init() {
 }
 
 func runReview(cmd *cobra.Command, args []string) error {
-	number, err := parsePRReference(args[0])
+	prRef, err := parsePRReference(args[0])
 	if err != nil {
 		return err
 	}
@@ -100,7 +98,7 @@ func runReview(cmd *cobra.Command, args []string) error {
 	}
 
 	client := github.NewClient(reviewOptions.repoPath)
-	reviewContext, cleanup, err := prepareReviewContext(ctx, client, number, reviewOptions)
+	reviewContext, cleanup, err := prepareReviewContext(ctx, client, prRef, reviewOptions)
 	if cleanup != nil {
 		defer cleanup()
 	}
@@ -163,22 +161,10 @@ func runReview(cmd *cobra.Command, args []string) error {
 // engineShutdownTimeout bounds how long Ctrl+C waits for the engine to exit
 const engineShutdownTimeout = 10 * time.Second
 
-// prPattern matches ".../pull/123" in a PR URL
-var prPattern = regexp.MustCompile(`/pull/(\d+)`)
-
-// parsePRReference accepts "123", "#123" or a GitHub PR URL
-func parsePRReference(reference string) (int, error) {
-	if match := prPattern.FindStringSubmatch(reference); match != nil {
-		reference = match[1]
-	}
-	if len(reference) > 0 && reference[0] == '#' {
-		reference = reference[1:]
-	}
-	number, err := strconv.Atoi(reference)
-	if err != nil || number <= 0 {
-		return 0, fmt.Errorf("invalid pull request %q: expected a number like 42 or a PR URL", reference)
-	}
-	return number, nil
+// parsePRReference accepts "123", "#123" (the local clone's repository) or a
+// GitHub PR URL, whose owner/repo is kept so the PR is fetched and reviewed there
+func parsePRReference(reference string) (github.PRRef, error) {
+	return github.ParsePRRef(reference)
 }
 
 // selectReviewEngine resolves --engine/--model/--effort into an engine
@@ -193,10 +179,11 @@ func selectReviewEngine(options reviewFlags) (review.Engine, error) {
 // prepareReviewContext fetches and checks out the PR and runs Kaizen's analysis on it.
 // The returned cleanup removes the worktree (or reports where it was kept) and is
 // non-nil whenever a worktree was created, even if a later step failed.
-func prepareReviewContext(ctx context.Context, client *github.Client, number int, options reviewFlags) (*review.ReviewContext, func(), error) {
+func prepareReviewContext(ctx context.Context, client *github.Client, prRef github.PRRef, options reviewFlags) (*review.ReviewContext, func(), error) {
 	started := time.Now()
+	number := prRef.Number
 	fmt.Printf("Fetching PR #%d…\n", number)
-	pr, _, err := client.FetchPR(ctx, number)
+	pr, _, err := client.FetchPRRef(ctx, prRef)
 	if err != nil {
 		return nil, nil, err
 	}

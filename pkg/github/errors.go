@@ -14,6 +14,7 @@ var (
 	ErrGHNotInstalled     = errors.New("the GitHub CLI (gh) is not installed; see https://cli.github.com")
 	ErrGHNotAuthenticated = errors.New("the GitHub CLI is not authenticated; run `gh auth login`")
 	ErrPRNotFound         = errors.New("pull request not found")
+	ErrRepoMismatch       = errors.New("the local clone is not the pull request's repository")
 )
 
 // classifyGHError maps a failed gh invocation onto a sentinel error when the

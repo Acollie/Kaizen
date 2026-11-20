@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/alexcollie/kaizen/pkg/review"
 )
@@ -72,28 +73,75 @@ func (client *Client) repoDir() string {
 	return client.RepoDir
 }
 
-// FetchPR loads PR metadata and the repository owner/name. MergeBase is left
-// empty; Checkout fills it in.
+// FetchPR loads PR metadata for a PR in the local clone's repository. MergeBase
+// is left empty; Checkout fills it in.
 func (client *Client) FetchPR(ctx context.Context, number int) (*review.PullRequest, []PRFile, error) {
+	return client.FetchPRRef(ctx, PRRef{Number: number})
+}
+
+// FetchPRRef loads PR metadata and the repository owner/name. A reference that
+// names its repository (a PR URL) is fetched from that repository with --repo,
+// and RepoDir must be a clone of it, because checkout and diff run locally.
+// The owner/name it returns is what PostReview posts to.
+func (client *Client) FetchPRRef(ctx context.Context, ref PRRef) (*review.PullRequest, []PRFile, error) {
 	if err := client.ensureGitRepo(ctx); err != nil {
 		return nil, nil, err
 	}
 
-	output, err := client.runner().Run(ctx, client.repoDir(), "gh", "pr", "view", strconv.Itoa(number), "--json", prViewFields)
-	if err != nil {
-		return nil, nil, fmt.Errorf("fetch PR #%d: %w", number, classifyGHError(err))
-	}
-	var view prViewResponse
-	if err := json.Unmarshal(output, &view); err != nil {
-		return nil, nil, fmt.Errorf("parse gh pr view output: %w", err)
+	var repoSpec string
+	var repoArgs []string
+	if ref.HasRepo() {
+		repoSpec = ref.RepoFlag()
+		repoArgs = []string{"--repo", repoSpec}
+		if err := client.ensureCloneOf(ctx, ref); err != nil {
+			return nil, nil, err
+		}
 	}
 
-	owner, repo, err := client.repoIdentity(ctx)
+	view, err := client.viewPR(ctx, ref.Number, repoArgs)
 	if err != nil {
 		return nil, nil, err
 	}
+	// The PR's repository, canonical as GitHub spells it; PostReview posts here
+	owner, repo, err := client.repoIdentity(ctx, repoSpec)
+	if err != nil {
+		return nil, nil, err
+	}
+	return newPullRequest(view, owner, repo), view.Files, nil
+}
 
-	pullRequest := &review.PullRequest{
+// viewPR runs `gh pr view <n> --json ...` with optional --repo arguments
+func (client *Client) viewPR(ctx context.Context, number int, repoArgs []string) (*prViewResponse, error) {
+	args := append([]string{"pr", "view", strconv.Itoa(number), "--json", prViewFields}, repoArgs...)
+	output, err := client.runner().Run(ctx, client.repoDir(), "gh", args...)
+	if err != nil {
+		return nil, fmt.Errorf("fetch PR #%d: %w", number, classifyGHError(err))
+	}
+	var view prViewResponse
+	if err := json.Unmarshal(output, &view); err != nil {
+		return nil, fmt.Errorf("parse gh pr view output: %w", err)
+	}
+	return &view, nil
+}
+
+// ensureCloneOf fails unless the local clone's repository (as gh resolves it) is
+// the one the PR reference names
+func (client *Client) ensureCloneOf(ctx context.Context, ref PRRef) error {
+	localOwner, localRepo, err := client.repoIdentity(ctx, "")
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(localOwner, ref.Owner) && strings.EqualFold(localRepo, ref.Repo) {
+		return nil
+	}
+	local := localOwner + "/" + localRepo
+	target := ref.Owner + "/" + ref.Repo
+	return fmt.Errorf("%w: this is a clone of %s; the PR is in %s; run from a clone of %s (or pass --repo <path>)",
+		ErrRepoMismatch, local, target, target)
+}
+
+func newPullRequest(view *prViewResponse, owner, repo string) *review.PullRequest {
+	return &review.PullRequest{
 		Number:    view.Number,
 		Title:     view.Title,
 		Body:      view.Body,
@@ -109,12 +157,18 @@ func (client *Client) FetchPR(ctx context.Context, number int) (*review.PullRequ
 		Deletions: view.Deletions,
 		FileCount: len(view.Files),
 	}
-	return pullRequest, view.Files, nil
 }
 
-// repoIdentity returns the owner login and repository name of the current repo
-func (client *Client) repoIdentity(ctx context.Context) (string, string, error) {
-	output, err := client.runner().Run(ctx, client.repoDir(), "gh", "repo", "view", "--json", "owner,name")
+// repoIdentity returns the owner login and repository name of the current repo,
+// or of repoSpec ([HOST/]OWNER/REPO) when it is set. `gh repo view` has no
+// --repo flag; it takes the repository as a positional argument.
+func (client *Client) repoIdentity(ctx context.Context, repoSpec string) (string, string, error) {
+	args := []string{"repo", "view"}
+	if repoSpec != "" {
+		args = append(args, repoSpec)
+	}
+	args = append(args, "--json", "owner,name")
+	output, err := client.runner().Run(ctx, client.repoDir(), "gh", args...)
 	if err != nil {
 		return "", "", fmt.Errorf("resolve repository: %w", classifyGHError(err))
 	}
