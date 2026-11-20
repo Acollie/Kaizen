@@ -23,9 +23,28 @@ export function formatCost(cost: number | undefined): string {
   return `$${cost.toFixed(2)}`;
 }
 
-/** "claude-cli · claude-opus" with empty parts dropped */
+/**
+ * What the review used, labelled honestly. The Claude Code CLI engine runs on the
+ * user's Claude plan: its cost_usd is an API-equivalent estimate of usage, not a
+ * charge. Only the API engine's figure is money billed to an API key.
+ */
+export function usageLabel(result: Pick<ReviewResult, 'engine' | 'cost_usd'>): string {
+  const cost = formatCost(result.cost_usd);
+  if (!cost) return '';
+  if (result.engine === 'anthropic-api') return `${cost} API`;
+  return `≈${cost} usage`;
+}
+
+/** Tooltip text explaining usageLabel */
+export function usageExplanation(result: Pick<ReviewResult, 'engine' | 'cost_usd'>): string {
+  if (!formatCost(result.cost_usd)) return '';
+  if (result.engine === 'anthropic-api') return 'Billed to your Anthropic API key';
+  return 'API-equivalent estimate of model usage; counts against your Claude plan, not billed per token';
+}
+
+/** "≈$2.07 usage · claude-cli · opus" with empty parts dropped */
 export function engineLabel(result: Pick<ReviewResult, 'engine' | 'model' | 'cost_usd'>): string {
-  return [formatCost(result.cost_usd), result.engine, result.model].filter(Boolean).join(' · ');
+  return [usageLabel(result), result.engine, result.model].filter(Boolean).join(' · ');
 }
 
 export function engineView(status: EngineStatus, result: ReviewResult | null): EngineView {
@@ -34,8 +53,8 @@ export function engineView(status: EngineStatus, result: ReviewResult | null): E
       return { tone: 'error', label: status.message || 'Review failed', agent: '', title: status.message || 'Review failed' };
     case 'done': {
       if (!result) return { tone: 'done', label: status.message || 'Finished', agent: '', title: status.message || 'Finished' };
-      const label = ['Reviewed', formatCost(result.cost_usd), result.engine].filter(Boolean).join(' · ');
-      const title = ['Review complete', engineLabel(result)].filter(Boolean).join(' · ');
+      const label = ['Reviewed', usageLabel(result), result.engine].filter(Boolean).join(' · ');
+      const title = ['Review complete', engineLabel(result), usageExplanation(result)].filter(Boolean).join(' · ');
       return { tone: 'done', label, agent: '', title };
     }
     case 'connecting':

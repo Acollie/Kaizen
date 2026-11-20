@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { ReviewResult } from '../../types';
-import { engineLabel, engineView, formatCost, prMeta } from './headerModel';
+import { engineLabel, engineView, formatCost, prMeta, usageLabel } from './headerModel';
 
 const result: ReviewResult = { summary: '', verdict: 'comment', findings: [], engine: 'claude-cli', model: 'opus', cost_usd: 2.0672 };
 
@@ -24,8 +24,9 @@ describe('engineView', () => {
   });
   test('done with a result shows cost and engine', () => {
     const view = engineView({ state: 'done', message: 'Review complete', agent: '' }, result);
-    expect(view.label).toBe('Reviewed · $2.07 · claude-cli');
-    expect(view.title).toBe('Review complete · $2.07 · claude-cli · opus');
+    expect(view.label).toBe('Reviewed · ≈$2.07 usage · claude-cli');
+    expect(view.title).toContain('Review complete · ≈$2.07 usage · claude-cli · opus');
+    expect(view.title).toContain('not billed per token');
   });
   test('done without a result uses the status message', () => {
     expect(engineView({ state: 'done', message: 'Finished', agent: '' }, null).label).toBe('Finished');
@@ -34,6 +35,14 @@ describe('engineView', () => {
     const view = engineView({ state: 'error', message: 'claude: not found in PATH', agent: '' }, null);
     expect(view.tone).toBe('error');
     expect(view.title).toBe('claude: not found in PATH');
+  });
+});
+
+describe('usageLabel', () => {
+  test('the Claude Code engine reports estimated usage, the API engine reports cost', () => {
+    expect(usageLabel({ engine: 'claude-cli', cost_usd: 7.82 })).toBe('≈$7.82 usage');
+    expect(usageLabel({ engine: 'anthropic-api', cost_usd: 7.82 })).toBe('$7.82 API');
+    expect(usageLabel({ engine: 'claude-cli', cost_usd: undefined })).toBe('');
   });
 });
 
