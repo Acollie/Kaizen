@@ -137,8 +137,10 @@ func TestScoreFunctionsWithDiffSecurityLines(t *testing.T) {
 	}}
 
 	ScoreFunctionsWithDiff(functions, files, 5)
-	assert.Equal(t, WeightSecurity, functions[0].RiskScore)
+	// security in full, plus the behaviour-change factor for a new side effect (2 units)
+	assert.Equal(t, WeightSecurity+WeightBehaviourChange*2/BehaviourChangeFullUnits, functions[0].RiskScore)
 	assert.Contains(t, functions[0].RiskReasons[0], "exec.Command")
+	assert.Contains(t, functions[0].RiskReasons, "behaviour change: adds an exec.Command")
 
 	// The same pattern outside the function's range does not count
 	files[0].Hunks[0].Lines[0].NewLine = 50

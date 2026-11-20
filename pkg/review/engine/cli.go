@@ -306,10 +306,30 @@ func claudeExitError(waitErr error, stderrTail, resultText string) error {
 	return fmt.Errorf("claude exited with an error: %w%s", waitErr, formatTail(stderrTail))
 }
 
+// authFailureMarkers are lower-case phrases the CLI and the API print on an
+// authentication failure. A bare "401" is deliberately absent: it matches line
+// numbers and counts in ordinary output.
+var authFailureMarkers = []string{
+	"not logged in",
+	"please run /login",
+	"invalid api key",
+	"invalid x-api-key",
+	"authentication_error",
+	"authentication failed",
+	"oauth token has expired",
+	"401 unauthorized",
+	"status 401",
+	"status code 401",
+	"status: 401",
+	"http 401",
+	"error 401",
+	"(401)",
+}
+
 // isAuthFailure spots the CLI's authentication errors in its output
 func isAuthFailure(text string) bool {
 	lower := strings.ToLower(text)
-	for _, marker := range []string{"not logged in", "please run /login", "invalid api key", "authentication_error", "authentication failed", "oauth token has expired", "401"} {
+	for _, marker := range authFailureMarkers {
 		if strings.Contains(lower, marker) {
 			return true
 		}

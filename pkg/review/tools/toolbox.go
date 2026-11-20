@@ -17,13 +17,14 @@ import (
 
 // Tool names, as the model sees them
 const (
-	ToolGetRiskRanking = "get_risk_ranking"
-	ToolGetFunction    = "get_function"
-	ToolGetCallers     = "get_callers"
-	ToolGetCallees     = "get_callees"
-	ToolGetFileDiff    = "get_file_diff"
-	ToolReadLines      = "read_lines"
-	ToolReportFinding  = "report_finding"
+	ToolGetRiskRanking     = "get_risk_ranking"
+	ToolGetPackageOverview = "get_package_overview"
+	ToolGetFunction        = "get_function"
+	ToolGetCallers         = "get_callers"
+	ToolGetCallees         = "get_callees"
+	ToolGetFileDiff        = "get_file_diff"
+	ToolReadLines          = "read_lines"
+	ToolReportFinding      = "report_finding"
 )
 
 // maxOutputBytes caps every tool result sent to the model
@@ -54,7 +55,7 @@ type RiskRankingInput struct{}
 
 // FunctionInput names a changed function
 type FunctionInput struct {
-	ID string `json:"id" jsonschema:"required" jsonschema_description:"Function id exactly as listed by get_risk_ranking (for example 'github.com/acme/app/pkg.(*Server).Handle' or 'src/app.py:handle'). A bare function name also works when it is unambiguous."`
+	ID string `json:"id" jsonschema:"required" jsonschema_description:"Function id copied exactly from get_risk_ranking; do not construct one yourself. Go ids look like 'review.Server.Handle' or 'review.ParseDiff' (a directory prefix such as 'pkg/review:review.ParseDiff' may appear when two packages share a name); other languages use 'path:name', e.g. 'src/app.py:handle'. A bare function name also works when it is unambiguous."`
 }
 
 // FileDiffInput names a changed file
@@ -87,6 +88,7 @@ type toolSpec struct {
 
 var specs = []toolSpec{
 	{ToolGetRiskRanking, descriptionRiskRanking, RiskRankingInput{}, bind((*Toolbox).GetRiskRanking)},
+	{ToolGetPackageOverview, descriptionPackageOverview, PackageOverviewInput{}, bind((*Toolbox).GetPackageOverview)},
 	{ToolGetFunction, descriptionGetFunction, FunctionInput{}, bind((*Toolbox).GetFunction)},
 	{ToolGetCallers, descriptionGetCallers, FunctionInput{}, bind((*Toolbox).GetCallers)},
 	{ToolGetCallees, descriptionGetCallees, FunctionInput{}, bind((*Toolbox).GetCallees)},

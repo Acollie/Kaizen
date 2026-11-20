@@ -171,7 +171,7 @@ func parsePRReference(reference string) (github.PRRef, error) {
 func selectReviewEngine(options reviewFlags) (review.Engine, error) {
 	selectOptions := engine.SelectOptions{
 		CLI: engine.CLIEngine{Model: options.model, Effort: options.effort, MaxBudgetUSD: options.maxBudget},
-		API: engine.APIEngine{Model: options.model},
+		API: engine.APIEngine{Model: options.model, Effort: options.effort},
 	}
 	return engine.Select(options.engineName, selectOptions)
 }
