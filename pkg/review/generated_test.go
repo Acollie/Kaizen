@@ -83,10 +83,8 @@ func TestPromptsLikeFileIsNotGenerated(t *testing.T) {
 func TestMinifiedContentRules(t *testing.T) {
 	long := strings.Repeat("x", longLineLength+1)
 	veryLong := strings.Repeat("y", veryLongLineLength+1)
-	manyShortLines := make([]string, 0, 20)
-	for index := 0; index < 20; index++ {
-		manyShortLines = append(manyShortLines, "short")
-	}
+	codeLine := strings.Repeat("c", 200) // an ordinary, if wide, line of code
+	manyCodeLines := repeatLine(codeLine, 19, codeLine)
 
 	cases := []struct {
 		name      string
@@ -99,8 +97,10 @@ func TestMinifiedContentRules(t *testing.T) {
 		{"tiny go file of only long lines", "gen/blob.go", []string{veryLong, long}, true},
 		{"large go file of only long lines", "gen/blob.go", repeatLine(long, 11, veryLong), false},
 		{"long but never very long", "dist/app.js", []string{long, long, long}, false},
-		{"under 80 percent long", "dist/app.js", append([]string{veryLong, long}, manyShortLines[:3]...), false},
-		{"mostly short js", "src/app.js", append([]string{veryLong}, manyShortLines...), false},
+		{"under 80 percent long by lines and characters", "dist/app.js", append([]string{veryLong, long}, manyCodeLines...), false},
+		{"mostly ordinary js", "src/app.js", append([]string{veryLong}, manyCodeLines...), false},
+		{"bundle with license comment lines", "static/assets/app.js", bundleWithLicenseHeaders(), true},
+		{"long-line go file with license comments", "pkg/blob.go", append(bundleWithLicenseHeaders(), manyCodeLines...), false},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -108,6 +108,21 @@ func TestMinifiedContentRules(t *testing.T) {
 			assert.Equal(t, testCase.generated, generatedReason(file) != "")
 		})
 	}
+}
+
+// bundleWithLicenseHeaders mimics a Vite build of React: few of its lines are long
+// (license comments sit between the code lines), but nearly all of its characters are
+func bundleWithLicenseHeaders() []string {
+	header := []string{" * @license React", " * react-dom.production.min.js", " *",
+		" * Copyright (c) Facebook, Inc. and its affiliates.", " *",
+		" * This source code is licensed under the MIT license found in the",
+		" * LICENSE file in the root directory of this source tree."}
+	var lines []string
+	for index := 0; index < 6; index++ {
+		lines = append(lines, header...)
+		lines = append(lines, " */"+minifiedBundleLine())
+	}
+	return lines
 }
 
 // repeatLine returns count copies of line followed by last

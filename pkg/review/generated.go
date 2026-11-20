@@ -69,26 +69,31 @@ func generatedReason(file FileDiff) string {
 }
 
 // isMinifiedContent reports whether the added lines look like build output: at
-// least 80% of them are long, one is very long, and the file is a bundle type or tiny
+// least 80% of them are long, one is very long, and the file is a bundle type or
+// tiny. The 80% is met by line count or by characters, because bundlers keep short
+// license-comment lines (" * @license React") between their megabyte-long code
+// lines. The type-or-tiny gate is what keeps hand-written source reviewable.
 func isMinifiedContent(file FileDiff, bundleType bool) bool {
-	addedLines, longLines, longest := 0, 0, 0
+	addedLines, longLines, addedChars, longChars, longest := 0, 0, 0, 0, 0
 	for _, hunk := range file.Hunks {
 		for _, line := range hunk.Lines {
 			if line.Kind != LineAdded {
 				continue
 			}
+			length := len(line.Text)
 			addedLines++
-			if len(line.Text) > longLineLength {
+			addedChars += length
+			if length > longLineLength {
 				longLines++
+				longChars += length
 			}
-			longest = max(longest, len(line.Text))
+			longest = max(longest, length)
 		}
 	}
 	if addedLines == 0 || longest <= veryLongLineLength {
 		return false
 	}
-	if float64(longLines) < minifiedLongLineShare*float64(addedLines) {
-		return false
-	}
-	return bundleType || addedLines <= smallFileAddedLineMax
+	mostlyLong := float64(longLines) >= minifiedLongLineShare*float64(addedLines) ||
+		float64(longChars) >= minifiedLongLineShare*float64(addedChars)
+	return mostlyLong && (bundleType || addedLines <= smallFileAddedLineMax)
 }
