@@ -81,8 +81,13 @@ var (
 	diffSkipChurn        bool
 )
 
+// Version is the release version, injected at build time with
+// -ldflags "-X main.Version=v1.2.3". It defaults to "dev" for local builds.
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "kaizen",
+	Use:     "kaizen",
+	Version: Version,
 	Short: "Code analysis tool for measuring code quality and churn",
 	Long: `Kaizen analyzes your codebase to identify:
   - Code complexity (cyclomatic, cognitive)
@@ -303,6 +308,7 @@ func init() {
 }
 
 func main() {
+	rootCmd.Version = Version
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

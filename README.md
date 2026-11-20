@@ -116,6 +116,32 @@ Every PR will receive a comment showing score changes, complexity metrics, and h
 
 ### 📦 Installation
 
+#### Install with Homebrew
+
+```bash
+brew install acollie/tap/kaizen
+kaizen --version
+```
+
+Homebrew builds Kaizen from source with Go (it needs cgo for the tree-sitter
+parsers), so the first install takes a minute. Upgrade with `brew upgrade kaizen`,
+or track `main` with `brew install --HEAD acollie/tap/kaizen`. Shell completions
+for bash, zsh and fish are installed automatically.
+
+Optional dependencies:
+
+- `git` is required for churn analysis (preinstalled on macOS); use `--skip-churn` without it.
+- `gh` (`brew install gh`) is needed by `kaizen review` to fetch pull requests.
+- The AI review uses the `claude` CLI if it is on your `PATH`, or the Anthropic API when `ANTHROPIC_API_KEY` is set.
+
+#### Install with Go
+
+```bash
+CGO_ENABLED=1 go install github.com/alexcollie/kaizen/cmd/kaizen@latest
+```
+
+#### Install from source
+
 ```bash
 git clone https://github.com/acollie/kaizen.git
 cd kaizen
