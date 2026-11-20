@@ -6,8 +6,8 @@
   "description": "Kaizen PR review UI. Built into pkg/reviewui/static and embedded in the kaizen binary.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "typecheck": "tsc -b --pretty",
+    "build": "tsc --noEmit -p . && vite build",
+    "typecheck": "tsc --noEmit -p . --pretty",
     "test": "vitest run",
     "test:watch": "vitest"
   },
