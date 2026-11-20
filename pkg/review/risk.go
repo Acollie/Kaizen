@@ -416,6 +416,8 @@ const (
 	FileRiskScript = 22.0
 	// FileRiskDependencies applies to dependency manifests and lockfiles (supply chain)
 	FileRiskDependencies = 18.0
+	// FileRiskGitattributes applies to .gitattributes, which can hide changes from diffs
+	FileRiskGitattributes = 30.0
 	// WeightUnstructuredSize scales the size factor for files without analyzable functions:
 	// 0 at <=10 changed lines, full at >=200
 	WeightUnstructuredSize = 20.0
@@ -453,6 +455,8 @@ func fileKindRisk(path string) (float64, []string) {
 		return FileRiskScript, []string{"script: executes shell commands"}
 	case dependencyManifests[base]:
 		return FileRiskDependencies, []string{"dependency manifest: supply-chain change"}
+	case base == ".gitattributes":
+		return FileRiskGitattributes, []string{"changes how git diffs and merges files: check for -diff, binary or merge attributes that hide changes"}
 	}
 	return 0, nil
 }

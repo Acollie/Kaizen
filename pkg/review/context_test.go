@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -318,4 +319,53 @@ func TestCountLines(t *testing.T) {
 	assert.Equal(t, 1, countLines([]byte("one")))
 	assert.Equal(t, 2, countLines([]byte("one\ntwo\n")))
 	assert.Equal(t, 3, countLines([]byte("one\ntwo\nthree")))
+}
+
+// A PR that adds a symlink to /dev/zero, a link outside the checkout or a FIFO must not
+// make the analyzers read it (it would hang or exhaust memory); the files are listed
+// with a risk reason instead.
+func TestBuildContextQuarantinesSymlinksAndSpecialFiles(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-q", "-b", "main")
+	writeFixtureFile(t, repo, "main.go", "package main\n\nfunc main() {}\n")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "base")
+	base := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+
+	require.NoError(t, os.Symlink("/dev/zero", filepath.Join(repo, "zero.go")))
+	require.NoError(t, os.Symlink("/etc/hosts", filepath.Join(repo, "hosts.txt")))
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "links")
+	head := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+
+	display := runGit(t, repo, "diff", base, head, "--unified=3", "-M")
+	mapping := runGit(t, repo, "diff", base, head, "--unified=0", "-M")
+
+	done := make(chan struct{})
+	var reviewContext *ReviewContext
+	var buildErr error
+	go func() {
+		defer close(done)
+		reviewContext, buildErr = BuildContext(context.Background(), PullRequest{Number: 1, HeadSHA: head}, repo, display, mapping, BuildOptions{SkipChurn: true})
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("BuildContext did not finish: a symlink to /dev/zero was followed")
+	}
+	require.NoError(t, buildErr)
+
+	reasons := map[string]string{}
+	for _, file := range reviewContext.Files {
+		if len(file.RiskReasons) > 0 {
+			reasons[file.Path] = file.RiskReasons[0]
+		}
+		assert.Zero(t, file.LineCount, "%s must not be read", file.Path)
+	}
+	assert.Contains(t, reasons["zero.go"], "symlink")
+	assert.Contains(t, reasons["hosts.txt"], "/etc/hosts")
+	assert.Empty(t, reviewContext.Functions)
 }

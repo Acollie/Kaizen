@@ -83,6 +83,11 @@ func (analyzer *CallGraphAnalyzer) parseDirectory(rootPath string) ([]*parsedGoF
 		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
+		// Never follow symlinks or read devices/FIFOs or huge files: analyzed code may
+		// be untrusted (a PR checkout), and a link to /dev/zero would exhaust memory.
+		if !info.Mode().IsRegular() || info.Size() > maxParsedFileBytes {
+			return nil
+		}
 
 		parsed, parseErr := analyzer.parseFile(path)
 		if parseErr != nil {
@@ -96,6 +101,9 @@ func (analyzer *CallGraphAnalyzer) parseDirectory(rootPath string) ([]*parsedGoF
 
 	return files, err
 }
+
+// maxParsedFileBytes caps the size of a Go file the call graph will parse
+const maxParsedFileBytes = 2 << 20
 
 // shouldSkipDirectory reports whether a directory never contains analyzable first-party code
 func shouldSkipDirectory(name string) bool {

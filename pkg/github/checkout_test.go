@@ -59,14 +59,27 @@ func TestCheckoutFailures(t *testing.T) {
 }
 
 func TestDiffCommand(t *testing.T) {
-	runner := (&fakeRunner{}).respond("git diff", "diff --git a/x b/x\n", nil)
+	runner := (&fakeRunner{}).respond("git --attr-source=mb diff", "diff --git a/x b/x\n", nil)
 	client := &Client{Runner: runner}
 
 	diff, err := client.Diff(context.Background(), "/tmp/wt", "mb", "head", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "diff --git a/x b/x\n", diff)
-	assert.Equal(t, "git diff mb head --unified=0 -M", runner.lastCall().commandLine())
+	assert.Equal(t, "git --attr-source=mb diff mb head --unified=0 --no-ext-diff --no-color --no-textconv "+
+		"--src-prefix=a/ --dst-prefix=b/ --diff-algorithm=myers -M", runner.lastCall().commandLine())
 	assert.Equal(t, "/tmp/wt", runner.lastCall().Dir)
+}
+
+func TestDiffFallsBackWithoutAttrSourceOnOldGit(t *testing.T) {
+	runner := (&fakeRunner{}).
+		respond("git --attr-source=mb diff", "", errors.New("unknown option: --attr-source=mb")).
+		respond("git diff", "diff --git a/x b/x\n", nil)
+	client := &Client{Runner: runner}
+
+	diff, err := client.Diff(context.Background(), "/tmp/wt", "mb", "head", 3)
+	require.NoError(t, err)
+	assert.Equal(t, "diff --git a/x b/x\n", diff)
+	assert.True(t, strings.HasPrefix(runner.lastCall().commandLine(), "git diff mb head --unified=3"))
 }
 
 // TestCheckoutWithRealGit exercises fetch, worktree add, merge-base and cleanup
@@ -127,4 +140,37 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
+}
+
+// A PR must not be able to hide its own code changes with .gitattributes, and the
+// user's git config (colour, external diff tools, no-prefix) must not change the diff.
+func TestDiffIgnoresPRGitattributesAndUserDiffConfig(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	ctx := context.Background()
+	repo := t.TempDir()
+	gitRun(t, repo, "init", "-q", "-b", "main")
+	writeFile(t, repo, "main.go", "package main\n\nfunc main() {}\n")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-q", "-m", "base")
+	baseSHA := strings.TrimSpace(gitRun(t, repo, "rev-parse", "HEAD"))
+
+	writeFile(t, repo, ".gitattributes", "*.go -diff\n")
+	writeFile(t, repo, "main.go", "package main\n\nfunc main() { evil() }\n")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-q", "-m", "hide it")
+	headSHA := strings.TrimSpace(gitRun(t, repo, "rev-parse", "HEAD"))
+
+	// Hostile user config: colour always on, an external diff that would fail, no prefixes
+	gitRun(t, repo, "config", "color.ui", "always")
+	gitRun(t, repo, "config", "diff.external", "false")
+	gitRun(t, repo, "config", "diff.noprefix", "true")
+
+	diff, err := NewClient(repo).Diff(ctx, repo, baseSHA, headSHA, 3)
+	require.NoError(t, err)
+	assert.Contains(t, diff, "+func main() { evil() }", "the Go change must be visible despite *.go -diff")
+	assert.NotContains(t, diff, "Binary files")
+	assert.NotContains(t, diff, "\x1b[", "no ANSI colour codes")
+	assert.Contains(t, diff, "diff --git a/main.go b/main.go")
 }

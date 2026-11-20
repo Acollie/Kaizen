@@ -76,13 +76,34 @@ func (client *Client) worktreeCleanup(worktreePath string) func() error {
 	}
 }
 
-// Diff returns `git diff <mergeBase> <headSHA> --unified=N -M` run inside the worktree
+// diffFlags make the diff independent of the user's git config, so it always parses
+// the same way and matches the hunks GitHub shows (inline comments must land in them):
+// no external diff tools, colour, textconv, mnemonic/no prefixes or custom algorithms.
+var diffFlags = []string{
+	"--no-ext-diff", "--no-color", "--no-textconv",
+	"--src-prefix=a/", "--dst-prefix=b/", "--diff-algorithm=myers", "-M",
+}
+
+// Diff returns the diff between mergeBase and headSHA with N lines of context.
+// Attributes come from the merge base (--attr-source), so a PR cannot hide its own
+// changes by adding e.g. "*.go -diff" to .gitattributes. Gits older than 2.40 lack
+// --attr-source; for them the diff is retried without it.
 func (client *Client) Diff(ctx context.Context, worktree, mergeBase, headSHA string, unified int) (string, error) {
-	output, err := client.git(ctx, worktree, "diff", mergeBase, headSHA, "--unified="+strconv.Itoa(unified), "-M")
+	diffArgs := append([]string{"diff", mergeBase, headSHA, "--unified=" + strconv.Itoa(unified)}, diffFlags...)
+	output, err := client.git(ctx, worktree, append([]string{"--attr-source=" + mergeBase}, diffArgs...)...)
+	if err != nil && isUnknownOptionError(err) {
+		output, err = client.git(ctx, worktree, diffArgs...)
+	}
 	if err != nil {
 		return "", fmt.Errorf("git diff: %w", err)
 	}
 	return string(output), nil
+}
+
+// isUnknownOptionError reports whether git rejected an option it does not know
+func isUnknownOptionError(err error) bool {
+	message := err.Error()
+	return strings.Contains(message, "unknown option") || strings.Contains(message, "usage: git")
 }
 
 // git runs a git subcommand in dir

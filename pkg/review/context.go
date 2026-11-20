@@ -53,9 +53,10 @@ func BuildContext(ctx context.Context, pr PullRequest, worktree string, displayD
 	if err != nil {
 		return nil, fmt.Errorf("parse display diff: %w", err)
 	}
+	quarantined := quarantineUnsafeFiles(files, root)
 	setLineCounts(files, root)
 
-	entries, err := findChangedFunctions(mappingDiff, files, root)
+	entries, err := findChangedFunctions(mappingDiff, files, root, quarantined)
 	if err != nil {
 		return nil, err
 	}
@@ -137,12 +138,18 @@ func countLines(content []byte) int {
 
 // findChangedFunctions maps the mapping diff (plus pure deletions from the
 // display diff, which unified=0 hunk parsing drops) to changed functions
-func findChangedFunctions(mappingDiff string, files []FileDiff, root string) ([]*changedEntry, error) {
-	hunks, err := check.ParseDiffOutput(mappingDiff)
+func findChangedFunctions(mappingDiff string, files []FileDiff, root string, quarantined map[string]bool) ([]*changedEntry, error) {
+	parsed, err := check.ParseDiffOutput(mappingDiff)
 	if err != nil {
 		return nil, fmt.Errorf("parse mapping diff: %w", err)
 	}
-	hunks = append(hunks, deletionAnchorHunks(files)...)
+	parsed = append(parsed, deletionAnchorHunks(files)...)
+	hunks := parsed[:0]
+	for _, hunk := range parsed {
+		if !quarantined[hunk.FilePath] {
+			hunks = append(hunks, hunk)
+		}
+	}
 
 	changed, err := check.MapHunksToFunctions(hunks, root)
 	if err != nil {
@@ -519,8 +526,8 @@ func applyFileRisk(files []FileDiff, functions []FunctionRisk) {
 	for index := range files {
 		file := &files[index]
 		fileScore, reasons := ScoreFile(*file, hasFunctions[file.Path])
-		file.RiskScore = max(maxByFile[file.Path], fileScore)
-		file.RiskReasons = reasons
+		file.RiskScore = max(file.RiskScore, maxByFile[file.Path], fileScore)
+		file.RiskReasons = append(file.RiskReasons, reasons...)
 	}
 	sort.SliceStable(files, func(left, right int) bool {
 		if files[left].RiskScore != files[right].RiskScore {

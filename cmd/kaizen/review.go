@@ -129,18 +129,32 @@ func runReview(cmd *cobra.Command, args []string) error {
 	}
 
 	cachePath := review.ReviewCachePath(repoRoot(reviewOptions.repoPath), reviewContext.PR)
-	go runReviewEngine(ctx, reviewRun{
-		engine:    selectedEngine,
-		context:   reviewContext,
-		events:    events,
-		cachePath: cachePath,
-		useCache:  !reviewOptions.rerun,
-	})
+	engineDone := make(chan struct{})
+	go func() {
+		defer close(engineDone)
+		runReviewEngine(ctx, reviewRun{
+			engine:    selectedEngine,
+			context:   reviewContext,
+			events:    events,
+			cachePath: cachePath,
+			useCache:  !reviewOptions.rerun,
+		})
+	}()
 
 	<-ctx.Done()
 	fmt.Println("\nShutting down…")
+	// Let the engine stop its claude process group before the deferred cleanup
+	// removes the worktree it runs in
+	select {
+	case <-engineDone:
+	case <-time.After(engineShutdownTimeout):
+		fmt.Fprintln(os.Stderr, "Warning: the review engine did not stop in time")
+	}
 	return nil
 }
+
+// engineShutdownTimeout bounds how long Ctrl+C waits for the engine to exit
+const engineShutdownTimeout = 10 * time.Second
 
 // prPattern matches ".../pull/123" in a PR URL
 var prPattern = regexp.MustCompile(`/pull/(\d+)`)
@@ -258,6 +272,13 @@ func runReviewEngine(ctx context.Context, run reviewRun) {
 	events := run.events
 	defer events.Close()
 	defer events.Emit(review.NewEvent(review.EventDone, nil))
+	defer func() {
+		// A panicking engine must not take down the process before the worktree is cleaned up
+		if recovered := recover(); recovered != nil {
+			fmt.Fprintf(os.Stderr, "Review engine crashed: %v\n", recovered)
+			events.Emit(review.NewEvent(review.EventError, review.TextData{Text: fmt.Sprintf("review engine crashed: %v", recovered)}))
+		}
+	}()
 
 	if run.engine == nil {
 		events.Emit(review.NewEvent(review.EventStatus, review.StatusData{Message: "AI review disabled (--no-ai): showing Kaizen risk analysis only"}))
