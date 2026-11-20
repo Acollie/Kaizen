@@ -1,0 +1,18 @@
+.hp-dialog { width: 880px; }
+
+/* Groups flow into balanced columns; each group stays in one piece */
+.hp-grid { columns: 3 240px; column-gap: var(--space-6); padding-top: var(--space-1); }
+.hp-group { break-inside: avoid; padding-bottom: var(--space-5); }
+.hp-group-title { margin: 0 0 var(--space-2); }
+
+.hp-rows {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--space-3); row-gap: 6px; margin: 0; align-items: baseline;
+}
+.hp-keys { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: 0; min-width: 72px; }
+.hp-alt { display: inline-flex; align-items: baseline; gap: 2px; }
+.hp-or { margin: 0 var(--space-1) 0 2px; color: var(--text-3); font-size: var(--text-xs); }
+.hp-desc { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
+
+.hp-foot kbd { margin-left: 2px; }
+.hp-grid:focus { outline: none; }
