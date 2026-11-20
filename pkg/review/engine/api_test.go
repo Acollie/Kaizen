@@ -80,7 +80,7 @@ func TestAPIToolHandlersValidateAndRecord(t *testing.T) {
 	require.Len(t, content, 1)
 	assert.Contains(t, content[0].OfText.Text, "return a - b")
 
-	finding := `{"severity":"critical","category":"correctness","file":"calc/calc.go","line":5,"title":"Add subtracts","body":"Total is negated.","confidence":0.9}`
+	finding := `{"severity":"critical","category":"correctness","file":"calc/calc.go","line":5,"title":"Add subtracts","body":"Total is negated.","verify":"Call Total([]int{1,2,3}) and expect 6","confidence":0.9}`
 	content, err = byName[tools.ToolReportFinding].Execute(ctx, json.RawMessage(finding))
 	require.NoError(t, err)
 	assert.Contains(t, content[0].OfText.Text, "recorded f-")
@@ -89,7 +89,11 @@ func TestAPIToolHandlersValidateAndRecord(t *testing.T) {
 	assert.Equal(t, "lead", live[0].Data.(review.Finding).Source)
 
 	calls := recorder.ofType(review.EventToolCall)
-	assert.Equal(t, "get_function(example.com/calc.Add)", calls[2].Data.(review.ToolCallData).Summary)
+	getFunction := calls[2].Data.(review.ToolCallData)
+	assert.Equal(t, "get_function(example.com/calc.Add)", getFunction.Summary)
+	assert.Equal(t, "example.com/calc.Add", getFunction.Target)
+	assert.Equal(t, review.TargetFunction, getFunction.TargetKind)
+	assert.Empty(t, calls[0].Data.(review.ToolCallData).Target, "truncated input has no target")
 
 	_, err = byName[toolSubmitReview].Execute(ctx, json.RawMessage(`{"summary":"s","verdict":"maybe","findings":[]}`))
 	assert.ErrorContains(t, err, "must be one of")
@@ -105,6 +109,7 @@ func TestAPIToolHandlersValidateAndRecord(t *testing.T) {
 	assert.Equal(t, review.VerdictRequestChanges, result.Verdict)
 	require.Len(t, result.Findings, 1, "the submitted copy and the live finding are the same finding")
 	assert.Equal(t, live[0].Data.(review.Finding).ID, result.Findings[0].ID)
+	assert.Equal(t, "Call Total([]int{1,2,3}) and expect 6", result.Findings[0].Verify)
 	assert.Len(t, recorder.ofType(review.EventResult), 1)
 }
 

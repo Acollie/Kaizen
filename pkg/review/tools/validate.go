@@ -85,6 +85,12 @@ func validateNumber(value any, path string, integer bool) error {
 	return nil
 }
 
+// lenientRequired are fields the schemas mark required, so strict tool use and
+// --json-schema make the model fill them in, but whose absence validation
+// tolerates: a finding without a verify step is still worth keeping, and
+// findings recorded before verify existed lack it
+var lenientRequired = map[string]bool{"verify": true}
+
 func validateObject(schema map[string]any, value any, path string) error {
 	object, ok := value.(map[string]any)
 	if !ok {
@@ -94,7 +100,7 @@ func validateObject(schema map[string]any, value any, path string) error {
 	if required, ok := schema["required"].([]any); ok {
 		for _, key := range required {
 			name, _ := key.(string)
-			if _, present := object[name]; !present {
+			if _, present := object[name]; !present && !lenientRequired[name] {
 				return fmt.Errorf("invalid tool input: %s is missing required field %q", path, name)
 			}
 		}

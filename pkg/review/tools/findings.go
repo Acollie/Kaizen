@@ -12,6 +12,9 @@ import (
 const (
 	maxTitleLength = 200
 	maxBodyLength  = 8000
+	// maxVerifyLength bounds the one-step verification; it is optional so older
+	// cached findings without it still validate
+	maxVerifyLength = 600
 )
 
 // FindingInput is the report_finding input; it mirrors review.Finding minus
@@ -27,7 +30,8 @@ type FindingInput struct {
 	Title      string  `json:"title" jsonschema:"required" jsonschema_description:"One-line summary of the problem, under 100 characters, e.g. 'Nil map write when cfg.Labels is unset'."`
 	Body       string  `json:"body" jsonschema:"required" jsonschema_description:"Markdown explanation: what goes wrong, the concrete input or call path that triggers it, and how you verified it. Cite line numbers."`
 	Suggestion string  `json:"suggestion,omitempty" jsonschema_description:"Optional replacement code for the line range (line..end_line), exactly as it should appear, without diff markers."`
-	Confidence float64 `json:"confidence" jsonschema:"required" jsonschema_description:"Your confidence that this is a real problem, from 0 to 1. Only report findings at 0.6 or above."`
+	Verify     string  `json:"verify" jsonschema:"required" jsonschema_description:"One concrete step the developer can take in a minute or two to confirm this finding themselves, naming the exact file:line, command, input or call. For example 'Run go test ./internal/config -run TestValidate with languages: [java]', 'Open action.yml:71 and check whether inputs.base-branch is quoted' or 'Call scoreDeltaIndicator(3) and look at the rendered comment'. Never a generic step such as 'Review the code'."`
+	Confidence float64 `json:"confidence" jsonschema:"required" jsonschema_description:"Honest probability, from 0 to 1, that this is a real problem. Use the full range: 0.9 or above only when you read the whole code path and can name the triggering input; 0.6-0.8 when the path is read but a caller or runtime condition is unconfirmed; below 0.5 when you are inferring behaviour you did not read."`
 }
 
 var validSeverities = map[review.Severity]bool{
@@ -58,6 +62,7 @@ func (input FindingInput) ToFinding() review.Finding {
 		Title:      strings.TrimSpace(input.Title),
 		Body:       strings.TrimSpace(input.Body),
 		Suggestion: input.Suggestion,
+		Verify:     strings.TrimSpace(input.Verify),
 		Confidence: input.Confidence,
 	}
 }
@@ -131,6 +136,9 @@ func validateText(finding *review.Finding) error {
 	}
 	if len(finding.Body) > maxBodyLength {
 		return fmt.Errorf("body is %d characters; keep it under %d", len(finding.Body), maxBodyLength)
+	}
+	if len(finding.Verify) > maxVerifyLength {
+		return fmt.Errorf("verify is %d characters; keep it to one step under %d", len(finding.Verify), maxVerifyLength)
 	}
 	return nil
 }

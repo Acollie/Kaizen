@@ -265,7 +265,17 @@ type ToolCallData struct {
 	Tool    string `json:"tool"`    // e.g. "get_callers", "Read"
 	Summary string `json:"summary"` // short human description, e.g. "get_callers(runAnalyze)"
 	Agent   string `json:"agent,omitempty"`
+	// Target is what the tool looked at, when known: a function ID (get_function,
+	// get_callers, get_callees) or a repo-relative path (get_file_diff, read_lines, Read)
+	Target     string `json:"target,omitempty"`
+	TargetKind string `json:"target_kind,omitempty"` // TargetFunction or TargetFile
 }
+
+// ToolCallData.TargetKind values
+const (
+	TargetFunction = "function"
+	TargetFile     = "file"
+)
 
 // EmitFunc receives events from an engine. Implementations must be safe for concurrent use.
 type EmitFunc func(Event)

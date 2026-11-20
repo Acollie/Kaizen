@@ -24,7 +24,9 @@ func TestValidateInput(t *testing.T) {
 		{"truncated json", readSchema, `{"path":"a","sta`, "not valid JSON"},
 		{"not an object", readSchema, `[1,2]`, "must be an object"},
 		{"bad enum", findingSchema, `{"severity":"huge","category":"tests","file":"a","line":1,"title":"t","body":"b","confidence":0.9}`, "must be one of"},
-		{"valid finding", findingSchema, `{"severity":"warning","category":"tests","file":"a","line":1,"title":"t","body":"b","confidence":1}`, ""},
+		{"valid finding without verify", findingSchema, `{"severity":"warning","category":"tests","file":"a","line":1,"title":"t","body":"b","confidence":1}`, ""},
+		{"valid finding with verify", findingSchema, `{"severity":"warning","category":"tests","file":"a","line":1,"title":"t","body":"b","verify":"Run go test ./a","confidence":1}`, ""},
+		{"verify must be a string", findingSchema, `{"severity":"warning","category":"tests","file":"a","line":1,"title":"t","body":"b","verify":3,"confidence":1}`, "input.verify must be a string"},
 		{"null input on empty schema", SchemaFor(RiskRankingInput{}), `null`, ""},
 		{"extra field on empty schema", SchemaFor(RiskRankingInput{}), `{"x":1}`, "unknown field"},
 	}

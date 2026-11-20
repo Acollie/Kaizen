@@ -188,10 +188,13 @@ func (run *apiRun) buildTools() ([]anthropic.BetaTool, error) {
 
 func (run *apiRun) handlerFor(spec apiToolSpec) func(context.Context, json.RawMessage) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 	return func(_ context.Context, input json.RawMessage) (anthropic.BetaToolResultBlockParamContentUnion, error) {
+		target, targetKind := toolTarget(spec.Name, input, "", run.toolbox)
 		emitEvent(run.emit, review.EventToolCall, review.ToolCallData{
-			Tool:    spec.Name,
-			Summary: summarizeToolCall(spec.Name, input, ""),
-			Agent:   sourceLead,
+			Tool:       spec.Name,
+			Summary:    summarizeToolCall(spec.Name, input, ""),
+			Agent:      sourceLead,
+			Target:     target,
+			TargetKind: targetKind,
 		})
 		output, err := run.callTool(spec, input)
 		if err != nil {
