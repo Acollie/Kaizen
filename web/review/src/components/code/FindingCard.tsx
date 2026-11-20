@@ -1,0 +1,89 @@
+// Inline finding card shown under its line (or in the file notes at the top).
+
+import { memo, useState } from 'react';
+import type { Finding } from '../../types';
+import { formatLineRef, SEVERITY_LABEL } from '../../lib/findings';
+import { highlightLine } from '../../lib/highlight';
+import { AgentTag } from '../shared/bits';
+import { Markdown } from '../shared/Markdown';
+import { useIsCursor } from './cursor';
+
+/** Cards that arrived this recently animate in */
+const ARRIVAL_WINDOW_MS = 2500;
+
+export const findingKey = (id: string) => `f:${id}`;
+
+export interface FindingCardProps {
+  finding: Finding;
+  included: boolean;
+  arrivedAt: number | undefined;
+  language: string;
+  /** Set when the finding's line is not shown; renders a "Show line N" control */
+  onShowLine?: (finding: Finding) => void;
+  onActivate: (key: string) => void;
+  onToggleIncluded: (id: string, included: boolean) => void;
+}
+
+function Suggestion({ text, language }: { text: string; language: string }) {
+  const lines = text.replace(/\n$/, '').split('\n');
+  return (
+    <div className="cv-suggestion">
+      <div className="cv-suggestion-title">Suggested change</div>
+      <pre className="cv-suggestion-code">
+        {lines.map((line, index) => (
+          <div key={index} className="cv-suggestion-line">
+            <span className="cv-mark">+</span>
+            <span>{highlightLine(line, language).map((token, tokenIndex) => (
+              <span key={tokenIndex} className={token.kind === 'plain' ? undefined : `cv-tok-${token.kind}`}>{token.text}</span>
+            ))}</span>
+          </div>
+        ))}
+      </pre>
+    </div>
+  );
+}
+
+function CardFooter({ finding, included, onShowLine, onToggleIncluded }: Pick<FindingCardProps, 'finding' | 'included' | 'onShowLine' | 'onToggleIncluded'>) {
+  return (
+    <div className="cv-card-foot">
+      <label className="cv-card-include" onClick={(event) => event.stopPropagation()}>
+        <input type="checkbox" checked={included} onChange={(event) => onToggleIncluded(finding.id, event.target.checked)} />
+        Include in post
+      </label>
+      {onShowLine && finding.line ? (
+        <button type="button" className="btn btn-outline cv-card-show" onClick={(event) => { event.stopPropagation(); onShowLine(finding); }}>
+          Show line {finding.line}
+        </button>
+      ) : null}
+      <span className="cv-card-spacer" />
+      {finding.confidence > 0 ? <span className="cv-card-confidence" title="Model confidence">{Math.round(finding.confidence * 100)}%</span> : null}
+      <AgentTag agent={finding.source} />
+    </div>
+  );
+}
+
+export const FindingCard = memo(function FindingCard(props: FindingCardProps) {
+  const { finding, included, arrivedAt, language, onActivate } = props;
+  const key = findingKey(finding.id);
+  const isCursor = useIsCursor(key);
+  const [arriving] = useState(() => arrivedAt !== undefined && Date.now() - arrivedAt < ARRIVAL_WINDOW_MS);
+  const className = [
+    'cv-card', `cv-card-${finding.severity}`, isCursor ? 'cv-cursor' : '', arriving ? 'cv-card-arrive' : '',
+    !included && finding.severity !== 'praise' ? 'cv-card-excluded' : '',
+  ].filter(Boolean).join(' ');
+  return (
+    <article className={className} data-key={key} onClick={() => onActivate(key)}>
+      <div className="cv-card-inner">
+        <div className="cv-card-head">
+          <span className={`cv-card-sev sev-${finding.severity}`}>{SEVERITY_LABEL[finding.severity] ?? finding.severity}</span>
+          {finding.category ? <span className="cv-card-meta">{finding.category}</span> : null}
+          <span className="cv-card-meta mono">{formatLineRef(finding)}</span>
+        </div>
+        <h4 className="cv-card-title">{finding.title || '(untitled finding)'}</h4>
+        <Markdown source={finding.body} className="cv-card-body" />
+        {finding.suggestion ? <Suggestion text={finding.suggestion} language={language} /> : null}
+        <CardFooter {...props} />
+      </div>
+    </article>
+  );
+});
