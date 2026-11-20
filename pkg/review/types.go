@@ -295,13 +295,17 @@ func NewEvent(eventType EventType, data any) Event {
 type PostRequest struct {
 	Summary  string    `json:"summary"`  // review body (markdown), editable in the UI
 	Findings []Finding `json:"findings"` // only the findings the user selected
+	// ConfirmRepost acknowledges that this session already posted a review; without
+	// it a second post is refused so a review is never duplicated by accident
+	ConfirmRepost bool `json:"confirm_repost,omitempty"`
 }
 
 // PostResult reports where the review landed
 type PostResult struct {
-	URL            string `json:"url"`             // HTML URL of the created review
-	InlineComments int    `json:"inline_comments"` // findings posted on diff lines
-	BodyFindings   int    `json:"body_findings"`   // findings folded into the review body (no postable line)
+	URL            string `json:"url"`              // HTML URL of the created review
+	InlineComments int    `json:"inline_comments"`  // findings posted on diff lines
+	BodyFindings   int    `json:"body_findings"`    // findings folded into the review body (no postable line)
+	FallbackToBody bool   `json:"fallback_to_body"` // GitHub rejected an inline line, so every finding went in the body
 }
 
 // Poster publishes a review to the code host. pkg/github implements it; the UI depends only on this.
