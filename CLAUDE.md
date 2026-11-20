@@ -70,7 +70,40 @@ golangci-lint run ./...
 
 # Vet the code
 go vet ./...
+
+# CI quality gate: blast radius of changed functions vs a base branch
+./kaizen check --base=main --path=.
+
+# Call graph (html/svg/json); --base filters to functions changed vs a branch
+./kaizen callgraph --path=. --format=html --open=false
+
+# Ownership Sankey diagram, metric trends, PR comment markdown
+./kaizen sankey --input=analysis.json --open=false
+./kaizen trend overall_score --days=30 --format=ascii
+./kaizen pr-comment --base-analysis=base.json --head-analysis=head.json
+
+# Prune old snapshots (days to keep)
+./kaizen history prune --retention=30
 ```
+
+### PR Review (`kaizen review`) and the Web UI
+
+```bash
+# AI review of a PR in a local web UI (needs gh auth + a clone of the repo)
+./kaizen review 42                      # --engine=auto|cli|api, --no-ai, --rerun, --port, --open=false
+./kaizen review-demo --port 7799 --open=false   # hidden: fixture PR with a scripted stream, fake poster
+
+# Web UI (web/review, Vite + React + TypeScript), built into pkg/reviewui/static
+make ui         # npm ci if needed, then build; COMMIT pkg/reviewui/static afterwards
+make ui-dev     # Vite dev server; proxies /api to KAIZEN_URL (default http://127.0.0.1:7799)
+make ui-test    # typecheck + vitest
+make test       # go test -race ./... plus ui-test
+make lint       # go vet, golangci-lint, UI typecheck
+```
+
+Reviews are cached in `.kaizen/reviews/pr-<n>-<head sha>.json`; reopening the same head
+replays instantly (no AI cost). `--rerun` forces a fresh review. CI fails if
+`pkg/reviewui/static` is stale relative to `web/review`.
 
 ## Architecture Overview
 
@@ -103,10 +136,13 @@ Each language implementation lives in `pkg/languages/<lang>/` and must implement
 
 ### Key Components and Their Responsibilities
 
-**`cmd/kaizen/main.go`** (1600+ lines)
-- Cobra CLI framework with all subcommands
-- Config loading and flag parsing
-- Main entry point orchestrating the full workflow
+**`cmd/kaizen/`** - Cobra CLI
+- `main.go` (1600+ lines) - root command, `analyze`, `visualize`, `callgraph`, `sankey`, `diff`, `trend`, `report owners`, `history list|show|prune`; config loading and flag parsing
+- `check.go` - `check`: CI quality gate (blast radius of changed functions)
+- `pr_comment.go` - `pr-comment`: markdown PR comment from base vs head analyses (used by the GitHub Action)
+- `review.go` - `review <pr>`: fetch the PR, build the review context, serve the UI, run the AI engine
+- `review_demo.go` - `review-demo` (hidden): fixture PR with a scripted event stream
+- `review_mcp.go` - `review-mcp` (hidden): MCP server exposing the review tools to the Claude Code CLI engine
 
 **`pkg/analyzer/`** - Analysis orchestration
 - `pipeline.go` - Main analysis flow (discovery → analysis → aggregation)
@@ -120,9 +156,8 @@ Each language implementation lives in `pkg/languages/<lang>/` and must implement
   - `analyzer.go` - Entry point using `go/parser` and `go/ast`
   - `function.go` - Complexity calculations (cyclomatic, cognitive), AST walking
   - `utils.go` - Helper functions for Go-specific logic
-- `kotlin/`, `swift/`, `python/` - Tree-sitter based implementations
+- `kotlin/`, `swift/`, `python/` - Tree-sitter based implementations (all fully implemented; none is a stub)
   - Each has `analyzer.go`, `function.go`, `utils.go`
-  - Kotlin is a stub demonstrating the interface pattern
 
 **`pkg/churn/analyzer.go`** - Git integration
 - `GetFileChurn()` - File-level commits via `git log --numstat`
@@ -131,8 +166,8 @@ Each language implementation lives in `pkg/languages/<lang>/` and must implement
 
 **`pkg/storage/`** - Persistence layer
 - `interface.go` - Backend abstraction with Save/Get/List/Prune operations
-- `sqlite.go` - SQLite implementation with GORM ORM
-- `migrations.go` - Schema initialization
+- `sqlite.go` - SQLite implementation using `database/sql` with the pure-Go `github.com/glebarez/sqlite` driver (no ORM; `gorm` is only an indirect dependency)
+- `migrations.go` - Schema initialization (plain `CREATE TABLE IF NOT EXISTS` SQL)
 - Time-series storage for historical snapshots
 
 **`pkg/visualization/`** - Output rendering
@@ -146,6 +181,39 @@ Each language implementation lives in `pkg/languages/<lang>/` and must implement
 - `scorer.go` - Health grades (A-F) and component scoring
 - `concerns.go` - Automatic issue detection (high complexity, deep nesting, etc.)
 - `grading.go` - Letter grade calculation based on normalized metrics
+
+**`pkg/check/`** - CI quality gate (`kaizen check`)
+- `diff_parser.go` - Parses `git diff` hunks; `function_mapper.go` maps changed lines to functions
+- `fanin.go`, `fullnames.go` - Fan-in (callers) of changed functions
+- `blast_radius.go` - Flags changed functions with a high blast radius (thresholds)
+
+**`pkg/trending/`** - Metric trends (`kaizen trend`)
+- `ascii.go`, `html.go`, `json.go` - Render time series from storage as ASCII charts, HTML or JSON
+
+**`pkg/review/`** - PR review model and AI engines (`kaizen review`)
+- `types.go` - Wire types (`ReviewContext`, `Finding`, `Event`, ...) mirrored by `web/review/src/types.ts`
+- `context.go` - `BuildContext`: diff, changed functions, callers/callees, call graph, concerns
+- `risk.go` - Absolute-threshold risk score per function; `DefaultFocusCount` riskiest get focus
+- `diffparse.go` - Unified diff parsing; `cache.go` - review cache in `.kaizen/reviews/`
+- `tools/` - Read-only review tools shared by both engines (risk ranking, function source, callers, file reads, finding reporting) with validation
+- `engine/` - `CLIEngine` (Claude Code CLI + MCP + `hotspot-reviewer`/`security-reviewer`/`impact-analyst` subagents), `APIEngine` (Anthropic Messages API), `Select` (auto/cli/api)
+
+**`pkg/github/`** - GitHub access via the `gh` and `git` CLIs
+- `client.go` - PR metadata (`gh pr view`) and repo detection
+- `checkout.go` - Fetches the PR head into a temporary detached git worktree and diffs it against the merge base
+- `post.go` - Posts a COMMENT review (inline comments on diff lines, the rest in the body)
+
+**`pkg/reviewui/`** - Local review web server
+- `server.go` - Loopback HTTP server with a session token; `GET /api/context`, `GET /api/events` (SSE), `GET /api/file`, `POST /api/post`
+- `eventlog.go` - Event log with replay for SSE subscribers; `handlers.go`, `files.go`
+- `demo.go` - Fixture context for `review-demo`
+- `static/` - The built web UI, embedded with `//go:embed static` (generated by `make ui`; do not edit by hand)
+
+**`web/review/`** - Review UI source (Vite, React 18, TypeScript strict, zustand); see `web/review/README.md`
+- `src/state/store.ts` - Single zustand store (context, findings, selection + history, UI state)
+- `src/keys/keymap.ts` - Vim-style bindings; the help overlay is generated from it
+- `src/theme/tokens.css` - Design tokens (dark dev-tool look)
+- `src/components/<area>/` - One folder per UI area (layout, header, sidebar, code, review, flow, function, activity, help, post)
 
 **`pkg/ownership/`** - Code ownership
 - Parses CODEOWNERS files
@@ -190,7 +258,7 @@ When implementing a new language analyzer:
    - `FileExtensions()` - Supported file extensions (`.go`, `.kt`, etc.)
    - `CanAnalyze(filePath)` - Check if file can be analyzed
    - `AnalyzeFile(filePath)` - Parse and extract metrics, return `*models.FileAnalysis`
-   - `IsStub()` - Return true for stub implementations
+   - `IsStub()` - Return true only for a placeholder that recognizes files but cannot analyze them yet
 
 2. **Extract functions with a `FunctionNode` implementation** in `function.go`
    - Must satisfy the `FunctionNode` interface
@@ -257,7 +325,7 @@ Raw metrics (e.g., complexity=8, churn=15 commits) are normalized to 0-100 perce
 
 ### Stub Implementations
 
-The Kotlin analyzer demonstrates the stub pattern (`IsStub() = true`). Stubs:
+No current analyzer is a stub: Go, Kotlin, Python and Swift all return `IsStub() = false`. The stub pattern remains available for adding a language incrementally. A stub would:
 - Implement the full interface
 - Recognize files but return structured errors
 - Enable graceful degradation instead of silent failures
@@ -269,7 +337,7 @@ The Kotlin analyzer demonstrates the stub pattern (`IsStub() = true`). Stubs:
 - Auto-initialized in `.kaizen/` subdirectory
 - Stores snapshots with metadata (timestamp, commit hash, branch)
 - Efficient time-series queries for trending
-- GORM ORM handles schema and migrations
+- `database/sql` with plain SQL; `migrations.go` creates the schema
 
 **Snapshot Operations**:
 - `Save()` - Store new analysis
@@ -280,39 +348,39 @@ The Kotlin analyzer demonstrates the stub pattern (`IsStub() = true`). Stubs:
 
 ## Adding a New Language
 
-To add support for a new language (e.g., complete Python implementation):
+To add support for a new language (e.g., Rust):
 
-1. Create `pkg/languages/python/analyzer.go`:
+1. Create `pkg/languages/rust/analyzer.go`:
    ```go
-   type PythonAnalyzer struct{}
+   type RustAnalyzer struct{}
 
-   func (p *PythonAnalyzer) Name() string {
-       return "Python"
+   func (r *RustAnalyzer) Name() string {
+       return "Rust"
    }
 
-   func (p *PythonAnalyzer) FileExtensions() []string {
-       return []string{".py"}
+   func (r *RustAnalyzer) FileExtensions() []string {
+       return []string{".rs"}
    }
 
-   func (p *PythonAnalyzer) CanAnalyze(filePath string) bool {
-       return strings.HasSuffix(filePath, ".py")
+   func (r *RustAnalyzer) CanAnalyze(filePath string) bool {
+       return strings.HasSuffix(filePath, ".rs")
    }
 
-   func (p *PythonAnalyzer) AnalyzeFile(filePath string) (*models.FileAnalysis, error) {
-       // 1. Parse Python file using tree-sitter
+   func (r *RustAnalyzer) AnalyzeFile(filePath string) (*models.FileAnalysis, error) {
+       // 1. Parse Rust file using tree-sitter
        // 2. Walk AST and extract functions
        // 3. Calculate metrics for each function
        // 4. Aggregate to file level
        // 5. Return FileAnalysis
    }
 
-   func (p *PythonAnalyzer) IsStub() bool {
+   func (r *RustAnalyzer) IsStub() bool {
        return false
    }
    ```
 
-2. Implement function extraction in `pkg/languages/python/function.go`:
-   - Parse Python function definitions
+2. Implement function extraction in `pkg/languages/rust/function.go`:
+   - Parse Rust function definitions
    - Calculate cyclomatic and cognitive complexity
    - Extract parameters, length, nesting depth
 
@@ -321,12 +389,13 @@ To add support for a new language (e.g., complete Python implementation):
    analyzers: []analyzer.LanguageAnalyzer{
        golang.NewGoAnalyzer(),
        kotlin.NewKotlinAnalyzer(),
+       python.NewPythonAnalyzer(),
        swift.NewSwiftAnalyzer(),
-       python.NewPythonAnalyzer(), // ADD THIS
+       rust.NewRustAnalyzer(), // ADD THIS
    }
    ```
 
-4. Add tests in `pkg/languages/python/analyzer_test.go` and `function_test.go`
+4. Add tests in `pkg/languages/rust/analyzer_test.go` and `function_test.go`
 
 5. The rest of the system (churn, storage, visualization, reporting) works automatically.
 
@@ -433,9 +502,13 @@ case *ast.RangeStmt:
 When embedding JSON in HTML templates, use `template.JS()` to prevent HTML escaping of JSON special characters:
 
 ```go
-// Correct - prevents double-escaping
-template.HTML(template.HTMLEscaper(jsonData))
+// Correct - embeds the JSON as a JS value without HTML-escaping it (see pkg/visualization/html.go)
+data := map[string]interface{}{
+    "TreeData": template.JS(jsonData),
+}
 ```
+
+Only pass JSON produced by `json.Marshal` to `template.JS`; never untrusted raw strings.
 
 ### Git Churn Requirements
 
@@ -470,7 +543,7 @@ Churn analysis requires:
 **SQLite database grows too large**
 - Symptom: `.kaizen/` database file >100MB
 - Cause: Accumulation of snapshots over time
-- Fix: Use `kaizen history prune --days=30` to remove old snapshots
+- Fix: Use `kaizen history prune --retention=30` to remove old snapshots
 
 ## Testing Strategy
 
@@ -485,10 +558,9 @@ Churn analysis requires:
 - Test storage and snapshot retrieval
 
 **CI/CD**: GitHub Actions runs on every PR
-- Multi-platform (Linux, macOS, Windows)
-- Multi-version (Go 1.25, 1.26)
-- Linting with `golangci-lint`
+- Go tests on a version matrix (Go 1.25, 1.26), `go vet`, build, `golangci-lint`
 - Coverage uploaded to codecov
+- `web` job: `npm ci`, typecheck, vitest and build in `web/review`, then fails if the committed `pkg/reviewui/static` differs from the fresh build
 
 ## Deployment and Releases
 
