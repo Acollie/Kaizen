@@ -20,8 +20,10 @@ import {
   type CommentInput, type CommentMap, type CommentTarget, type ReviewComment,
 } from './comments';
 import {
-  loadReview, loadThinkFirst, reviewStorageKey, saveReview, saveThinkFirst, type KeyValueStorage,
+  hasWork, loadReview, loadThinkFirst, parseReview, reviewStorageKey, saveReview, saveThinkFirst, serializeReview,
+  type KeyValueStorage,
 } from './persistence';
+import type { StateSync } from './stateSync';
 
 export type TabName = 'review' | 'graph' | 'function' | 'activity';
 export const TABS: readonly TabName[] = ['review', 'graph', 'function', 'activity'];
@@ -491,23 +493,38 @@ function closeDismissFor(ui: UIState, id: string): UIState {
   return ui.dismissing?.id === id ? { ...ui, dismissing: null } : ui;
 }
 
+export interface ServerPersistence {
+  /** The document GET /api/state returned, or null when the server had none */
+  saved: unknown;
+  /** Sends changes to PUT /api/state */
+  sync: StateSync;
+}
+
 /**
  * Restore the reviewer's saved work for this PR + head SHA, then save every change.
- * Returns the unsubscribe function.
+ * The server copy wins over localStorage (which is per-origin, and the port changes
+ * each run); localStorage is the fallback for older runs and is always written as a
+ * secondary copy. Returns the unsubscribe function.
  */
-export function bindPersistence(store: ReviewStore, storage: KeyValueStorage | null): () => void {
+export function bindPersistence(store: ReviewStore, storage: KeyValueStorage | null, server?: ServerPersistence): () => void {
   const key = reviewStorageKey(store.getState().context.pr);
-  const saved = loadReview(storage, key);
+  const fromServer = server ? parseReview(server.saved, key) : null;
+  const saved = fromServer ?? loadReview(storage, key);
   const thinkFirst = loadThinkFirst(storage);
   store.setState((state) => ({
     ...(saved ?? {}),
     ui: { ...state.ui, thinkFirst },
   }));
+  // Work found only in localStorage (an older run): copy it to the server now
+  if (server && !fromServer && saved && hasWork(saved)) server.sync.schedule(serializeReview(key, saved));
   return store.subscribe((state, previous) => {
     if (state.ui.thinkFirst !== previous.ui.thinkFirst) saveThinkFirst(storage, state.ui.thinkFirst);
     const changed = state.triage !== previous.triage || state.viewed !== previous.viewed
       || state.comments !== previous.comments || state.revealed !== previous.revealed;
-    if (changed) saveReview(storage, key, { triage: state.triage, viewed: state.viewed, comments: state.comments, revealed: state.revealed });
+    if (!changed) return;
+    const review = { triage: state.triage, viewed: state.viewed, comments: state.comments, revealed: state.revealed };
+    saveReview(storage, key, review);
+    server?.sync.schedule(serializeReview(key, review));
   });
 }
 

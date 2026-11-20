@@ -39,6 +39,52 @@ export function fetchFileLines(path: string, from: number, to: number): Promise<
   return getJSON<FileSlice>(`/api/file?${params}`);
 }
 
+/**
+ * The reviewer's saved work for this PR head (GET /api/state), or null when the server
+ * has none, does not keep state, or cannot be reached
+ */
+export async function fetchState(): Promise<unknown> {
+  try {
+    const response = await fetch('/api/state', {
+      headers: { [TOKEN_HEADER]: sessionToken(), Accept: 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function putStateRequest(document: unknown, keepalive: boolean): Promise<Response> {
+  return fetch('/api/state', {
+    method: 'PUT',
+    headers: { [TOKEN_HEADER]: sessionToken(), 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(document),
+    keepalive,
+  });
+}
+
+/** Save the reviewer's work (PUT /api/state); rejects when the server refuses it */
+export async function putState(document: unknown): Promise<void> {
+  const response = await putStateRequest(document, false);
+  if (!response.ok) throw new Error(`save state: ${response.status}`);
+}
+
+/**
+ * Best-effort save while the page unloads. keepalive lets the request outlive the page,
+ * but browsers cap keepalive bodies (about 64 KB); larger states fall back to a normal
+ * request, which the debounced save has usually already covered.
+ */
+export function putStateOnUnload(document: unknown): void {
+  try {
+    void putStateRequest(document, true).catch(() => putStateRequest(document, false).catch(() => undefined));
+  } catch {
+    void putStateRequest(document, false).catch(() => undefined);
+  }
+}
+
 /** Thrown by postReview when this session already posted and confirm_repost was not set */
 export class AlreadyPostedError extends Error {
   readonly previousUrl: string;
