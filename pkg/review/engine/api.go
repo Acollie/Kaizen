@@ -27,16 +27,39 @@ const (
 	thinkingFlushBytes      = 400
 
 	toolSubmitReview        = "submit_review"
-	descriptionSubmitReview = `Delivers the finished review. Call it exactly once, at the very end, after every finding has been recorded with report_finding. Include the markdown summary, the verdict, and every finding that still stands, each with the id report_finding returned for it. Leave out findings you have concluded are wrong.`
+	descriptionSubmitReview = `Delivers the finished review. Call it exactly once, at the very end, after every finding has been recorded with report_finding. Include the markdown summary, the verdict, and every finding that still stands, each with the id report_finding returned for it. The list is authoritative: a recorded finding you leave out is treated as withdrawn and removed from the review, so leave out exactly the ones you have concluded are wrong.`
 )
 
 // APIEngine runs the review against the Anthropic Messages API with the beta
 // tool runner, using the same tools the CLI engine serves over MCP
 type APIEngine struct {
 	Model         string                 // default "claude-opus-5-5"
+	Effort        string                 // low, medium, high, xhigh or max; default "high"
 	MaxIterations int                    // tool-runner turns; default 30
 	MaxTokens     int64                  // per response; default 32000
 	ClientOptions []option.RequestOption // extra client options, e.g. option.WithAPIKey
+}
+
+// apiEfforts maps the --effort values onto the API's output_config.effort
+var apiEfforts = map[string]anthropic.BetaOutputConfigEffort{
+	"low":    anthropic.BetaOutputConfigEffortLow,
+	"medium": anthropic.BetaOutputConfigEffortMedium,
+	"high":   anthropic.BetaOutputConfigEffortHigh,
+	"xhigh":  anthropic.BetaOutputConfigEffortXhigh,
+	"max":    anthropic.BetaOutputConfigEffortMax,
+}
+
+// apiEffort resolves an effort name, case-insensitively; empty means high
+func apiEffort(name string) (anthropic.BetaOutputConfigEffort, error) {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "" {
+		return anthropic.BetaOutputConfigEffortHigh, nil
+	}
+	effort, ok := apiEfforts[normalized]
+	if !ok {
+		return "", fmt.Errorf("unknown effort %q: use low, medium, high, xhigh or max", name)
+	}
+	return effort, nil
 }
 
 // Name implements review.Engine
@@ -46,6 +69,9 @@ func (engine *APIEngine) resolved() APIEngine {
 	config := *engine
 	if config.Model == "" {
 		config.Model = defaultAPIModel
+	}
+	if effort, err := apiEffort(config.Effort); err == nil {
+		config.Effort = string(effort)
 	}
 	if config.MaxIterations <= 0 {
 		config.MaxIterations = defaultAPIMaxIterations
@@ -70,6 +96,9 @@ func (engine *APIEngine) Run(ctx context.Context, reviewContext *review.ReviewCo
 	if reviewContext == nil || reviewContext.WorktreePath == "" {
 		return nil, errors.New("review context has no worktree path")
 	}
+	if _, err := apiEffort(engine.Effort); err != nil {
+		return nil, err
+	}
 	config := engine.resolved()
 	run := newAPIRun(reviewContext, emit)
 	betaTools, err := run.buildTools()
@@ -78,7 +107,7 @@ func (engine *APIEngine) Run(ctx context.Context, reviewContext *review.ReviewCo
 	}
 	client := anthropic.NewClient(config.ClientOptions...)
 	params := config.runnerParams(reviewContext.PR, config.MaxIterations)
-	emitStatus(emit, fmt.Sprintf("Starting API review (model %s)", config.Model), sourceLead)
+	emitStatus(emit, fmt.Sprintf("Starting API review (model %s, effort %s)", config.Model, config.Effort), sourceLead)
 
 	messages, err := run.drive(ctx, client.Beta.Messages.NewToolRunnerStreaming(betaTools, params))
 	if err != nil {
@@ -107,7 +136,7 @@ func newAPIRun(reviewContext *review.ReviewContext, emit review.EmitFunc) *apiRu
 }
 
 // runnerParams builds the request: adaptive thinking with summarized display,
-// high effort, cached system prompt, auto tool choice, strict and eagerly
+// the configured effort, cached system prompt, auto tool choice, strict and eagerly
 // streamed tools, and the server-side refusal fallback
 func (engine *APIEngine) runnerParams(pr review.PullRequest, maxIterations int) anthropic.BetaToolRunnerParams {
 	adaptive := anthropic.BetaThinkingConfigAdaptiveParam{Display: anthropic.BetaThinkingConfigAdaptiveDisplaySummarized}
@@ -125,7 +154,7 @@ func (engine *APIEngine) runnerParams(pr review.PullRequest, maxIterations int) 
 			Tools:        toolDefinitions(),
 			ToolChoice:   anthropic.BetaToolChoiceUnionParam{OfAuto: &anthropic.BetaToolChoiceAutoParam{}},
 			Thinking:     anthropic.BetaThinkingConfigParamUnion{OfAdaptive: &adaptive},
-			OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffortHigh},
+			OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffort(engine.Effort)},
 			Fallbacks:    anthropic.BetaFallbacksParamOfDefault(),
 			Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 		},

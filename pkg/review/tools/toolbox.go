@@ -54,7 +54,7 @@ type RiskRankingInput struct{}
 
 // FunctionInput names a changed function
 type FunctionInput struct {
-	ID string `json:"id" jsonschema:"required" jsonschema_description:"Function id exactly as listed by get_risk_ranking (for example 'github.com/acme/app/pkg.(*Server).Handle' or 'src/app.py:handle'). A bare function name also works when it is unambiguous."`
+	ID string `json:"id" jsonschema:"required" jsonschema_description:"Function id copied exactly from get_risk_ranking; do not construct one yourself. Go ids look like 'review.Server.Handle' or 'review.ParseDiff' (a directory prefix such as 'pkg/review:review.ParseDiff' may appear when two packages share a name); other languages use 'path:name', e.g. 'src/app.py:handle'. A bare function name also works when it is unambiguous."`
 }
 
 // FileDiffInput names a changed file

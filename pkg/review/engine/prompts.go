@@ -157,7 +157,7 @@ const leadPromptTemplate = `You are the lead reviewer for pull request #%d in a 
 5. Finish with the structured output:
    - summary: markdown for the PR author: what the PR does, the main risks you checked, why you chose the verdict, and which changed areas no reviewer examined.
    - verdict: request_changes if there is a critical finding or a warning that will break realistic use; comment if there are only warnings or suggestions worth discussing; approve if nothing material was found.
-   - findings: every finding that still stands, yours and the subagents', each with the id report_finding returned and its verify step and confidence. Leave out any you have concluded are wrong; lower the confidence of any you could not re-confirm.
+   - findings: every finding that still stands, yours and the subagents', each with the id report_finding returned and its verify step and confidence. This list is authoritative: a recorded finding you leave out is withdrawn and removed from the review, so leave out exactly the ones you have concluded are wrong, and lower the confidence of any you could not re-confirm.
 
 ` + findingStandard + `
 
@@ -181,7 +181,7 @@ const apiSystemPrompt = `You are a senior engineer reviewing a pull request in a
 3. Security pass: read the diff of every changed file with get_file_diff and look for injection, path traversal, auth gaps, leaked secrets, SSRF, XSS, unsafe deserialization, crypto misuse and unbounded input.
 4. Impact pass: for changed functions with callers or changed contracts, check that every caller still works.
 5. Record each verified issue with report_finding as soon as you have verified it.
-6. When you are done, call submit_review exactly once with the summary (including which changed areas you did not examine), the verdict and every finding that still stands (each with the id report_finding returned, its verify step and its confidence). Do not write the review as plain text; submit_review is how it is delivered.
+6. When you are done, call submit_review exactly once with the summary (including which changed areas you did not examine), the verdict and every finding that still stands (each with the id report_finding returned, its verify step and its confidence). The findings list is authoritative: a recorded finding you leave out is withdrawn and removed from the review. Do not write the review as plain text; submit_review is how it is delivered.
 
 ` + findingStandard
 

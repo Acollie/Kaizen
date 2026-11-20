@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -19,7 +20,7 @@ const sourceLead = "lead"
 type ReviewOutput struct {
 	Summary  string               `json:"summary" jsonschema:"required" jsonschema_description:"Markdown review summary for the PR author: what the PR does, the main risks you checked, and why you chose the verdict. 2-6 short paragraphs or bullets. Do not restate every finding in full."`
 	Verdict  string               `json:"verdict" jsonschema:"required,enum=approve,enum=comment,enum=request_changes" jsonschema_description:"request_changes if any critical finding, or a warning that will break realistic use; comment if there are only warnings or suggestions worth discussing; approve if nothing material was found."`
-	Findings []tools.FindingInput `json:"findings" jsonschema:"required" jsonschema_description:"Every finding that still stands after your review, including the ones subagents recorded, each with the id returned by report_finding. Leave out findings you have since concluded are wrong. Empty if there are none."`
+	Findings []tools.FindingInput `json:"findings" jsonschema:"required" jsonschema_description:"Every finding that still stands after your review, including the ones subagents recorded, each with the id returned by report_finding. This list is authoritative: a recorded finding you leave out is treated as withdrawn and removed from the review, so leave out exactly the ones you have concluded are wrong. Empty if there are none."`
 }
 
 // ReviewOutputSchema returns the JSON Schema of ReviewOutput
@@ -103,30 +104,66 @@ func (set *findingSet) list() []review.Finding {
 	return append([]review.Finding{}, set.items...)
 }
 
-// assembleResult merges the structured output with the live findings. The
-// structured version of a finding wins over the live one; live findings the
-// structured output omitted are kept, because they were verified when
-// recorded. Structured findings that fail validation are dropped and reported
-// through emit.
+// assembleResult merges the structured output with the live findings. When
+// structured output is present it is authoritative: the structured version of
+// a finding wins over the live one, and live findings it omits are treated as
+// withdrawn by the lead and dropped (reported through emit). Without
+// structured output every live finding is kept. Structured findings that fail
+// validation fall back to their live counterpart if there is one, and are
+// otherwise dropped and reported through emit.
 func assembleResult(output *ReviewOutput, live *findingSet, toolbox *tools.Toolbox, emit review.EmitFunc) *review.ReviewResult {
 	merged := newFindingSet()
 	result := &review.ReviewResult{Verdict: review.VerdictComment, Findings: []review.Finding{}}
-	if output != nil {
-		result.Summary = strings.TrimSpace(output.Summary)
-		result.Verdict = normalizeVerdict(output.Verdict)
-		for _, input := range output.Findings {
-			addStructuredFinding(input.ToFinding(), merged, live, toolbox, emit)
+	if output == nil {
+		for _, finding := range live.list() {
+			merged.add(finding)
 		}
+		result.Findings = merged.list()
+		return result
 	}
-	for _, finding := range live.list() {
-		merged.add(finding)
+	result.Summary = strings.TrimSpace(output.Summary)
+	result.Verdict = normalizeVerdict(output.Verdict)
+	for _, input := range output.Findings {
+		addStructuredFinding(input.ToFinding(), merged, live, toolbox, emit)
 	}
+	reportWithdrawn(withdrawnFindings(live, merged), emit)
 	result.Findings = merged.list()
 	return result
 }
 
+// withdrawnFindings lists the live findings the structured output left out
+func withdrawnFindings(live, merged *findingSet) []review.Finding {
+	var withdrawn []review.Finding
+	for _, finding := range live.list() {
+		if _, kept := merged.lookup(finding); !kept {
+			withdrawn = append(withdrawn, finding)
+		}
+	}
+	return withdrawn
+}
+
+// reportWithdrawn emits one status event naming the withdrawn findings
+func reportWithdrawn(withdrawn []review.Finding, emit review.EmitFunc) {
+	if len(withdrawn) == 0 {
+		return
+	}
+	titles := make([]string, len(withdrawn))
+	for index, finding := range withdrawn {
+		titles[index] = strconv.Quote(finding.Title)
+	}
+	noun := "findings"
+	if len(withdrawn) == 1 {
+		noun = "finding"
+	}
+	emitStatus(emit, fmt.Sprintf("Lead reviewer withdrew %d %s: %s", len(withdrawn), noun, strings.Join(titles, ", ")), sourceLead)
+}
+
 func addStructuredFinding(finding review.Finding, merged, live *findingSet, toolbox *tools.Toolbox, emit review.EmitFunc) {
 	if err := toolbox.ValidateFinding(&finding); err != nil {
+		if previous, ok := live.lookup(finding); ok {
+			merged.add(previous)
+			return
+		}
 		emitStatus(emit, fmt.Sprintf("Dropped finding %q from the final output: %v", finding.Title, err), sourceLead)
 		return
 	}
