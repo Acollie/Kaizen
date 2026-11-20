@@ -5,6 +5,7 @@ import (
 	"math"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -78,10 +79,14 @@ func ScoreFunctions(functions []FunctionRisk, focusCount int) {
 // ScoreFunctionsWithDiff is ScoreFunctions with access to the display diff, so the
 // security heuristic can also look at the lines the PR added inside each function.
 func ScoreFunctionsWithDiff(functions []FunctionRisk, files []FileDiff, focusCount int) {
-	addedLines := addedLinesByFile(files)
+	filesByPath := make(map[string]*FileDiff, len(files))
+	for index := range files {
+		filesByPath[files[index].Path] = &files[index]
+	}
 	for index := range functions {
 		function := &functions[index]
-		factors := collectRiskFactors(function, addedLinesInRange(addedLines[function.File], function.StartLine, function.EndLine))
+		edit := analyzeFunctionEdit(filesByPath[function.File], function.StartLine, function.EndLine)
+		factors := collectRiskFactors(function, edit)
 		function.RiskScore, function.RiskReasons = combineFactors(factors)
 		if IsTestFile(function.File) {
 			function.RiskScore = math.Round(function.RiskScore*TestCodeMultiplier*10) / 10
@@ -128,18 +133,31 @@ func IsTestFile(path string) bool {
 }
 
 // collectRiskFactors evaluates every factor for one function
-func collectRiskFactors(function *FunctionRisk, changedLines []string) []riskFactor {
+func collectRiskFactors(function *FunctionRisk, edit functionEdit) []riskFactor {
 	factors := []riskFactor{
 		fanInFactor(function),
 		churnFactor(function),
-		linesChangedFactor(function),
-		securityFactor(function, changedLines),
+		securityFactor(function, edit.added),
+		behaviourChangeFactor(edit),
 	}
+	shape := []riskFactor{linesChangedFactor(function)}
 	if function.Metrics != nil {
-		factors = append(factors, intrinsicFactors(function)...)
+		shape = append(shape, intrinsicFactors(function)...)
 		factors = append(factors, newComplexFactor(function.IsNew, function.Metrics.CyclomaticComplexity))
 	}
-	return factors
+	if edit.isMechanical() {
+		shape = discountMechanicalEdit(shape, edit)
+	}
+	return append(factors, shape...)
+}
+
+// discountMechanicalEdit scales the size and shape factors of an edit that only
+// rewrites existing statements, so existing complexity does not rank it high
+func discountMechanicalEdit(factors []riskFactor, edit functionEdit) []riskFactor {
+	for index := range factors {
+		factors[index].contribution *= MechanicalEditDiscount
+	}
+	return append(factors, riskFactor{reason: edit.mechanicalReason()})
 }
 
 // intrinsicFactors scores the function's own shape (complexity, nesting, MI), scaled
@@ -371,10 +389,9 @@ var securityNameTokens = map[string]bool{
 	"deserialize": true, "unmarshal": true, "template": true, "sanitize": true, "permission": true,
 }
 
-// securityCodePatterns are code fragments that suggest security-sensitive code. They
-// are matched against changed lines with comments and string literals removed, so a
-// word like "secret" in a help text or a comment does not count.
-var securityCodePatterns = []string{
+// sideEffectPatterns are code fragments that give a function a new effect on the
+// outside world: running processes, network and file writes, and raw HTML
+var sideEffectPatterns = []string{
 	// process execution
 	"exec.CommandContext", "exec.Command", "syscall.Exec", "subprocess", "os.system",
 	"Runtime.getRuntime", "ProcessBuilder",
@@ -383,11 +400,17 @@ var securityCodePatterns = []string{
 	"os.WriteFile", "os.RemoveAll", "os.Setenv",
 	// HTML injection
 	"template.HTML", "dangerouslySetInnerHTML", "innerHTML",
+}
+
+// securityCodePatterns are code fragments that suggest security-sensitive code. They
+// are matched against changed lines with comments and string literals removed, so a
+// word like "secret" in a help text or a comment does not count.
+var securityCodePatterns = append(slices.Clone(sideEffectPatterns),
 	// data access, secrets and request handling
 	".Query(", ".Exec(", "hashlib", "password", "secret", "token", "Authorization",
 	"http.ResponseWriter", "http.Request", "HandleFunc", "ServeHTTP",
 	"Unmarshal", "pickle.load", "yaml.load", "gob.NewDecoder", "Decodable",
-}
+)
 
 // securityLiteralPatterns only ever appear inside string literals (import paths, SQL,
 // command-line arguments), so they are matched against the raw changed line
@@ -538,34 +561,6 @@ func startsNewWord(runes []rune, position int) bool {
 	}
 	hasNext := position+1 < len(runes)
 	return unicode.IsUpper(previous) && hasNext && unicode.IsLower(runes[position+1])
-}
-
-// addedLinesByFile indexes added head-side lines by file path and line number
-func addedLinesByFile(files []FileDiff) map[string]map[int]string {
-	index := make(map[string]map[int]string, len(files))
-	for _, file := range files {
-		lines := make(map[int]string)
-		for _, hunk := range file.Hunks {
-			for _, line := range hunk.Lines {
-				if line.Kind == LineAdded {
-					lines[line.NewLine] = line.Text
-				}
-			}
-		}
-		index[file.Path] = lines
-	}
-	return index
-}
-
-// addedLinesInRange returns the added lines whose head-side number is within [start, end]
-func addedLinesInRange(lines map[int]string, start, end int) []string {
-	var result []string
-	for lineNumber := start; lineNumber <= end; lineNumber++ {
-		if text, exists := lines[lineNumber]; exists {
-			result = append(result, text)
-		}
-	}
-	return result
 }
 
 // File-level risk for changes that no function captures. Scores use the same 0-100 scale
