@@ -17,6 +17,7 @@ import { ConcernsSection } from './ConcernsSection';
 import { BlindSpots } from './BlindSpots';
 import { ThinkFirstNotice, YourReview } from './YourReview';
 import { YourComments } from './YourComments';
+import { WithdrawnSection } from './WithdrawnSection';
 import './ReviewPanel.css';
 
 export function ReviewPanel() {
@@ -46,6 +47,7 @@ export function ReviewPanel() {
       {hasResult && !hidden && <SummarySection />}
       <FocusSection />
       <ConcernsSection />
+      {!hidden && <WithdrawnSection />}
     </div>
   );
 }

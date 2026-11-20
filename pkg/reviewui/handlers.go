@@ -3,6 +3,7 @@ package reviewui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -129,17 +130,7 @@ func (server *Server) handleFile(writer http.ResponseWriter, request *http.Reque
 // It requires the token in the header (not the query) and a JSON body, so a
 // cross-site form or simple request cannot trigger it.
 func (server *Server) handlePost(writer http.ResponseWriter, request *http.Request) {
-	if !server.tokenMatches(request.Header.Get(tokenHeader)) {
-		writeError(writer, http.StatusForbidden, "invalid or missing session token")
-		return
-	}
-	if origin := request.Header.Get("Origin"); origin != "" && !server.allowedHosts[originHost(origin)] {
-		writeError(writer, http.StatusForbidden, "origin not allowed")
-		return
-	}
-	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" {
-		writeError(writer, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+	if !server.checkWriteGuards(writer, request, true) {
 		return
 	}
 	if server.options.Poster == nil {
@@ -166,14 +157,47 @@ func (server *Server) handlePost(writer http.ResponseWriter, request *http.Reque
 
 	reviewContext := server.options.Context
 	// Detached from the request: if the browser disconnects mid-post, gh must finish,
-	// or GitHub could hold a review the repost guard never recorded
-	result, err := server.options.Poster.PostReview(context.WithoutCancel(request.Context()), reviewContext.PR, reviewContext.Files, postRequest)
+	// or GitHub could hold a review the repost guard never recorded. Bounded, so a hung
+	// gh cannot hold postMutex (and block every later post) forever.
+	postContext, cancel := context.WithTimeout(context.WithoutCancel(request.Context()), server.options.PostTimeout)
+	defer cancel()
+	result, err := server.options.Poster.PostReview(postContext, reviewContext.PR, reviewContext.Files, postRequest)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(postContext.Err(), context.DeadlineExceeded) {
+			writeError(writer, http.StatusGatewayTimeout, fmt.Sprintf(
+				"posting to GitHub timed out after %s: check the PR before retrying, the review may or may not have been posted",
+				server.options.PostTimeout))
+			return
+		}
 		writeError(writer, http.StatusBadGateway, err.Error())
 		return
 	}
 	server.lastPost = result
 	writeJSON(writer, http.StatusOK, result)
+}
+
+// checkWriteGuards rejects requests without the token in the X-Kaizen-Token header (a
+// query token is not enough), from a foreign Origin, or (when requireJSON) without a
+// JSON Content-Type, so a cross-site form or simple request cannot reach the handler.
+// It writes the error and returns false when the request is refused.
+func (server *Server) checkWriteGuards(writer http.ResponseWriter, request *http.Request, requireJSON bool) bool {
+	if !server.tokenMatches(request.Header.Get(tokenHeader)) {
+		writeError(writer, http.StatusForbidden, "invalid or missing session token")
+		return false
+	}
+	if origin := request.Header.Get("Origin"); origin != "" && !server.allowedHosts[originHost(origin)] {
+		writeError(writer, http.StatusForbidden, "origin not allowed")
+		return false
+	}
+	if !requireJSON {
+		return true
+	}
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeError(writer, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return false
+	}
+	return true
 }
 
 // alreadyPosted is the 409 body for a repost without confirmation

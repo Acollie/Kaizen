@@ -20,8 +20,10 @@ import {
   type CommentInput, type CommentMap, type CommentTarget, type ReviewComment,
 } from './comments';
 import {
-  loadReview, loadThinkFirst, reviewStorageKey, saveReview, saveThinkFirst, type KeyValueStorage,
+  hasWork, loadReview, loadThinkFirst, parseReview, reviewStorageKey, saveReview, saveThinkFirst, serializeReview,
+  type KeyValueStorage,
 } from './persistence';
+import type { StateSync } from './stateSync';
 
 export type TabName = 'review' | 'graph' | 'function' | 'activity';
 export const TABS: readonly TabName[] = ['review', 'graph', 'function', 'activity'];
@@ -88,6 +90,13 @@ export interface ReviewState {
   findings: Record<string, Finding>;
   /** Arrival order of finding IDs */
   findingOrder: string[];
+  /**
+   * AI findings the lead reviewer's final result left out. They are kept out of every
+   * active list (counts, sidebar, Review sections, inline cards, n/N, posting) and shown
+   * only in the "Withdrawn by the lead reviewer" section, so nothing silently disappears.
+   */
+  withdrawn: Record<string, Finding>;
+  withdrawnOrder: string[];
   /** Finding ID -> Date.now() when it first arrived (for arrival animations) */
   arrivedAt: Record<string, number>;
   /** The reviewer's decision per finding; absent = unreviewed. Accepted findings are posted. */
@@ -229,6 +238,8 @@ export function createReviewStore(rawContext: ReviewContext) {
       index,
       findings: {},
       findingOrder: [],
+      withdrawn: {},
+      withdrawnOrder: [],
       arrivedAt: {},
       triage: {},
       viewed: EMPTY_VIEWED,
@@ -273,11 +284,13 @@ export function createReviewStore(rawContext: ReviewContext) {
           case 'finding':
             addFinding(event.data);
             break;
-          case 'result':
-            for (const finding of event.data.findings ?? []) addFinding(finding);
+          case 'result': {
+            const resultFindings = event.data.findings;
+            if (Array.isArray(resultFindings)) set((state) => applyResultFindings(state, resultFindings));
             set({ result: event.data });
             setStatus({ state: 'done', message: 'Review complete', agent: '' });
             break;
+          }
           case 'error':
             setStatus({ state: 'error', message: event.data.text, agent: '' });
             break;
@@ -487,27 +500,85 @@ export function createReviewStore(rawContext: ReviewContext) {
 
 export type ReviewStore = ReturnType<typeof createReviewStore>;
 
+type FindingSlice = Pick<ReviewState, 'findings' | 'findingOrder' | 'withdrawn' | 'withdrawnOrder' | 'arrivedAt'>;
+
+/** The reviewer's own comments are never withdrawn (they are not the AI's to withdraw) */
+function isOwnComment(finding: Finding): boolean {
+  return finding.id.startsWith('c-') || finding.source === 'you';
+}
+
+/**
+ * The lead reviewer's final result is authoritative: its findings become (or stay)
+ * active, and any AI finding currently shown that the result leaves out is withdrawn.
+ * A withdrawn finding the result lists again is restored. Triage entries are untouched.
+ * Live streams and cache replays both end with this, so they behave the same.
+ */
+export function applyResultFindings(state: FindingSlice, resultFindings: readonly Finding[]): FindingSlice {
+  const kept = resultFindings.filter((finding) => finding && finding.id);
+  const keptIds = new Set(kept.map((finding) => finding.id));
+  const findings: Record<string, Finding> = {};
+  const findingOrder: string[] = [];
+  const withdrawn: Record<string, Finding> = { ...state.withdrawn };
+  const withdrawnOrder = state.withdrawnOrder.filter((id) => !keptIds.has(id));
+  const arrivedAt = { ...state.arrivedAt };
+  for (const id of state.findingOrder) {
+    const finding = state.findings[id];
+    if (!finding) continue;
+    if (keptIds.has(id) || isOwnComment(finding)) {
+      findings[id] = finding;
+      findingOrder.push(id);
+    } else if (!(id in withdrawn)) {
+      withdrawn[id] = finding;
+      withdrawnOrder.push(id);
+    }
+  }
+  for (const finding of kept) {
+    delete withdrawn[finding.id];
+    if (!(finding.id in findings)) {
+      findingOrder.push(finding.id);
+      if (!(finding.id in arrivedAt)) arrivedAt[finding.id] = Date.now();
+    }
+    findings[finding.id] = finding;
+  }
+  return { findings, findingOrder, withdrawn, withdrawnOrder, arrivedAt };
+}
+
 function closeDismissFor(ui: UIState, id: string): UIState {
   return ui.dismissing?.id === id ? { ...ui, dismissing: null } : ui;
 }
 
+export interface ServerPersistence {
+  /** The document GET /api/state returned, or null when the server had none */
+  saved: unknown;
+  /** Sends changes to PUT /api/state */
+  sync: StateSync;
+}
+
 /**
  * Restore the reviewer's saved work for this PR + head SHA, then save every change.
- * Returns the unsubscribe function.
+ * The server copy wins over localStorage (which is per-origin, and the port changes
+ * each run); localStorage is the fallback for older runs and is always written as a
+ * secondary copy. Returns the unsubscribe function.
  */
-export function bindPersistence(store: ReviewStore, storage: KeyValueStorage | null): () => void {
+export function bindPersistence(store: ReviewStore, storage: KeyValueStorage | null, server?: ServerPersistence): () => void {
   const key = reviewStorageKey(store.getState().context.pr);
-  const saved = loadReview(storage, key);
+  const fromServer = server ? parseReview(server.saved, key) : null;
+  const saved = fromServer ?? loadReview(storage, key);
   const thinkFirst = loadThinkFirst(storage);
   store.setState((state) => ({
     ...(saved ?? {}),
     ui: { ...state.ui, thinkFirst },
   }));
+  // Work found only in localStorage (an older run): copy it to the server now
+  if (server && !fromServer && saved && hasWork(saved)) server.sync.schedule(serializeReview(key, saved));
   return store.subscribe((state, previous) => {
     if (state.ui.thinkFirst !== previous.ui.thinkFirst) saveThinkFirst(storage, state.ui.thinkFirst);
     const changed = state.triage !== previous.triage || state.viewed !== previous.viewed
       || state.comments !== previous.comments || state.revealed !== previous.revealed;
-    if (changed) saveReview(storage, key, { triage: state.triage, viewed: state.viewed, comments: state.comments, revealed: state.revealed });
+    if (!changed) return;
+    const review = { triage: state.triage, viewed: state.viewed, comments: state.comments, revealed: state.revealed };
+    saveReview(storage, key, review);
+    server?.sync.schedule(serializeReview(key, review));
   });
 }
 

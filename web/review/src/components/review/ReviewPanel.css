@@ -198,3 +198,14 @@
 .rv-think-ready .rv-think-text { color: var(--text); }
 .rv-hidden-note { color: var(--text-3); }
 .rv-focus-viewed { margin-left: var(--space-2); color: var(--text-3); font-family: var(--font-ui); font-size: var(--text-xs); }
+
+/* ---------- Withdrawn by the lead reviewer ---------- */
+.rv-withdrawn-note { margin: 0 0 var(--space-2); font-size: var(--text-xs); color: var(--text-3); line-height: 1.45; }
+.rv-withdrawn { list-style: none; margin: 0; padding: 0; }
+.rv-withdrawn-row {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; padding: var(--space-1) 0;
+  border: 0; background: none; text-align: left; cursor: pointer; color: var(--text-2);
+}
+.rv-withdrawn-row:hover .rv-withdrawn-title { color: var(--text); }
+.rv-withdrawn-title { font-size: var(--text-sm); text-decoration: line-through; text-decoration-color: var(--text-3); }
+.rv-withdrawn-meta { display: flex; gap: var(--space-2); align-items: baseline; font-size: var(--text-xs); color: var(--text-3); }

@@ -6,6 +6,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAllFindings, useComments, useReview } from '../../state/StoreProvider';
 import { AlreadyPostedError, postReview } from '../../lib/api';
 import { useLookProgress } from '../../hooks/useLookProgress';
+import { useAiCoverage } from '../../state/aiCoverage';
+import { unviewedRiskyPackages } from '../../lib/packageMap';
+import { AI_LOOKED_HINT } from '../../lib/coverageCopy';
+import { useOverviewData } from '../overview/useOverviewData';
 import { ModalDialog } from '../layout/ModalDialog';
 import { PostFindingGroup } from './PostFindingGroup';
 import { PostOutcome, type PostPhase } from './PostOutcome';
@@ -92,7 +96,22 @@ function PostWarnings({ warnings }: { warnings: PostWarning[] }) {
   if (warnings.length === 0) return null;
   return (
     <ul className="pm-warnings" aria-label="Before you post">
-      {warnings.map((warning) => <li key={warning.key} className={`pm-warn pm-warn-${warning.key}`}>{warning.text}</li>)}
+      {warnings.map((warning) => (
+        <li key={warning.key} className={`pm-warn pm-warn-${warning.key}`}>
+          {warning.text}
+          {warning.items && warning.items.length > 0 && (
+            <ul className="pm-warn-items">
+              {warning.items.map((item, order) => (
+                <li key={`${order}:${item.label}`}>
+                  <span className="mono">{item.label}</span>
+                  {item.aiLooked && <span className="pm-warn-ai" title={AI_LOOKED_HINT}> · AI looked at it, not verified</span>}
+                </li>
+              ))}
+              {warning.more ? <li className="pm-warn-more">and {warning.more} more</li> : null}
+            </ul>
+          )}
+        </li>
+      ))}
     </ul>
   );
 }
@@ -101,10 +120,17 @@ function usePostWarnings(plan: PostPlan): PostWarning[] {
   const findings = useAllFindings();
   const triage = useReview((state) => state.triage);
   const look = useLookProgress();
-  return useMemo(
-    () => postWarnings({ findings, triage, look, acceptedCount: plan.accepted.length }),
-    [findings, triage, look, plan.accepted.length],
-  );
+  const coverage = useAiCoverage();
+  const { map } = useOverviewData();
+  return useMemo(() => {
+    const unviewedPackages = unviewedRiskyPackages(map).map((pkg) => ({
+      label: pkg.label,
+      aiLooked: pkg.ai.functions.seen + pkg.ai.files.seen > 0,
+    }));
+    return postWarnings({
+      findings, triage, look, acceptedCount: plan.accepted.length, aiFunctions: coverage.examinedFunctions, unviewedPackages,
+    });
+  }, [findings, triage, look, plan.accepted.length, coverage.examinedFunctions, map]);
 }
 
 /**

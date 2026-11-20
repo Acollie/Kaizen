@@ -5,6 +5,7 @@
 import { useReview } from '../../state/StoreProvider';
 import { useCommands } from '../../state/commands';
 import { summaryParts } from '../../lib/packageMap';
+import { AI_LOOKED_HINT, AI_NOT_VERIFIED, YOU_REVIEWED_HINT } from '../../lib/coverageCopy';
 import { OverviewMap } from './OverviewMap';
 import { PackageDetail } from './PackageDetail';
 import { WhereToLook } from './WhereToLook';
@@ -42,13 +43,18 @@ export function Overview() {
 
 function Summary({ parts }: { parts: string[] }) {
   const [packages, files, functions, you, ai] = parts;
+  const aiUnknown = ai?.includes('unknown') ?? false;
   return (
     <div className="ov-summary" aria-live="polite">
       <span className="ov-sum-counts">{[packages, files, functions].join(' · ')}</span>
       <span className="ov-sum-sep" aria-hidden="true">·</span>
-      <span className="ov-sum-you">{you}</span>
+      <span className="ov-sum-you" title={YOU_REVIEWED_HINT}>{you}</span>
       <span className="ov-sum-sep" aria-hidden="true">·</span>
-      <span className={`ov-sum-ai${ai?.includes('unknown') ? ' ov-unknown' : ''}`}>{ai}</span>
+      <span className={`ov-sum-ai${aiUnknown ? ' ov-unknown' : ''}`} title={AI_LOOKED_HINT}>
+        {ai}
+        {!aiUnknown && <span className="ov-sum-caveat"> ({AI_NOT_VERIFIED})</span>}
+      </span>
+      <span className="ov-sum-info" title={AI_LOOKED_HINT} aria-label={AI_LOOKED_HINT} role="note">?</span>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-/* ---------- Blind spots (what the AI didn't examine) ---------- */
+/* ---------- Blind spots (what the AI didn't look at) ---------- */
 .rv-blind-summary { margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--text-2); }
 
 .rv-blind-warning {
@@ -38,3 +38,4 @@
   border-top: 1px solid var(--line); font-size: var(--text-xs); color: var(--text-3);
 }
 .rv-blind-unknown code { color: var(--text-2); }
+.rv-blind-caveat { margin: 0 0 var(--space-2); font-size: var(--text-xs); color: var(--text-3); line-height: 1.45; }

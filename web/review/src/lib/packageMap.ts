@@ -5,7 +5,8 @@
 //
 // Coverage is reported honestly: "you" comes from what the reviewer actually viewed, and
 // the AI's share is null ("unknown") when the engine reported no tool targets (older
-// cached reviews), never 0%.
+// cached reviews), never 0%. Only "you" is verification: the AI's share is what it looked
+// at, which says nothing about correctness, and it never lowers a package's priority.
 
 import type { FileDiff, Finding, FunctionRisk, ReviewGraph, Severity } from '../types';
 import { SEVERITIES, SEVERITY_LABEL } from './findings';
@@ -173,7 +174,7 @@ export interface CoverageSource {
   /** Changed functions / files the reviewer viewed */
   viewedFunctions: Readonly<Record<string, true>>;
   viewedFiles: Readonly<Record<string, true>>;
-  /** What the AI examined; known=false means unknown, not zero */
+  /** What the AI looked at (not verified); known=false means unknown, not zero */
   aiFunctions: ReadonlySet<string>;
   aiFiles: ReadonlySet<string>;
   aiKnown: boolean;
@@ -330,14 +331,17 @@ export function percent(share: number): string {
   return `${Math.round(share * 100)}%`;
 }
 
-/** "15 packages · 256 files · 712 functions · You've viewed 42% of focus code · AI examined 6% of changed functions" */
+/**
+ * "15 packages · 256 files · 712 functions · You've reviewed 42% of focus code · AI looked at 6% of
+ * changed functions". Only the first coverage part is verification; the AI's is "looked at".
+ */
 export function summaryParts(summary: OverviewSummary): string[] {
   const you = summary.functions === 0
-    ? 'No changed functions to view'
-    : `You've viewed ${percent(summary.youShare)} of ${summary.youBasis === 'focus' ? 'focus code' : 'changed functions'}`;
+    ? 'No changed functions to review'
+    : `You've reviewed ${percent(summary.youShare)} of ${summary.youBasis === 'focus' ? 'focus code' : 'changed functions'}`;
   const ai = summary.aiShare === null
     ? 'AI coverage unknown'
-    : `AI examined ${percent(summary.aiShare)} of changed functions${summary.aiComplete ? '' : ' so far'}`;
+    : `AI looked at ${percent(summary.aiShare)} of changed functions${summary.aiComplete ? '' : ' so far'}`;
   return [plural(summary.packages, 'package'), plural(summary.files, 'file'), plural(summary.functions, 'function'), you, ai];
 }
 
@@ -346,7 +350,7 @@ export function summaryParts(summary: OverviewSummary): string[] {
 export interface LookTarget {
   pkg: PackageInfo;
   score: number;
-  /** Clauses of the one-line reason, e.g. ["2 should-fix findings", "you haven't opened it"] */
+  /** Clauses of the one-line reason, e.g. ["2 should-fix findings", "AI looked at 3 of 9 functions; you haven't opened it"] */
   reasons: string[];
 }
 
@@ -360,9 +364,9 @@ function youGap(pkg: PackageInfo): number {
   return 1 - (pkg.you.share ?? 0);
 }
 
-function aiGap(pkg: PackageInfo): number {
-  // Unknown AI coverage counts as half a gap: it may or may not have looked
-  return pkg.ai.share === null ? 0.5 : 1 - pkg.ai.share;
+/** True when the reviewer has viewed nothing in the package (no function, no file) */
+export function humanUnviewed(pkg: PackageInfo): boolean {
+  return pkg.you.functions.seen === 0 && pkg.you.files.seen === 0;
 }
 
 function worthLooking(pkg: PackageInfo): boolean {
@@ -372,16 +376,29 @@ function worthLooking(pkg: PackageInfo): boolean {
 }
 
 /**
- * Packages that are risky or carry urgent findings but that the reviewer and/or the AI
- * have barely looked at. Ranked by importance weighted by the coverage gap.
+ * Packages that are risky or carry urgent findings and that the reviewer hasn't
+ * reviewed. Code no human has viewed comes first, then partly viewed packages; each
+ * tier is ranked by risk and urgent findings weighted by how much is left to view.
+ *
+ * The AI's coverage deliberately plays no part: "the AI looked at it" is not a review,
+ * and must never push a package down the list (a blind evaluation missed a real defect
+ * in a file skipped because the AI had traced it).
  */
 export function whereToLook(map: PackageMap, limit = 5): LookTarget[] {
   return map.packages
     .filter(worthLooking)
-    .map((pkg) => ({ pkg, score: packageImportance(pkg) * (0.65 * youGap(pkg) + 0.35 * aiGap(pkg)), reasons: lookReasons(pkg) }))
+    .map((pkg) => ({ pkg, score: packageImportance(pkg) * youGap(pkg), reasons: lookReasons(pkg) }))
     .filter((target) => target.score >= 4)
-    .sort((left, right) => right.score - left.score || left.pkg.key.localeCompare(right.pkg.key))
+    .sort((left, right) => Number(humanUnviewed(right.pkg)) - Number(humanUnviewed(left.pkg))
+      || right.score - left.score || left.pkg.key.localeCompare(right.pkg.key))
     .slice(0, limit);
+}
+
+/** Worth-a-look packages the reviewer hasn't opened at all, most important first (for the post check) */
+export function unviewedRiskyPackages(map: PackageMap): PackageInfo[] {
+  return map.packages
+    .filter((pkg) => worthLooking(pkg) && humanUnviewed(pkg))
+    .sort((left, right) => packageImportance(right) - packageImportance(left) || left.key.localeCompare(right.key));
 }
 
 function findingClause(pkg: PackageInfo): string | null {
@@ -407,7 +424,7 @@ function riskClause(pkg: PackageInfo): string | null {
 
 function youClause(pkg: PackageInfo): string {
   const { functions, files } = pkg.you;
-  if (functions.seen === 0 && files.seen === 0) return "you haven't opened it";
+  if (humanUnviewed(pkg)) return "you haven't opened it";
   if (functions.total > 0) return `you've viewed ${functions.seen} of ${plural(functions.total, 'function')}`;
   return `you've opened ${files.seen} of ${plural(files.total, 'file')}`;
 }
@@ -415,9 +432,15 @@ function youClause(pkg: PackageInfo): string {
 function aiClause(pkg: PackageInfo): string {
   if (pkg.ai.share === null) return 'AI coverage unknown';
   const basis = pkg.ai.functions.total > 0 ? { ...pkg.ai.functions, noun: 'function' } : { ...pkg.ai.files, noun: 'file' };
-  return `AI examined ${basis.seen} of ${plural(basis.total, basis.noun)}`;
+  return `AI looked at ${basis.seen} of ${plural(basis.total, basis.noun)}`;
 }
 
+/**
+ * Clauses of the one-line reason. Coverage is one clause, the AI's look first and the
+ * reviewer's last ("AI looked at 41 of 112 functions; you haven't opened it"), so the
+ * sentence ends on what still needs a human rather than implying the AI's look is enough.
+ */
 export function lookReasons(pkg: PackageInfo): string[] {
-  return [riskClause(pkg), findingClause(pkg), youClause(pkg), aiClause(pkg)].filter((part): part is string => Boolean(part));
+  return [riskClause(pkg), findingClause(pkg), `${aiClause(pkg)}; ${youClause(pkg)}`]
+    .filter((part): part is string => Boolean(part));
 }

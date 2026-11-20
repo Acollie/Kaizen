@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FileDiff, Finding, FunctionRisk, GraphNode, ReviewGraph } from '../types';
 import { makeFunction } from '../state/aiCoverage.fixtures';
 import {
-  buildPackageMap, groupPackages, isTestFile, lookReasons, overviewSummary, summaryParts, whereToLook,
+  buildPackageMap, groupPackages, isTestFile, lookReasons, overviewSummary, summaryParts, unviewedRiskyPackages, whereToLook,
   type CoverageSource, type PackageMapInput,
 } from './packageMap';
 
@@ -188,14 +188,24 @@ describe('buildPackageMap', () => {
   });
 
   describe('summary and where to look', () => {
-    it('writes the one-line summary, with unknown AI coverage spelled out', () => {
+    it('writes the one-line summary: you reviewed, AI looked at; unknown AI coverage spelled out', () => {
       const map = buildPackageMap(input({ files, functions }));
       const known = overviewSummary(map, { ...NO_COVERAGE, viewedFunctions: { 'gh.Post': true }, aiFunctions: new Set(['engine.Run']), functions, aiComplete: true });
       expect(summaryParts(known)).toEqual([
-        '3 packages', '6 files', '4 functions', "You've viewed 100% of focus code", 'AI examined 25% of changed functions',
+        '3 packages', '6 files', '4 functions', "You've reviewed 100% of focus code", 'AI looked at 25% of changed functions',
       ]);
       const unknown = overviewSummary(map, { ...NO_COVERAGE, aiKnown: false, functions, aiComplete: true });
-      expect(summaryParts(unknown).slice(3)).toEqual(["You've viewed 0% of focus code", 'AI coverage unknown']);
+      expect(summaryParts(unknown).slice(3)).toEqual(["You've reviewed 0% of focus code", 'AI coverage unknown']);
+    });
+
+    it('never words AI coverage as examined, traced or verified', () => {
+      const map = buildPackageMap(input({ files, functions, findings, aiFunctions: new Set(['gh.Post', 'gh.encode']) }));
+      const text = [
+        ...summaryParts(overviewSummary(map, { ...NO_COVERAGE, aiFunctions: new Set(['gh.Post']), functions, aiComplete: true })),
+        ...whereToLook(map).flatMap((target) => target.reasons),
+      ].join(' | ');
+      expect(text).not.toMatch(/examined|traced|verified|checked/i);
+      expect(text).toContain('AI looked at');
     });
 
     it('ranks risky, urgent, unviewed packages first with an honest reason', () => {
@@ -205,25 +215,52 @@ describe('buildPackageMap', () => {
       expect(targets[0]!.reasons).toEqual([
         '★ 1 focus · Post risk 48: security-sensitive',
         '2 should-fix findings',
-        "you haven't opened it",
-        'AI examined 0 of 2 functions',
+        "AI looked at 0 of 2 functions; you haven't opened it",
       ]);
       // The mostly-test engine package has no urgent findings, so it is not suggested
       expect(targets.map((target) => target.pkg.key)).not.toContain('pkg/review/engine');
     });
 
-    it('drops packages once you and the AI have covered them', () => {
-      const covered = buildPackageMap(input({
+    it('ranks an AI-examined, human-unviewed high-risk package above a low-risk one', () => {
+      // The AI looked at every function in pkg/github and none in pkg/review
+      const map = buildPackageMap(input({ files, functions, findings, aiFunctions: new Set(['gh.Post', 'gh.encode']) }));
+      const targets = whereToLook(map);
+      expect(targets.map((target) => target.pkg.key)).toEqual(['pkg/github', 'pkg/review']);
+      expect(targets[0]!.reasons.at(-1)).toBe("AI looked at 2 of 2 functions; you haven't opened it");
+    });
+
+    it('gives AI coverage no weight at all in the ranking', () => {
+      const none = whereToLook(buildPackageMap(input({ files, functions, findings })));
+      const all = whereToLook(buildPackageMap(input({ files, functions, findings, aiFunctions: new Set(functions.map((fn) => fn.id)) })));
+      const unknown = whereToLook(buildPackageMap(input({ files, functions, findings, aiKnown: false })));
+      const ranking = (targets: typeof none) => targets.map((target) => [target.pkg.key, target.score]);
+      expect(ranking(all)).toEqual(ranking(none));
+      expect(ranking(unknown)).toEqual(ranking(none));
+    });
+
+    it('leads with packages no human has viewed, even over a riskier partly viewed one', () => {
+      const map = buildPackageMap(input({ files, functions, findings, viewedFunctions: { 'gh.Post': true } }));
+      expect(whereToLook(map).map((target) => target.pkg.key)).toEqual(['pkg/review', 'pkg/github']);
+    });
+
+    it('drops a package once you have viewed it, whatever the AI did', () => {
+      const viewedByYou = buildPackageMap(input({
         files, functions, findings,
         viewedFunctions: { 'gh.Post': true, 'gh.encode': true, 'review.Build': true },
-        aiFunctions: new Set(['gh.Post', 'gh.encode', 'review.Build']),
       }));
-      expect(whereToLook(covered)).toEqual([]);
+      expect(whereToLook(viewedByYou)).toEqual([]);
+      const lookedAtByAi = buildPackageMap(input({ files, functions, findings, aiFunctions: new Set(['gh.Post', 'gh.encode', 'review.Build']) }));
+      expect(whereToLook(lookedAtByAi).map((target) => target.pkg.key)).toEqual(['pkg/github', 'pkg/review']);
     });
 
     it('says when AI coverage is unknown', () => {
       const map = buildPackageMap(input({ files, functions, findings, aiKnown: false }));
-      expect(lookReasons(map.packages.find((pkg) => pkg.key === 'pkg/github')!)).toContain('AI coverage unknown');
+      expect(lookReasons(map.packages.find((pkg) => pkg.key === 'pkg/github')!)).toContain("AI coverage unknown; you haven't opened it");
+    });
+
+    it('lists risky packages you have not opened for the post check, whether or not the AI looked', () => {
+      const map = buildPackageMap(input({ files, functions, findings, aiFunctions: new Set(['gh.Post']), viewedFunctions: { 'review.Build': true } }));
+      expect(unviewedRiskyPackages(map).map((pkg) => pkg.key)).toEqual(['pkg/github']);
     });
   });
 });

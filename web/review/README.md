@@ -92,7 +92,12 @@ files, changed functions, lines, Kaizen risk, focus functions, visible AI findin
 share, and coverage: *you* (viewed functions, or files when there are none) and *AI*
 (from `useAiCoverage`; `null` = unknown, never 0%). Call edges are the PR call graph
 aggregated by caller package -> callee package. `whereToLook` ranks risky or flagged
-packages by how little you and the AI have looked at them, with a plain reason.
+packages that *you* haven't reviewed: packages no human has opened come first, then by risk
+and urgent findings weighted by what you have left. The AI's coverage never lowers a
+package's priority. The AI's coverage is always worded "AI looked at" with the
+disclaimer in `lib/coverageCopy.ts`: the AI opening code does not verify it, and only
+"you reviewed" counts as verified. (In a blind evaluation a reviewer skipped a file
+"because the AI had traced it" and missed a real defect there.)
 `components/overview/overviewLayout.ts` lays the packages out left to right with the
 flow diagram's ranking, crossing reduction and edge routing.
 
@@ -114,9 +119,14 @@ unless the developer accepted it.
 - **Viewed** (`state/viewing.ts`, `code/useViewTracking.ts`): a function counts as viewed
   after its code has been on screen for 2s while selected; a file after 2s open.
 - **Think first** (`T`): hides the AI's findings, verdict and counts until the reviewer reveals them.
-- **Persistence** (`state/persistence.ts`): triage, viewed, comments and reveal are saved in
-  `localStorage` under `kaizen-review:<owner>/<repo>#<number>@<head_sha>` (a new push starts
-  fresh); the Think first preference under `kaizen-review-think-first`.
+- **Persistence** (`state/persistence.ts`, `state/stateSync.ts`): triage, viewed, comments and
+  reveal are saved on the server (`GET`/`PUT /api/state`, token-protected) in
+  `.kaizen/reviews/pr-<n>-<head12>.state.json` next to the review cache, because
+  `localStorage` is per-origin and each run gets a new port. PUTs are debounced (500 ms) and
+  flushed with `fetch(…, { keepalive: true })` on unload. On load the server copy wins; a
+  copy in `localStorage` (key `kaizen-review:<owner>/<repo>#<number>@<head_sha>`) is the
+  fallback for older runs and is kept up to date as a secondary copy. A new push starts
+  fresh. The Think first preference stays in `localStorage` (`kaizen-review-think-first`).
 
 ### Keyboard: keymap and commands
 

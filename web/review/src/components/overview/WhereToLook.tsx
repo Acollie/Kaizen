@@ -1,7 +1,9 @@
-// "Where to look": a short ranked list of packages that are risky or carry urgent AI
-// findings but that you and/or the AI have barely looked at. Each row says why.
+// "Where to look": a short ranked list of risky or flagged packages you haven't reviewed.
+// Packages no human has opened come first. The AI's coverage is shown in the reason but
+// never lowers a package's rank: the AI looking at code is not a review.
 
 import type { LookTarget } from '../../lib/packageMap';
+import { AI_LOOKED_HINT } from '../../lib/coverageCopy';
 import { riskColor } from '../../lib/risk';
 
 interface WhereToLookProps {
@@ -15,10 +17,10 @@ export function WhereToLook({ targets, aiKnown, onOpen }: WhereToLookProps) {
     <section className="ov-look">
       <div className="ov-aside-head">
         <span className="label">Where to look</span>
-        <span className="ov-aside-hint">risky or flagged, little looked at{aiKnown ? '' : ' (AI coverage unknown)'}</span>
+        <span className="ov-aside-hint">risky or flagged, not yet reviewed by you{aiKnown ? '' : ' (AI coverage unknown)'}</span>
       </div>
       {targets.length === 0
-        ? <div className="ov-look-empty">Nothing risky is left unlooked-at by both you and the AI. Kaizen ranks by metrics; it can still miss things.</div>
+        ? <div className="ov-look-empty">You've viewed every risky or flagged package. Kaizen ranks by metrics; it can still miss things.</div>
         : (
           <ol className="ov-look-list">
             {targets.map((target, order) => (
@@ -38,6 +40,7 @@ export function WhereToLook({ targets, aiKnown, onOpen }: WhereToLookProps) {
             ))}
           </ol>
         )}
+      <p className="ov-look-note"><strong>AI looked at:</strong> {AI_LOOKED_HINT}</p>
     </section>
   );
 }

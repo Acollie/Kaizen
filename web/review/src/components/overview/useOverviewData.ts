@@ -1,5 +1,5 @@
 // Derives the Overview's data from the store: the package map (with what you viewed and
-// what the AI examined), the one-line summary and the "Where to look" list.
+// what the AI looked at), the one-line summary and the "Where to look" list.
 
 import { useMemo } from 'react';
 import { useFindings, useReview } from '../../state/StoreProvider';

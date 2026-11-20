@@ -43,6 +43,9 @@ export function PackageTooltip({ pkg, left, top }: { pkg: PackageInfo; left: num
       {pkg.findings.length > 0 && (
         <div className="fl-tt-findings"><SeverityCounts findings={pkg.findings} skipPraise={false} /> <span>AI findings</span></div>
       )}
+      <div className="ov-tt-heading">
+        You reviewed {percent(pkg.you.share ?? 0)} · AI looked at {pkg.ai.share === null ? 'unknown' : percent(pkg.ai.share)} (not verified)
+      </div>
     </div>
   );
 }
