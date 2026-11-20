@@ -12,6 +12,9 @@ type CallGraph struct {
 	// It is rebuilt whenever the number of edges changes.
 	indexMutex sync.Mutex
 	edgeIndex  *callEdgeIndex
+
+	// edgePositions maps From/To to an edge's position in Edges, for O(1) deduplication in AddEdge
+	edgePositions map[string]int
 }
 
 // callEdgeIndex maps a function full name to the positions of its edges in CallGraph.Edges
@@ -23,17 +26,17 @@ type callEdgeIndex struct {
 
 // CallNode represents a function in the call graph
 type CallNode struct {
-	Name       string  `json:"name"`        // Function name
-	FullName   string  `json:"full_name"`   // Package.Function
-	Package    string  `json:"package"`     // Package path
-	File       string  `json:"file"`        // File path
-	Line       int     `json:"line"`        // Starting line
-	Complexity int     `json:"complexity"`  // Cyclomatic complexity
-	Length     int     `json:"length"`      // Function length
-	CallCount  int     `json:"call_count"`  // How many times it's called (fan-in)
-	CallsOut   int     `json:"calls_out"`   // How many functions it calls (fan-out)
-	IsExternal bool    `json:"is_external"` // Is from external package
-	IsExported bool    `json:"is_exported"` // Is exported (starts with capital)
+	Name       string `json:"name"`        // Function name
+	FullName   string `json:"full_name"`   // Package.Function
+	Package    string `json:"package"`     // Package path
+	File       string `json:"file"`        // File path
+	Line       int    `json:"line"`        // Starting line
+	Complexity int    `json:"complexity"`  // Cyclomatic complexity
+	Length     int    `json:"length"`      // Function length
+	CallCount  int    `json:"call_count"`  // How many times it's called (fan-in)
+	CallsOut   int    `json:"calls_out"`   // How many functions it calls (fan-out)
+	IsExternal bool   `json:"is_external"` // Is from external package
+	IsExported bool   `json:"is_exported"` // Is exported (starts with capital)
 }
 
 // CallEdge represents a function call relationship
@@ -71,7 +74,7 @@ func (graph *CallGraph) AddNode(node *CallNode) {
 	graph.Nodes[node.FullName] = node
 }
 
-// AddEdge adds a call edge to the graph
+// AddEdge adds a call edge to the graph, merging repeated calls into one weighted edge
 func (graph *CallGraph) AddEdge(edge CallEdge) {
 	// Increment call counts
 	if callee, exists := graph.Nodes[edge.To]; exists {
@@ -82,17 +85,51 @@ func (graph *CallGraph) AddEdge(edge CallEdge) {
 		caller.CallsOut++
 	}
 
-	// Check if edge already exists and increment weight
-	for index := range graph.Edges {
-		if graph.Edges[index].From == edge.From && graph.Edges[index].To == edge.To {
-			graph.Edges[index].Weight++
-			return
-		}
+	positions := graph.edgePositionIndex()
+	key := edgeKey(edge.From, edge.To)
+	if position, exists := positions[key]; exists {
+		graph.Edges[position].Weight++
+		return
 	}
 
-	// Add new edge
 	edge.Weight = 1
+	positions[key] = len(graph.Edges)
 	graph.Edges = append(graph.Edges, edge)
+}
+
+// edgePositionIndex returns the From/To -> position map used to deduplicate edges,
+// rebuilding it when Edges was modified directly (e.g. by a filter building a new graph)
+func (graph *CallGraph) edgePositionIndex() map[string]int {
+	if graph.edgePositions != nil && len(graph.edgePositions) == len(graph.Edges) {
+		return graph.edgePositions
+	}
+	graph.edgePositions = make(map[string]int, len(graph.Edges))
+	for position, edge := range graph.Edges {
+		graph.edgePositions[edgeKey(edge.From, edge.To)] = position
+	}
+	return graph.edgePositions
+}
+
+func edgeKey(from, to string) string {
+	return from + "\x00" + to
+}
+
+// RecomputeCallCounts derives every node's CallCount (call sites targeting it) and
+// CallsOut (call sites inside it) from the edge weights. Builders call this once all
+// nodes exist, so counts are correct regardless of the order nodes were added in.
+func (graph *CallGraph) RecomputeCallCounts() {
+	for _, node := range graph.Nodes {
+		node.CallCount = 0
+		node.CallsOut = 0
+	}
+	for _, edge := range graph.Edges {
+		if callee, exists := graph.Nodes[edge.To]; exists {
+			callee.CallCount += edge.Weight
+		}
+		if caller, exists := graph.Nodes[edge.From]; exists {
+			caller.CallsOut += edge.Weight
+		}
+	}
 }
 
 // FilterByFunctionNames returns a new CallGraph containing only the named functions

@@ -12,95 +12,161 @@ import (
 	"github.com/alexcollie/kaizen/pkg/models"
 )
 
-// CallGraphAnalyzer builds a call graph for Go code
+// CallGraphAnalyzer builds a call graph for Go code.
+//
+// It works in two passes over the whole directory: the first parses every file and
+// registers all function declarations, the second resolves call expressions against
+// that complete set. Resolution is syntactic (no type checking), using, in order:
+// the file's imports, the enclosing method's receiver name, and method names that
+// are declared exactly once in the analyzed code.
 type CallGraphAnalyzer struct {
 	graph       *models.CallGraph
 	currentFile string
 	packageName string
 	fileSet     *token.FileSet
+
+	// methodsByName maps a method name to the full names of every method declaring it
+	methodsByName map[string][]string
+}
+
+// parsedGoFile is a file parsed in the first pass and resolved in the second
+type parsedGoFile struct {
+	path    string
+	syntax  *ast.File
+	imports map[string]string // local import name -> package name used in node keys
 }
 
 // NewCallGraphAnalyzer creates a new call graph analyzer
 func NewCallGraphAnalyzer() *CallGraphAnalyzer {
 	return &CallGraphAnalyzer{
-		graph:   models.NewCallGraph(),
-		fileSet: token.NewFileSet(),
+		graph:         models.NewCallGraph(),
+		fileSet:       token.NewFileSet(),
+		methodsByName: make(map[string][]string),
 	}
 }
 
 // AnalyzeDirectory analyzes all Go files in a directory and builds a call graph
 func (analyzer *CallGraphAnalyzer) AnalyzeDirectory(rootPath string) (*models.CallGraph, error) {
-	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		if filepath.Ext(path) == ".go" && !strings.HasSuffix(path, "_test.go") {
-			if analyzeErr := analyzer.analyzeFile(path); analyzeErr != nil {
-				// Log error but continue processing other files
-				fmt.Fprintf(os.Stderr, "Warning: failed to analyze %s: %v\n", path, analyzeErr)
-			}
-		}
-
-		return nil
-	})
-
+	files, err := analyzer.parseDirectory(rootPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Calculate statistics after all files are processed
+	for _, file := range files {
+		analyzer.registerDeclarations(file)
+	}
+	for _, file := range files {
+		analyzer.extractCalls(file)
+	}
+
+	analyzer.graph.RecomputeCallCounts()
 	analyzer.graph.CalculateStats()
 
 	return analyzer.graph, nil
 }
 
-// analyzeFile parses a single Go file and extracts call graph information
-func (analyzer *CallGraphAnalyzer) analyzeFile(filePath string) error {
-	analyzer.currentFile = filePath
+// parseDirectory parses every non-test Go file under rootPath, skipping hidden,
+// vendor and testdata directories
+func (analyzer *CallGraphAnalyzer) parseDirectory(rootPath string) ([]*parsedGoFile, error) {
+	var files []*parsedGoFile
 
-	file, err := parser.ParseFile(analyzer.fileSet, filePath, nil, parser.ParseComments)
+	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if path != rootPath && shouldSkipDirectory(info.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		parsed, parseErr := analyzer.parseFile(path)
+		if parseErr != nil {
+			// Log error but continue processing other files
+			fmt.Fprintf(os.Stderr, "Warning: failed to analyze %s: %v\n", path, parseErr)
+			return nil
+		}
+		files = append(files, parsed)
+		return nil
+	})
+
+	return files, err
+}
+
+// shouldSkipDirectory reports whether a directory never contains analyzable first-party code
+func shouldSkipDirectory(name string) bool {
+	return strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules"
+}
+
+// parseFile parses one Go file and records its imports
+func (analyzer *CallGraphAnalyzer) parseFile(filePath string) (*parsedGoFile, error) {
+	syntax, err := parser.ParseFile(analyzer.fileSet, filePath, nil, 0)
 	if err != nil {
-		return fmt.Errorf("failed to parse file: %w", err)
+		return nil, fmt.Errorf("failed to parse file: %w", err)
 	}
 
-	// Store package name for qualified function names
-	if file.Name != nil {
-		analyzer.packageName = file.Name.Name
+	return &parsedGoFile{path: filePath, syntax: syntax, imports: importNames(syntax)}, nil
+}
+
+// importNames maps each import's local name to the package name used in node keys.
+// Without type information the package name is assumed to be the last path element.
+func importNames(syntax *ast.File) map[string]string {
+	names := make(map[string]string)
+	for _, spec := range syntax.Imports {
+		importPath := strings.Trim(spec.Path.Value, `"`)
+		packageName := importPath[strings.LastIndex(importPath, "/")+1:]
+		localName := packageName
+		if spec.Name != nil {
+			localName = spec.Name.Name
+		}
+		if localName == "_" || localName == "." {
+			continue
+		}
+		names[localName] = packageName
 	}
+	return names
+}
 
-	// First pass: collect all function declarations
-	ast.Inspect(file, func(node ast.Node) bool {
-		switch funcDecl := node.(type) {
-		case *ast.FuncDecl:
-			analyzer.addFunctionNode(funcDecl)
+// enterFile sets the per-file state used while building names
+func (analyzer *CallGraphAnalyzer) enterFile(file *parsedGoFile) {
+	analyzer.currentFile = file.path
+	analyzer.packageName = file.syntax.Name.Name
+}
+
+// registerDeclarations adds a node for every function and method in the file (first pass)
+func (analyzer *CallGraphAnalyzer) registerDeclarations(file *parsedGoFile) {
+	analyzer.enterFile(file)
+	for _, declaration := range file.syntax.Decls {
+		funcDecl, ok := declaration.(*ast.FuncDecl)
+		if !ok {
+			continue
 		}
-		return true
-	})
-
-	// Second pass: extract call relationships
-	ast.Inspect(file, func(node ast.Node) bool {
-		switch funcDecl := node.(type) {
-		case *ast.FuncDecl:
-			analyzer.extractCallsFromFunction(funcDecl)
+		analyzer.addFunctionNode(funcDecl)
+		if funcDecl.Recv != nil {
+			methodName := funcDecl.Name.Name
+			fullName := analyzer.getFunctionFullName(funcDecl)
+			analyzer.methodsByName[methodName] = append(analyzer.methodsByName[methodName], fullName)
 		}
-		return true
-	})
+	}
+}
 
-	return nil
+// extractCalls adds edges for every call made in the file (second pass)
+func (analyzer *CallGraphAnalyzer) extractCalls(file *parsedGoFile) {
+	analyzer.enterFile(file)
+	for _, declaration := range file.syntax.Decls {
+		if funcDecl, ok := declaration.(*ast.FuncDecl); ok && funcDecl.Body != nil {
+			analyzer.extractCallsFromFunction(funcDecl, file.imports)
+		}
+	}
 }
 
 // addFunctionNode creates a CallNode for a function declaration
 func (analyzer *CallGraphAnalyzer) addFunctionNode(funcDecl *ast.FuncDecl) {
 	fullName := analyzer.getFunctionFullName(funcDecl)
-
-	// Calculate function metrics
-	complexity := calculateFunctionComplexity(funcDecl)
-	length := analyzer.getFunctionLength(funcDecl)
 
 	node := &models.CallNode{
 		Name:       funcDecl.Name.Name,
@@ -108,10 +174,8 @@ func (analyzer *CallGraphAnalyzer) addFunctionNode(funcDecl *ast.FuncDecl) {
 		Package:    analyzer.packageName,
 		File:       analyzer.currentFile,
 		Line:       analyzer.fileSet.Position(funcDecl.Pos()).Line,
-		Complexity: complexity,
-		Length:     length,
-		CallCount:  0, // Will be updated when edges are added
-		CallsOut:   0, // Will be updated when edges are added
+		Complexity: calculateFunctionComplexity(funcDecl),
+		Length:     analyzer.getFunctionLength(funcDecl),
 		IsExternal: false,
 		IsExported: ast.IsExported(funcDecl.Name.Name),
 	}
@@ -120,8 +184,12 @@ func (analyzer *CallGraphAnalyzer) addFunctionNode(funcDecl *ast.FuncDecl) {
 }
 
 // extractCallsFromFunction finds all function calls within a function
-func (analyzer *CallGraphAnalyzer) extractCallsFromFunction(funcDecl *ast.FuncDecl) {
+func (analyzer *CallGraphAnalyzer) extractCallsFromFunction(funcDecl *ast.FuncDecl, imports map[string]string) {
 	callerFullName := analyzer.getFunctionFullName(funcDecl)
+	scope := callScope{imports: imports, receiverName: receiverName(funcDecl), receiverType: ""}
+	if scope.receiverName != "" {
+		scope.receiverType = analyzer.extractReceiverType(funcDecl.Recv.List[0].Type)
+	}
 
 	ast.Inspect(funcDecl.Body, func(node ast.Node) bool {
 		callExpr, ok := node.(*ast.CallExpr)
@@ -129,77 +197,118 @@ func (analyzer *CallGraphAnalyzer) extractCallsFromFunction(funcDecl *ast.FuncDe
 			return true
 		}
 
-		calleeName := analyzer.extractCalleeName(callExpr)
+		calleeName := analyzer.resolveCallee(callExpr, scope)
 		if calleeName == "" {
-			return true // Skip if we can't determine the callee
+			return true // builtins, conversions and anonymous functions
 		}
 
-		edge := models.CallEdge{
+		if _, exists := analyzer.graph.Nodes[calleeName]; !exists {
+			analyzer.addExternalNode(calleeName)
+		}
+
+		analyzer.graph.AddEdge(models.CallEdge{
 			From:   callerFullName,
 			To:     calleeName,
 			Weight: 1,
 			File:   analyzer.currentFile,
 			Line:   analyzer.fileSet.Position(callExpr.Pos()).Line,
-		}
-
-		// If callee doesn't exist as a node yet, create an external node
-		if _, exists := analyzer.graph.Nodes[calleeName]; !exists {
-			analyzer.addExternalNode(calleeName)
-		}
-
-		analyzer.graph.AddEdge(edge)
+		})
 
 		return true
 	})
 }
 
-// extractCalleeName extracts the called function name from a CallExpr
-func (analyzer *CallGraphAnalyzer) extractCalleeName(callExpr *ast.CallExpr) string {
+// callScope is what call resolution needs to know about the enclosing function
+type callScope struct {
+	imports      map[string]string
+	receiverName string // e.g. "analyzer" in func (analyzer *CallGraphAnalyzer) ...
+	receiverType string // e.g. "CallGraphAnalyzer"
+}
+
+// receiverName returns the name bound to a method's receiver, or "" for functions
+func receiverName(funcDecl *ast.FuncDecl) string {
+	if funcDecl.Recv == nil || len(funcDecl.Recv.List) == 0 || len(funcDecl.Recv.List[0].Names) == 0 {
+		return ""
+	}
+	return funcDecl.Recv.List[0].Names[0].Name
+}
+
+// resolveCallee returns the node key for the function a call expression targets,
+// or "" when the call should not be recorded
+func (analyzer *CallGraphAnalyzer) resolveCallee(callExpr *ast.CallExpr, scope callScope) string {
 	switch fun := callExpr.Fun.(type) {
 	case *ast.Ident:
-		// Direct function call: foo()
-		return fmt.Sprintf("%s.%s", analyzer.packageName, fun.Name)
-
+		return analyzer.resolveIdentCall(fun.Name)
 	case *ast.SelectorExpr:
-		// Method call or qualified call: obj.Method() or pkg.Func()
-		switch x := fun.X.(type) {
-		case *ast.Ident:
-			// Could be pkg.Func() or obj.Method()
-			// For simplicity, treat as qualified call
-			return fmt.Sprintf("%s.%s", x.Name, fun.Sel.Name)
-		default:
-			// Complex expression, use selector name only
-			return fun.Sel.Name
+		return analyzer.resolveSelectorCall(fun, scope)
+	case *ast.IndexExpr:
+		// Explicitly instantiated generic: Map[int](...)
+		if ident, ok := fun.X.(*ast.Ident); ok {
+			return analyzer.resolveIdentCall(ident.Name)
 		}
-
-	case *ast.FuncLit:
-		// Anonymous function - skip for now
 		return ""
-
 	default:
-		// Other types of calls (type conversions, etc.) - skip
+		// Anonymous functions, calls on call results, etc.
 		return ""
 	}
 }
 
-// addExternalNode adds a node for an externally called function
+// resolveIdentCall resolves foo() to a same-package function, skipping builtins
+func (analyzer *CallGraphAnalyzer) resolveIdentCall(name string) string {
+	fullName := analyzer.packageName + "." + name
+	if _, exists := analyzer.graph.Nodes[fullName]; exists {
+		return fullName
+	}
+	if goBuiltins[name] {
+		return ""
+	}
+	// Likely a type conversion (MyType(x)) or a function from a dot-import
+	return ""
+}
+
+// resolveSelectorCall resolves pkg.Func(), receiver.Method() and value.Method()
+func (analyzer *CallGraphAnalyzer) resolveSelectorCall(selector *ast.SelectorExpr, scope callScope) string {
+	methodName := selector.Sel.Name
+
+	if ident, ok := selector.X.(*ast.Ident); ok {
+		if packageName, isImport := scope.imports[ident.Name]; isImport {
+			return packageName + "." + methodName
+		}
+		if scope.receiverName != "" && ident.Name == scope.receiverName {
+			candidate := analyzer.packageName + "." + scope.receiverType + "." + methodName
+			if _, exists := analyzer.graph.Nodes[candidate]; exists {
+				return candidate
+			}
+		}
+	}
+
+	if candidates := analyzer.methodsByName[methodName]; len(candidates) == 1 {
+		return candidates[0]
+	}
+
+	// Ambiguous or external method: keep a readable placeholder
+	if ident, ok := selector.X.(*ast.Ident); ok {
+		return ident.Name + "." + methodName
+	}
+	return methodName
+}
+
+// goBuiltins are predeclared functions that never become call graph nodes
+var goBuiltins = map[string]bool{
+	"append": true, "cap": true, "clear": true, "close": true, "complex": true, "copy": true,
+	"delete": true, "imag": true, "len": true, "make": true, "max": true, "min": true,
+	"new": true, "panic": true, "print": true, "println": true, "real": true, "recover": true,
+}
+
+// addExternalNode adds a node for a function that is not declared in the analyzed code
 func (analyzer *CallGraphAnalyzer) addExternalNode(fullName string) {
 	parts := strings.Split(fullName, ".")
-	name := fullName
-	if len(parts) > 0 {
-		name = parts[len(parts)-1]
-	}
+	name := parts[len(parts)-1]
 
 	node := &models.CallNode{
 		Name:       name,
 		FullName:   fullName,
 		Package:    strings.Join(parts[:len(parts)-1], "."),
-		File:       "",
-		Line:       0,
-		Complexity: 0,
-		Length:     0,
-		CallCount:  0,
-		CallsOut:   0,
 		IsExternal: true,
 		IsExported: ast.IsExported(name),
 	}

@@ -44,3 +44,6 @@ trend-export.json
 # Coverage reports
 *.out
 coverage.html
+
+# Claude Code agent worktrees
+.claude/worktrees/
