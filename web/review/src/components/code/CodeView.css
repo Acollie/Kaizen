@@ -258,3 +258,16 @@
 .cv-head-viewed { font-size: var(--text-xs); color: var(--text-3); white-space: nowrap; }
 .cv-head > :not(.cv-head-path):not(.cv-head-spacer) { flex-shrink: 0; white-space: nowrap; }
 .cv-card-foot { flex-wrap: wrap; }
+
+/* Generated file whose diff was withheld from the UI and the AI */
+.cv-withheld {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
+  margin: var(--space-3); padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  background: var(--sev-warning-soft); box-shadow: inset 3px 0 0 var(--sev-warning);
+  font-family: var(--font-ui); font-size: var(--text-sm); line-height: 1.5; color: var(--text);
+}
+.cv-withheld-text { flex: 1 1 320px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.cv-withheld-title { font-weight: 600; }
+.cv-withheld-hint { display: block; color: var(--text-2); font-size: var(--text-xs); }
+.cv-withheld .btn { flex: none; }

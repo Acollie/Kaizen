@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAllFindings, useComments, useReview } from '../../state/StoreProvider';
-import { postReview } from '../../lib/api';
+import { AlreadyPostedError, postReview } from '../../lib/api';
 import { useLookProgress } from '../../hooks/useLookProgress';
 import { ModalDialog } from '../layout/ModalDialog';
 import { PostFindingGroup } from './PostFindingGroup';
@@ -28,11 +28,12 @@ export function PostModal() {
   const plan = usePostPlan();
   const warnings = usePostWarnings(plan);
   const [summary, setSummary, insertAiSummary] = usePrefilledSummary(open, plan);
-  const { phase, submit } = usePostSubmit();
+  const { phase, submit } = usePostSubmit(open);
   const total = plan.comments.length + plan.accepted.length;
 
   const close = () => setPostOpen(false);
   const canPost = phase.kind !== 'posting' && phase.kind !== 'posted' && (total > 0 || summary.trim() !== '');
+  const repost = phase.kind === 'already-posted';
 
   return (
     <ModalDialog open={open} onClose={close} labelledBy="pm-title" className="pm-dialog" dismissible={phase.kind !== 'posting'}>
@@ -59,13 +60,23 @@ export function PostModal() {
         <div className="pm-buttons">
           <button type="button" className="btn btn-outline" onClick={close}>{phase.kind === 'posted' ? 'Close' : 'Cancel'}</button>
           <button type="button" className="btn btn-primary" disabled={!canPost}
-            onClick={() => submit(summary, postedFindings(plan))}>
-            {phase.kind === 'posting' ? 'Posting…' : phase.kind === 'posted' ? 'Posted' : phase.kind === 'error' ? 'Retry' : postButtonLabel(plan)}
+            onClick={() => submit(summary, postedFindings(plan), repost)}>
+            {primaryLabel(phase, plan)}
           </button>
         </div>
       </footer>
     </ModalDialog>
   );
+}
+
+function primaryLabel(phase: PostPhase, plan: PostPlan): string {
+  switch (phase.kind) {
+    case 'posting': return 'Posting…';
+    case 'posted': return 'Posted';
+    case 'already-posted': return 'Yes, post again';
+    case 'error': return 'Retry';
+    default: return postButtonLabel(plan);
+  }
 }
 
 function NothingAccepted() {
@@ -119,19 +130,29 @@ function usePrefilledSummary(open: boolean, plan: PostPlan): [string, (value: st
   return [summary, update, insertAi];
 }
 
-function usePostSubmit() {
+/**
+ * Posting state. A second review is never posted by accident: reopening the dialog
+ * after a post, or a 409 from the server (e.g. after a reload), asks "Post again?",
+ * and only that explicit answer sends confirm_repost.
+ */
+function usePostSubmit(open: boolean) {
   const [phase, setPhase] = useState<PostPhase>({ kind: 'idle' });
   const posting = useRef(false);
 
-  const submit = async (summary: string, findings: Parameters<typeof postReview>[0]['findings']) => {
+  useEffect(() => {
+    if (open) setPhase((current) => (current.kind === 'posted' ? { kind: 'already-posted', previousUrl: current.result.url } : current));
+  }, [open]);
+
+  const submit = async (summary: string, findings: Parameters<typeof postReview>[0]['findings'], confirmRepost: boolean) => {
     if (posting.current) return;
     posting.current = true;
     setPhase({ kind: 'posting' });
     try {
-      const result = await postReview({ summary, findings });
+      const result = await postReview({ summary, findings, ...(confirmRepost ? { confirm_repost: true } : {}) });
       setPhase({ kind: 'posted', result });
     } catch (error) {
-      setPhase({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
+      if (error instanceof AlreadyPostedError) setPhase({ kind: 'already-posted', previousUrl: error.previousUrl });
+      else setPhase({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
       posting.current = false;
     }

@@ -1,6 +1,7 @@
 // Owns the rows of the file in the code view: builds them from the diff (or fetches a
 // window of a file outside the diff), expands gaps via /api/file, and caches each
-// file's rows so expansions survive navigating away and back.
+// file's rows so expansions survive navigating away and back. A generated file's
+// withheld diff can be replaced by its head version on request (showWithheld).
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { fetchFileLines } from '../../lib/api';
@@ -18,6 +19,8 @@ export interface FileModel {
   path: string | null;
   /** True for a read-only file outside the diff */
   plain: boolean;
+  /** A generated PR file whose diff was withheld, shown as its head version on request */
+  withheld: boolean;
   rows: Row[];
   status: 'idle' | 'loading' | 'ready' | 'error';
   error: string;
@@ -33,6 +36,8 @@ export interface FileModelApi {
   /** Expand context so the head-side line has a row; resolves its row key */
   revealLine(line: number): Promise<string | null>;
   expandAll(): Promise<void>;
+  /** Load the head version of a generated file (diff withheld) as read-only lines */
+  showWithheld(path: string): Promise<boolean>;
   /** Latest rows, for event handlers */
   rowsRef: { readonly current: Row[] };
   currentPath(): string | null;
@@ -50,7 +55,7 @@ async function fetchRange(path: string, from: number, to: number): Promise<{ lin
   return { lines, total };
 }
 
-const IDLE: FileModel = { path: null, plain: false, rows: [], status: 'idle', error: '', loadingGaps: new Set(), gapErrors: {} };
+const IDLE: FileModel = { path: null, plain: false, withheld: false, rows: [], status: 'idle', error: '', loadingGaps: new Set(), gapErrors: {} };
 
 export function useFileModel(): FileModelApi {
   const files = useReview((state) => state.index.files);
@@ -73,7 +78,8 @@ export function useFileModel(): FileModelApi {
     const cached = cache.current.get(path);
     const diff = files.get(path);
     if (cached || diff) {
-      update(() => ({ ...IDLE, path, plain, rows: cached ?? buildDiffRows(diff!), status: 'ready' }));
+      const withheld = Boolean(cached && diff?.generated);
+      update(() => ({ ...IDLE, path, plain, withheld, rows: cached ?? buildDiffRows(diff!), status: 'ready' }));
       return true;
     }
     update(() => ({ ...IDLE, path, plain, status: 'loading' }));
@@ -101,7 +107,7 @@ export function useFileModel(): FileModelApi {
       if (modelRef.current.path !== path) return;
       update((current) => ({
         ...current, loadingGaps: done(current),
-        rows: expandGap(current.rows, gapKey, from, to, lines, { plain: current.plain }),
+        rows: expandGap(current.rows, gapKey, from, to, lines, { plain: current.plain || current.withheld }),
       }));
     } catch (error) {
       if (modelRef.current.path !== path) return;
@@ -149,9 +155,25 @@ export function useFileModel(): FileModelApi {
     await Promise.all(gaps.map((gap) => (gap.type === 'gap' ? expandRange(gap.key, gap.from, gap.to) : undefined)));
   }, [expandRange]);
 
+  const showWithheld = useCallback(async (path: string) => {
+    if (modelRef.current.path !== path) return false;
+    update((current) => ({ ...current, withheld: true, status: 'loading', error: '' }));
+    try {
+      const { lines, total } = await fetchRange(path, 1, MAX_FETCH);
+      if (modelRef.current.path !== path) return false;
+      update((current) => ({ ...current, rows: buildPlainRows(lines, total), status: 'ready' }));
+      return true;
+    } catch (error) {
+      if (modelRef.current.path === path) {
+        update((current) => ({ ...current, withheld: false, status: 'error', error: String((error as Error).message ?? error) }));
+      }
+      return false;
+    }
+  }, [update]);
+
   const currentPath = useCallback(() => modelRef.current.path, []);
   return useMemo(
-    () => ({ model, open, expand, revealLine, expandAll, rowsRef, currentPath }),
-    [model, open, expand, revealLine, expandAll, currentPath],
+    () => ({ model, open, expand, revealLine, expandAll, showWithheld, rowsRef, currentPath }),
+    [model, open, expand, revealLine, expandAll, showWithheld, currentPath],
   );
 }

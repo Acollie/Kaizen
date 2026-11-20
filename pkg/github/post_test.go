@@ -196,7 +196,7 @@ type sequenceRunner struct {
 
 func (runner *sequenceRunner) RunWithInput(ctx context.Context, dir string, input []byte, name string, args ...string) ([]byte, error) {
 	_, _ = runner.fakeRunner.RunWithInput(ctx, dir, input, name, args...)
-	call := len(runner.fakeRunner.commandLines()) - 1
+	call := len(runner.commandLines()) - 1
 	return runner.outputs[call], runner.errs[call]
 }
 
