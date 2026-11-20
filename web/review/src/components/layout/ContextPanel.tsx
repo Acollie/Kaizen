@@ -8,6 +8,7 @@ import { ReviewPanel } from '../review/ReviewPanel';
 import { FlowPanel } from '../flow/FlowPanel';
 import { FunctionPanel } from '../function/FunctionPanel';
 import { ActivityPanel } from '../activity/ActivityPanel';
+import { FunctionCommands } from '../function/FunctionCommands';
 import { Chevron } from './Divider';
 import { activityBadge, reviewBadge, type TabBadge } from './tabBadges';
 import './ContextPanel.css';
@@ -20,6 +21,8 @@ export function ContextPanel() {
   const badges = useTabBadges(tab);
   return (
     <div className="context-panel">
+      {/* g r works from any tab: it switches to the Function tab and shows the callers */}
+      <FunctionCommands />
       <TabBar tab={tab} badges={badges} />
       <div className="tab-body" role="tabpanel" id={`cp-panel-${tab}`} aria-labelledby={`cp-tab-${tab}`}>
         {tab === 'review' && <ReviewPanel />}
