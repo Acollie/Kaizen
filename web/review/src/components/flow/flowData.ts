@@ -10,6 +10,13 @@ import { callerCount } from '../function/functionData';
 /** Panels at least this wide lay the flow out left to right */
 export const WIDE_PANEL = 720;
 
+/** Above this many changed functions the whole-PR flow is replaced by a pointer to the Overview */
+export const WHOLE_PR_FLOW_LIMIT = 120;
+
+export function isLargePr(changedFunctions: number): boolean {
+  return changedFunctions > WHOLE_PR_FLOW_LIMIT;
+}
+
 /** AI findings per changed-function node */
 export function findingsByNode(functions: readonly FunctionRisk[], findings: readonly Finding[]): Map<string, Finding[]> {
   const result = new Map<string, Finding[]>();

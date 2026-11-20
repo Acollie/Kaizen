@@ -58,6 +58,7 @@ src/
   theme/                   tokens.css (design tokens), base.css (shared primitives)
   components/
     layout/                Workspace (panes, dividers, collapse), ContextPanel tabs, ModalDialog
+    overview/              MainPane (Overview · Code toggle, o) and the Overview package map
     header/ sidebar/ code/ review/ flow/ function/ activity/   one folder per area
     help/                  HelpOverlay, generated from keymap.ts
     post/                  PostModal: post the review to GitHub
@@ -76,6 +77,27 @@ The selection says what is selected (file, function, flow node, finding, line).
 `selection.reveal` increments each time the code view should scroll to the selection,
 so selecting the same thing again still scrolls. Navigation actions push onto `history`
 for `Ctrl-o`.
+
+### Overview (landing view)
+
+The main pane opens on the **Overview** (`ui.mainView`); `o` toggles Overview / Code, and
+every navigation that opens code (`selectFunction`, `openFile`, `openFinding`,
+`openLocation`, `selectNode`, `goBack`) switches to Code. The initial selection on load
+passes `showCode: false` so the app still lands on the Overview.
+
+`lib/packageMap.ts` (pure) groups PR files by directory, folds `testdata`/fixture dirs
+into their package and merges directories into ancestors until there are at most 20
+packages (keeping Go packages apart as long as possible). Per package it aggregates
+files, changed functions, lines, Kaizen risk, focus functions, visible AI findings, test
+share, and coverage: *you* (viewed functions, or files when there are none) and *AI*
+(from `useAiCoverage`; `null` = unknown, never 0%). Call edges are the PR call graph
+aggregated by caller package -> callee package. `whereToLook` ranks risky or flagged
+packages by how little you and the AI have looked at them, with a plain reason.
+`components/overview/overviewLayout.ts` lays the packages out left to right with the
+flow diagram's ranking, crossing reduction and edge routing.
+
+On PRs with more than 120 changed functions the Flow tab's whole-PR mode points to the
+Overview instead of drawing every function.
 
 ### The human's review (no cognitive surrender)
 

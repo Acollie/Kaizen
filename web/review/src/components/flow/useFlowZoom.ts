@@ -9,7 +9,16 @@ import type { Bounds } from '../../lib/flowLayout';
 import { fitTransform } from './flowData';
 import { MOVE_MS } from './useTween';
 
-export function useFlowZoom(svgRef: RefObject<SVGSVGElement>, viewportRef: RefObject<SVGGElement>) {
+export interface FlowZoomOptions {
+  /**
+   * 'zoom' (default): the wheel zooms. 'modified': the wheel scrolls the page and only
+   * Ctrl/Cmd + wheel (and trackpad pinch) zooms, for diagrams inside a scrolling view.
+   */
+  wheel?: 'zoom' | 'modified';
+}
+
+export function useFlowZoom(svgRef: RefObject<SVGSVGElement>, viewportRef: RefObject<SVGGElement>, options: FlowZoomOptions = {}) {
+  const wheel = options.wheel ?? 'zoom';
   const behaviour = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
   useEffect(() => {
@@ -18,6 +27,10 @@ export function useFlowZoom(svgRef: RefObject<SVGSVGElement>, viewportRef: RefOb
     if (!svg || !viewport) return undefined;
     const zoomBehaviour = zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.2, 2.5])
+      .filter((event: MouseEvent | WheelEvent) => {
+        if (event.type === 'wheel') return wheel === 'zoom' || event.ctrlKey || event.metaKey;
+        return (!event.ctrlKey || event.type === 'wheel') && !event.button;
+      })
       .on('zoom', (event: { transform: { toString(): string } }) => {
         viewport.setAttribute('transform', event.transform.toString());
       });
@@ -28,7 +41,7 @@ export function useFlowZoom(svgRef: RefObject<SVGSVGElement>, viewportRef: RefOb
       selection.on('.zoom', null);
       behaviour.current = null;
     };
-  }, [svgRef, viewportRef]);
+  }, [svgRef, viewportRef, wheel]);
 
   return useCallback((bounds: Bounds, animate: boolean) => {
     const svg = svgRef.current;

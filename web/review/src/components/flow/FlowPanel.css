@@ -96,6 +96,9 @@
 .fl-empty-title { color: var(--text); font-weight: 600; font-size: var(--text-md); margin-bottom: var(--space-2); }
 .fl-empty p { margin: 0 0 var(--space-2); }
 
+.fl-large { max-width: 460px; }
+.fl-large-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+
 @media (max-width: 900px) {
   .fl-legend { gap: var(--space-1) var(--space-3); }
   .fl-toolbar kbd { display: none; }

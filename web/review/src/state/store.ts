@@ -28,6 +28,9 @@ export const TABS: readonly TabName[] = ['review', 'graph', 'function', 'activit
 export type PaneName = 'sidebar' | 'code' | 'context';
 export const PANES: readonly PaneName[] = ['sidebar', 'code', 'context'];
 
+/** The main pane: the package map (landing view) or the code */
+export type MainView = 'overview' | 'code';
+
 export type EngineState = 'connecting' | 'running' | 'thinking' | 'done' | 'error';
 export interface EngineStatus {
   state: EngineState;
@@ -51,6 +54,10 @@ export interface Selection {
 }
 
 export interface UIState {
+  /** Main pane: the Overview (default on load) or the code view. Opening code switches to 'code'. */
+  mainView: MainView;
+  /** Package expanded in the Overview, if any */
+  overviewPackage: string | null;
   tab: TabName;
   focusedPane: PaneName;
   collapsed: Record<'sidebar' | 'context', boolean>;
@@ -124,15 +131,20 @@ export interface ReviewState {
   setBlockedComment(rowKey: string | null): void;
 
   // ---- navigation ----
-  selectFunction(id: string, options?: { record?: boolean }): void;
+  // Every navigation that opens code switches the main pane to 'code'. showCode: false
+  // (used only for the initial selection on load) selects without leaving the Overview.
+  selectFunction(id: string, options?: NavigateOptions): void;
   /** Select a flow node; changed functions select fully, callers open at their call site */
   selectNode(id: string): void;
-  openFile(path: string, options?: { line?: number; record?: boolean }): void;
-  openLocation(path: string, line: number, options?: { callSite?: boolean; record?: boolean }): void;
-  openFinding(id: string, options?: { record?: boolean }): void;
+  openFile(path: string, options?: NavigateOptions & { line?: number }): void;
+  openLocation(path: string, line: number, options?: NavigateOptions & { callSite?: boolean }): void;
+  openFinding(id: string, options?: NavigateOptions): void;
   goBack(): void;
 
   // ---- UI ----
+  setMainView(view: MainView): void;
+  toggleMainView(): void;
+  setOverviewPackage(key: string | null): void;
   setTab(tab: TabName): void;
   cycleTab(delta: number): void;
   setFocusedPane(pane: PaneName): void;
@@ -144,6 +156,13 @@ export interface ReviewState {
   setFilter(filter: string): void;
   setHelpOpen(open: boolean): void;
   setPostOpen(open: boolean): void;
+}
+
+export interface NavigateOptions {
+  /** Push the current selection onto the history (default true) */
+  record?: boolean;
+  /** Switch the main pane to the code view (default true) */
+  showCode?: boolean;
 }
 
 const EMPTY_SELECTION: Selection = {
@@ -178,9 +197,12 @@ export function createReviewStore(rawContext: ReviewContext) {
       set({ history: next.length > HISTORY_LIMIT ? next.slice(-HISTORY_LIMIT) : next });
     };
 
-    const navigate = (selection: Omit<Selection, 'reveal'>, record: boolean) => {
+    const navigate = (selection: Omit<Selection, 'reveal'>, record: boolean, showCode = true) => {
       if (record) remember();
-      set((state) => ({ selection: { ...selection, reveal: state.selection.reveal + 1 } }));
+      set((state) => ({
+        selection: { ...selection, reveal: state.selection.reveal + 1 },
+        ui: showCode && state.ui.mainView !== 'code' ? { ...state.ui, mainView: 'code' } : state.ui,
+      }));
     };
 
     const setTriage = (id: string, entry: TriageEntry) => {
@@ -218,6 +240,8 @@ export function createReviewStore(rawContext: ReviewContext) {
       selection: EMPTY_SELECTION,
       history: [],
       ui: {
+        mainView: 'overview',
+        overviewPackage: null,
         tab: 'review',
         focusedPane: 'code',
         collapsed: { sidebar: false, context: false },
@@ -339,10 +363,10 @@ export function createReviewStore(rawContext: ReviewContext) {
         set((state) => ({ ui: { ...state.ui, blockedCommentKey: rowKey } }));
       },
 
-      selectFunction(id, { record = true } = {}) {
+      selectFunction(id, { record = true, showCode = true } = {}) {
         const fn = index.functions.get(id);
         if (!fn) return;
-        navigate({ file: fn.file, functionId: id, nodeId: id, findingId: null, line: fn.start_line, callSite: false }, record);
+        navigate({ file: fn.file, functionId: id, nodeId: id, findingId: null, line: fn.start_line, callSite: false }, record, showCode);
       },
 
       selectNode(id) {
@@ -355,6 +379,7 @@ export function createReviewStore(rawContext: ReviewContext) {
         const site = callSiteFor(context, index, id, get().selection.functionId);
         const file = site ? site.file : node.file;
         if (!file) {
+          // An external node has no code to open: select it in the flow only
           set((state) => ({ selection: { ...state.selection, nodeId: id } }));
           return;
         }
@@ -364,17 +389,17 @@ export function createReviewStore(rawContext: ReviewContext) {
         }, true);
       },
 
-      openFile(path, { line, record = true } = {}) {
+      openFile(path, { line, record = true, showCode = true } = {}) {
         const first = (index.functionsByFile.get(path) ?? [])[0];
-        navigate({ file: path, functionId: null, nodeId: null, findingId: null, line: line ?? first?.start_line ?? null, callSite: false }, record);
+        navigate({ file: path, functionId: null, nodeId: null, findingId: null, line: line ?? first?.start_line ?? null, callSite: false }, record, showCode);
       },
 
-      openLocation(path, line, { callSite = false, record = true } = {}) {
+      openLocation(path, line, { callSite = false, record = true, showCode = true } = {}) {
         const fn = callSite ? null : functionAtLine(index, path, line);
-        navigate({ file: path, functionId: fn?.id ?? null, nodeId: fn?.id ?? get().selection.nodeId, findingId: null, line, callSite }, record);
+        navigate({ file: path, functionId: fn?.id ?? null, nodeId: fn?.id ?? get().selection.nodeId, findingId: null, line, callSite }, record, showCode);
       },
 
-      openFinding(id, { record = true } = {}) {
+      openFinding(id, { record = true, showCode = true } = {}) {
         const comment = get().comments[id];
         const finding = get().findings[id] ?? (comment ? commentToFinding(comment) : undefined);
         if (!finding) return;
@@ -383,7 +408,7 @@ export function createReviewStore(rawContext: ReviewContext) {
         navigate({
           file: finding.file, functionId: fn ? fn.id : null, nodeId: fn ? fn.id : null,
           findingId: id, line: finding.line || null, callSite: false,
-        }, record);
+        }, record, showCode);
       },
 
       goBack() {
@@ -393,7 +418,18 @@ export function createReviewStore(rawContext: ReviewContext) {
         set((state) => ({
           history: history.slice(0, -1),
           selection: { ...previous, reveal: state.selection.reveal + 1 },
+          ui: { ...state.ui, mainView: 'code' },
         }));
+      },
+
+      setMainView(view) {
+        set((state) => (state.ui.mainView === view ? {} : { ui: { ...state.ui, mainView: view } }));
+      },
+      toggleMainView() {
+        get().setMainView(get().ui.mainView === 'overview' ? 'code' : 'overview');
+      },
+      setOverviewPackage(key) {
+        set((state) => ({ ui: { ...state.ui, overviewPackage: key } }));
       },
 
       setTab(tab) {

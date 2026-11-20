@@ -1,6 +1,6 @@
 import type { FileDiff, Finding, FunctionRisk } from '../../types';
 import { buildFlowModel, layoutFlow, visibleNodeIds } from '../../lib/flowLayout';
-import { changedLanguages, chooseDirection, findingsByNode, fitTransform, flowHint } from './flowData';
+import { changedLanguages, chooseDirection, findingsByNode, fitTransform, flowHint, isLargePr } from './flowData';
 
 const fn = (id: string, start: number, end: number): FunctionRisk => ({
   id, name: id, file: 'a.go', language: 'Go', start_line: start, end_line: end, lines_added: 0, lines_removed: 0, is_new: false,
@@ -72,5 +72,13 @@ describe('changedLanguages', () => {
   it('lists distinct non-empty languages', () => {
     const files = [{ language: 'Python' }, { language: '' }, { language: 'Python' }, { language: 'Swift' }] as FileDiff[];
     expect(changedLanguages(files)).toEqual(['Python', 'Swift']);
+  });
+});
+
+describe('isLargePr', () => {
+  it('caps the whole-PR flow above 120 changed functions', () => {
+    expect(isLargePr(120)).toBe(false);
+    expect(isLargePr(121)).toBe(true);
+    expect(isLargePr(712)).toBe(true);
   });
 });

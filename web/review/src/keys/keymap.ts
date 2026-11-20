@@ -8,7 +8,7 @@ export type Action =
   | 'top' | 'bottom' | 'halfPageDown' | 'halfPageUp' | 'pageDown' | 'pageUp'
   | 'expandAbove' | 'expandBelow' | 'expandAll' | 'gotoDefinition' | 'gotoCallers' | 'back'
   | 'focusLeft' | 'focusRight' | 'focusFilter' | 'nextTab' | 'prevTab' | 'tab'
-  | 'toggleWrap' | 'fitGraph' | 'expandFlow' | 'toggleLayered' | 'post' | 'help' | 'escape';
+  | 'toggleOverview' | 'toggleWrap' | 'fitGraph' | 'expandFlow' | 'toggleLayered' | 'post' | 'help' | 'escape';
 
 export interface Binding {
   keys: readonly string[];
@@ -56,6 +56,7 @@ export const BINDINGS: readonly Binding[] = [
   { keys: ['g', 'd'], action: 'gotoDefinition', group: 'Context', description: "Go to the selected callee's definition" },
   { keys: ['g', 'r'], action: 'gotoCallers', group: 'Context', description: 'Show callers (list and graph)' },
   { keys: ['C-o'], action: 'back', group: 'Context', description: 'Jump back' },
+  { keys: ['o'], action: 'toggleOverview', group: 'Panes', description: 'Toggle overview / code' },
   { keys: ['h'], action: 'focusLeft', group: 'Panes', description: 'Focus the pane to the left' },
   { keys: ['l'], action: 'focusRight', group: 'Panes', description: 'Focus the pane to the right' },
   { keys: ['/'], action: 'focusFilter', group: 'Panes', description: 'Filter files and functions' },

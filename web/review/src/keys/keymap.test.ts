@@ -126,6 +126,15 @@ test('triage, comment and Think first keys', () => {
   expect(action(parser.feed('T', 110))).toEqual('prevTabx1');
 });
 
+test('o toggles overview / code, and zo still expands context', () => {
+  expect(BINDINGS.filter((binding) => binding.keys.length === 1 && binding.keys[0] === 'o')).toHaveLength(1);
+  const parser = createKeyParser();
+  expect(action(parser.feed('o', 0))).toEqual('toggleOverviewx1');
+  parser.feed('z', 10);
+  expect(action(parser.feed('o', 20))).toEqual('expandAbovex1');
+  expect(action(parser.feed('o', 30))).toEqual('toggleOverviewx1');
+});
+
 test('no binding still talks about "include in post"', () => {
   for (const binding of BINDINGS) expect(binding.description.toLowerCase()).not.toContain('include');
 });

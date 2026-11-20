@@ -7,7 +7,7 @@ import { useKeymap } from './hooks/useKeymap';
 import { useReview, useReviewStore } from './state/StoreProvider';
 import { Header } from './components/header/Header';
 import { Sidebar } from './components/sidebar/Sidebar';
-import { CodeView } from './components/code/CodeView';
+import { MainPane } from './components/overview/MainPane';
 import { ContextPanel } from './components/layout/ContextPanel';
 import { Workspace } from './components/layout/Workspace';
 import { ModeIndicator } from './components/layout/ModeIndicator';
@@ -28,7 +28,7 @@ export function App() {
   return (
     <div className="app">
       <Header />
-      <Workspace sidebar={<Sidebar />} code={<CodeView />} context={<ContextPanel />} />
+      <Workspace sidebar={<Sidebar />} code={<MainPane />} context={<ContextPanel />} />
       <ModeIndicator status={keymap} />
       <HelpOverlay />
       <PostModal />
@@ -36,7 +36,7 @@ export function App() {
   );
 }
 
-/** Open the riskiest function (or first file) on load */
+/** Select the riskiest function (or first file) on load, staying on the Overview */
 function useInitialSelection() {
   const store = useReviewStore();
   useEffect(() => {
@@ -44,7 +44,7 @@ function useInitialSelection() {
     if (state.selection.file) return;
     const functions = state.context.functions ?? [];
     const first = functions.find((fn) => fn.focus) ?? functions[0];
-    if (first) state.selectFunction(first.id, { record: false });
-    else if (state.context.files?.[0]) state.openFile(state.context.files[0].path, { record: false });
+    if (first) state.selectFunction(first.id, { record: false, showCode: false });
+    else if (state.context.files?.[0]) state.openFile(state.context.files[0].path, { record: false, showCode: false });
   }, [store]);
 }
