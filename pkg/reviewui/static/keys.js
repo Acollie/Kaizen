@@ -32,19 +32,21 @@ export const BINDINGS = [
   { keys: ['h'], action: 'focusLeft', group: 'Panes', description: 'Focus the pane to the left' },
   { keys: ['l'], action: 'focusRight', group: 'Panes', description: 'Focus the pane to the right' },
   { keys: ['/'], action: 'focusFilter', group: 'Panes', description: 'Filter files and functions' },
-  { keys: ['1'], action: 'tab', argument: 'graph', group: 'Panes', description: 'Graph tab' },
-  { keys: ['2'], action: 'tab', argument: 'function', group: 'Panes', description: 'Function tab' },
-  { keys: ['3'], action: 'tab', argument: 'activity', group: 'Panes', description: 'Activity tab' },
-  { keys: ['4'], action: 'tab', argument: 'summary', group: 'Panes', description: 'Summary tab' },
-  { keys: ['f'], action: 'fitGraph', group: 'Panes', description: 'Fit the graph' },
+  { keys: ['g', 't'], action: 'nextTab', group: 'Panes', description: 'Next context tab' },
+  { keys: ['g', 'T'], action: 'prevTab', group: 'Panes', description: 'Previous context tab' },
+  { keys: ['g', '1'], action: 'tab', argument: 'graph', group: 'Panes', description: 'Graph tab' },
+  { keys: ['g', '2'], action: 'tab', argument: 'function', group: 'Panes', description: 'Function tab' },
+  { keys: ['g', '3'], action: 'tab', argument: 'activity', group: 'Panes', description: 'Activity tab' },
+  { keys: ['g', '4'], action: 'tab', argument: 'summary', group: 'Panes', description: 'Summary tab' },
+  { keys: ['w'], action: 'toggleWrap', group: 'Scroll', description: 'Toggle soft-wrap in the code view' },
+  { keys: ['f'], action: 'fitGraph', group: 'Graph', description: 'Fit the graph' },
+  { keys: ['L'], action: 'toggleLayered', group: 'Graph', description: 'Toggle layered layout (callers left, callees right)' },
   { keys: ['P'], action: 'post', group: 'Review', description: 'Open the Post review dialog' },
   { keys: ['?'], action: 'help', group: 'Review', description: 'Show this help' },
   { keys: ['Esc'], action: 'escape', group: 'Review', description: 'Close overlays, clear pending keys' },
 ];
 
 export const SEQUENCE_TIMEOUT_MS = 800;
-// A lone digit is ambiguous (a count prefix or a tab switch); resolve it quickly
-export const DIGIT_TIMEOUT_MS = 350;
 
 /** Normalise a KeyboardEvent to a token: "j", "G", "C-d", "Space", "Esc"; null to ignore */
 export function keyToken(event) {
@@ -64,11 +66,11 @@ const startsWith = (keys, prefix) => prefix.length <= keys.length && prefix.ever
  *   { type: 'action', binding, count }   a complete binding (count defaults to 1)
  *   { type: 'pending', display }         waiting for more keys
  *   { type: 'none' }                     the keys matched nothing (state reset)
- * expire(now) resolves a timed-out sequence; a lone digit becomes its binding.
+ * Digits typed before a binding form its count (5j); digits inside a sequence
+ * are ordinary keys (g2). expire(now) clears a timed-out sequence.
  */
 export function createKeyParser(bindings = BINDINGS, options = {}) {
   const sequenceTimeout = options.sequenceTimeout ?? SEQUENCE_TIMEOUT_MS;
-  const digitTimeout = options.digitTimeout ?? DIGIT_TIMEOUT_MS;
   let count = '';
   let sequence = [];
   let lastTime = 0;
@@ -76,7 +78,7 @@ export function createKeyParser(bindings = BINDINGS, options = {}) {
   const reset = () => { count = ''; sequence = []; };
   const display = () => count + sequence.join('');
   const isPending = () => count !== '' || sequence.length > 0;
-  const deadline = () => lastTime + (sequence.length === 0 && count.length === 1 ? digitTimeout : sequenceTimeout);
+  const deadline = () => lastTime + sequenceTimeout;
   const exact = (keys) => bindings.find((binding) => sameKeys(binding.keys, keys));
   const hasLonger = (keys) => bindings.some((binding) => binding.keys.length > keys.length && startsWith(binding.keys, keys));
 
@@ -125,9 +127,8 @@ export function createKeyParser(bindings = BINDINGS, options = {}) {
 
   function expire(now = Date.now()) {
     if (!isPending() || now < deadline()) return null;
-    const lone = sequence.length === 0 && count.length === 1 ? exact([count]) : null;
     reset();
-    return lone ? { type: 'action', binding: lone, count: 1 } : { type: 'none' };
+    return { type: 'none' };
   }
 
   return { feed, expire, reset, display, isPending, deadline };
@@ -174,8 +175,7 @@ export function installKeymap({ handlers, onPending, isModalOpen }) {
     if (!result || result.type !== 'action' || !result.binding) return false;
     const handler = handlers[result.binding.action];
     if (!handler) return false;
-    const repeat = result.binding.action === 'tab' ? 1 : result.count;
-    handler(repeat, result.binding);
+    handler(result.count, result.binding);
     return true;
   }
 

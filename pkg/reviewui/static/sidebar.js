@@ -1,7 +1,7 @@
 // "Changes" sidebar: files grouped by risk tier, each expanding to its changed
 // functions with risk bars, focus stars and finding badges.
 
-import { h, clear, makeRiskBar, riskChip, riskColor, riskTier, severityBadges, splitPath } from './dom.js';
+import { h, clear, makeRiskBar, riskChip, riskColor, riskTier, severityBadges, severityCounts, splitPath } from './dom.js';
 
 const TIERS = [
   { tier: 'high', title: 'High risk', score: 80 },
@@ -9,6 +9,13 @@ const TIERS = [
   { tier: 'low', title: 'Low risk', score: 10 },
 ];
 const AUTO_EXPAND_LIMIT = 24;
+
+export function truncateMiddle(text, limit) {
+  if (text.length <= limit) return text;
+  const head = Math.ceil((limit - 1) / 2);
+  const tail = Math.floor((limit - 1) / 2);
+  return `${text.slice(0, head)}…${text.slice(text.length - tail)}`;
+}
 
 export function createSidebar({ store, listEl, filterEl, summaryEl, onSelectFunction, onSelectFile }) {
   const expanded = new Set();
@@ -39,6 +46,16 @@ export function createSidebar({ store, listEl, filterEl, summaryEl, onSelectFunc
     }
   });
   store.on('finding', () => render());
+
+  // Name truncation depends on the sidebar width, so re-render when it is resized
+  let lastWidth = 0;
+  let resizeTimer = null;
+  new ResizeObserver(() => {
+    if (Math.abs(listEl.clientWidth - lastWidth) < 8) return;
+    lastWidth = listEl.clientWidth;
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(render, 80);
+  }).observe(listEl);
 
   function matches(file, fn) {
     if (!filterText) return true;
@@ -114,11 +131,24 @@ export function createSidebar({ store, listEl, filterEl, summaryEl, onSelectFunc
       onClick: () => onSelectFunction(fn.id),
     },
     h('span', { class: 'star', text: fn.focus ? '★' : '' }),
-    h('span', { class: 'fn-name' }, fn.receiver_type ? h('span', { class: 'recv', text: `${fn.receiver_type.replace('*', '')}.` }) : null, fn.name),
+    renderFunctionName(fn, severityCounts(findings).length),
+    h('span', { class: 'badges' }, severityBadges(findings, { animateIds: store.freshFindingIds })),
     makeRiskBar(fn.risk_score),
-    h('span', { class: 'risk-score', text: Math.round(fn.risk_score) }),
-    h('span', { class: 'badges' }, severityBadges(findings, { animateIds: store.freshFindingIds })));
+    h('span', { class: 'risk-score', text: Math.round(fn.risk_score) }));
     return row;
+  }
+
+  /** Receiver-qualified name, truncated in the middle so both ends stay readable */
+  function renderFunctionName(fn, badgeCount) {
+    const receiver = fn.receiver_type ? fn.receiver_type.replace('*', '') : '';
+    // row chrome: padding+star (50px), risk bar+score (70px), gaps (18px), ~22px per badge; 12px mono ≈ 7.3px/char
+    const available = (listEl.clientWidth || 300) - 138 - badgeCount * 22;
+    const budget = Math.max(10, Math.floor(available / 7.3));
+    const full = receiver ? `${receiver}.${fn.name}` : fn.name;
+    if (full.length <= budget) {
+      return h('span', { class: 'fn-name' }, receiver ? h('span', { class: 'recv', text: `${receiver}.` }) : null, fn.name);
+    }
+    return h('span', { class: 'fn-name', text: truncateMiddle(full, budget) });
   }
 
   function toggle(path) {
