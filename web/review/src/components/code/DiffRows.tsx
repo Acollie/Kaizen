@@ -1,7 +1,8 @@
 // Memoised row components for the code view. Each row re-renders only when its own
 // props change or when it gains/loses the cursor (see cursor.ts).
 
-import { memo, useMemo, type CSSProperties } from 'react';
+import { memo, useMemo, type CSSProperties, type MouseEvent } from 'react';
+import { isCommentableKind, REMOVED_LINE_HINT } from '../../state/comments';
 import type { FunctionRisk } from '../../types';
 import { highlightLine } from '../../lib/highlight';
 import { riskColor } from '../../lib/risk';
@@ -46,21 +47,43 @@ export interface LineRowProps {
   /** Function whose label starts on this row */
   label: FunctionRisk | undefined;
   callSite: boolean;
+  /** Set when the file is in the PR: the "+" that starts a comment on this line */
+  onCommentButton?: CommentButtonHandler;
+  /** Line is part of the range of an open comment composer */
+  inCommentRange?: boolean;
   onActivate: ActivateHandler;
   onSelectFunction: (id: string) => void;
 }
 
-export const LineRowView = memo(function LineRowView({ row, language, fn, label, callSite, onActivate, onSelectFunction }: LineRowProps) {
+export type CommentButtonHandler = (row: LineRow, event: MouseEvent, phase: 'down' | 'click') => void;
+
+function CommentButton({ row, onComment }: { row: LineRow; onComment: CommentButtonHandler }) {
+  if (!isCommentableKind(row.kind)) {
+    return (
+      <button type="button" className="cv-add cv-add-blocked" aria-disabled="true" tabIndex={-1} title={REMOVED_LINE_HINT}
+        aria-label="Can't comment on a removed line" onClick={(event) => { event.stopPropagation(); onComment(row, event, 'click'); }}>+</button>
+    );
+  }
+  return (
+    <button type="button" className="cv-add" tabIndex={-1} aria-label={`Comment on line ${row.newLine}`}
+      title="Comment on this line (c). Shift-click or drag for a range."
+      onMouseDown={(event) => { event.stopPropagation(); onComment(row, event, 'down'); }}
+      onClick={(event) => { event.stopPropagation(); onComment(row, event, 'click'); }}>+</button>
+  );
+}
+
+export const LineRowView = memo(function LineRowView({ row, language, fn, label, callSite, onCommentButton, inCommentRange, onActivate, onSelectFunction }: LineRowProps) {
   const isCursor = useIsCursor(row.key);
-  const className = ['cv-row', `cv-${row.kind}`, fn ? 'cv-in-fn' : '', isCursor ? 'cv-cursor' : '', callSite ? 'cv-callsite' : '']
+  const className = ['cv-row', `cv-${row.kind}`, fn ? 'cv-in-fn' : '', isCursor ? 'cv-cursor' : '', callSite ? 'cv-callsite' : '', inCommentRange ? 'cv-in-range' : '']
     .filter(Boolean).join(' ');
   const style = fn ? ({ '--cv-rail': riskColor(fn.risk_score) } as CSSProperties) : undefined;
   return (
     <div className={className} style={style} data-key={row.key} onClick={() => onActivate(row.key)}>
-      <span className="cv-gutter" aria-hidden="true">
-        <span className="cv-ln cv-ln-old">{row.oldLine || ''}</span>
-        <span className="cv-ln cv-ln-new">{row.newLine || ''}</span>
-        <span className="cv-mark">{MARKS[row.kind]}</span>
+      <span className="cv-gutter">
+        <span className="cv-ln cv-ln-old" aria-hidden="true">{row.oldLine || ''}</span>
+        <span className="cv-ln cv-ln-new" aria-hidden="true">{row.newLine || ''}</span>
+        <span className="cv-mark" aria-hidden="true">{MARKS[row.kind]}</span>
+        {onCommentButton ? <CommentButton row={row} onComment={onCommentButton} /> : null}
       </span>
       <Code text={row.text} language={language} />
       {label ? <FunctionLabel fn={label} showName={row.newLine !== label.start_line} onSelect={onSelectFunction} /> : null}

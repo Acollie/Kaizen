@@ -3,6 +3,7 @@
 
 import { useMemo, useState } from 'react';
 import { useReview } from '../../state/StoreProvider';
+import { findingsHidden } from '../../state/store';
 import { AgentTag } from '../shared/bits';
 import { activityAgents, groupRuns, type AgentRun } from './activityModel';
 import { ActivityItem } from './ActivityItem';
@@ -10,7 +11,13 @@ import { useStickToBottom } from './useStickToBottom';
 import './ActivityPanel.css';
 
 export function ActivityPanel() {
-  const activity = useReview((state) => state.activity);
+  const allActivity = useReview((state) => state.activity);
+  const hidden = useReview(findingsHidden);
+  // "Think first" hides the AI's conclusions here too; its tool calls stay visible
+  const activity = useMemo(
+    () => (hidden ? allActivity.filter((event) => event.type !== 'finding' && event.type !== 'result' && event.type !== 'thinking') : allActivity),
+    [allActivity, hidden],
+  );
   const busy = useReview((state) => state.status.state !== 'done' && state.status.state !== 'error');
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const agents = useMemo(() => activityAgents(activity), [activity]);

@@ -9,8 +9,18 @@ import type { Finding, FunctionRisk } from '../../types';
 import { useScrollIntoView } from './useScrollIntoView';
 import { splitForMiddleTruncation } from './sidebarModel';
 
-export function FunctionRow({ fn, fileFindings }: { fn: FunctionRisk; fileFindings: readonly Finding[] }) {
+export const AI_SKIPPED_HINT = "The AI never opened this function during its review. Its silence here says nothing about this code.";
+
+interface FunctionRowProps {
+  fn: FunctionRisk;
+  fileFindings: readonly Finding[];
+  /** The finished AI review never opened this function */
+  aiSkipped: boolean;
+}
+
+export function FunctionRow({ fn, fileFindings, aiSkipped }: FunctionRowProps) {
   const isActive = useReview((state) => state.selection.functionId === fn.id);
+  const viewed = useReview((state) => Boolean(state.viewed.functions[fn.id]));
   const reveal = useReview((state) => state.selection.reveal);
   const selectFunction = useReview((state) => state.selectFunction);
   const rowRef = useScrollIntoView<HTMLDivElement>(isActive, reveal);
@@ -26,6 +36,8 @@ export function FunctionRow({ fn, fileFindings }: { fn: FunctionRisk; fileFindin
       <span className={`sb-star${fn.focus ? ' sb-star-on' : ''}`} aria-label={fn.focus ? 'Kaizen focus' : undefined}>{fn.focus ? '★' : ''}</span>
       <MiddleTruncated text={name} />
       {fn.is_new && <span className="sb-new" title="New function" aria-label="new" />}
+      {aiSkipped && <span className="sb-ai-skipped" title={AI_SKIPPED_HINT} aria-label="AI didn't open this">◌</span>}
+      {viewed && <span className="sb-viewed" title="You've looked at this" aria-label="viewed">✓</span>}
       <span className="sb-counts"><SeverityCounts findings={findings} /></span>
       <span className="sb-fn-risk" title={`Kaizen risk ${score}`}>
         <span className="sb-bar"><span className="sb-bar-fill" style={{ width: `${Math.max(2, Math.min(100, fn.risk_score))}%`, background: riskColor(fn.risk_score) }} /></span>

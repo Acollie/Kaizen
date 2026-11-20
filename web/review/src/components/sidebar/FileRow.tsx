@@ -8,19 +8,23 @@ import { SeverityCounts } from '../shared/bits';
 import { fileReason, statusLetter, type SidebarEntry } from './sidebarModel';
 import { FunctionRow } from './FunctionRow';
 import { useScrollIntoView } from './useScrollIntoView';
+import type { AiCoverage } from '../../state/aiCoverage';
+import { aiSkippedFunction } from '../../state/viewing';
 
 interface FileRowProps {
   entry: SidebarEntry;
   expanded: boolean;
   onToggle(): void;
+  coverage: AiCoverage;
 }
 
-export function FileRow({ entry, expanded, onToggle }: FileRowProps) {
+export function FileRow({ entry, expanded, onToggle, coverage }: FileRowProps) {
   const { file, functions, findings } = entry;
   const isActiveFile = useReview((state) => state.selection.file === file.path);
   const isActiveRow = useReview((state) => state.selection.file === file.path && !state.selection.functionId);
   const reveal = useReview((state) => state.selection.reveal);
   const openFile = useReview((state) => state.openFile);
+  const viewed = useReview((state) => Boolean(state.viewed.files[entry.file.path]));
   const rowRef = useScrollIntoView<HTMLDivElement>(isActiveRow, reveal);
   const { dir, base } = splitPath(file.path);
   const reason = fileReason(entry);
@@ -44,13 +48,14 @@ export function FileRow({ entry, expanded, onToggle }: FileRowProps) {
           {dir && <span className="sb-dir"><bdi>{dir}</bdi></span>}
           <span className="sb-base">{base}</span>
         </span>
+        {viewed && <span className="sb-viewed" title="You've had this file open" aria-label="viewed">✓</span>}
         <span className="sb-counts"><SeverityCounts findings={findings} /></span>
         <span className="sb-risk mono" style={{ color: riskColor(file.risk_score) }} title={`Kaizen risk ${Math.round(file.risk_score)}`}>{Math.round(file.risk_score)}</span>
       </div>
       {reason && <div className="sb-reason" title={reason}>{reason}</div>}
       {expanded && (
         <div role="group">
-          {functions.map((fn) => <FunctionRow key={fn.id} fn={fn} fileFindings={findings} />)}
+          {functions.map((fn) => <FunctionRow key={fn.id} fn={fn} fileFindings={findings} aiSkipped={aiSkippedFunction(coverage, fn.id)} />)}
         </div>
       )}
     </div>

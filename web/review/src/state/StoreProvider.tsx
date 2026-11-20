@@ -4,8 +4,11 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { buildSidebarGroups, type SidebarGroup } from '../lib/grouping';
-import { findingsList, type ReviewState, type ReviewStore } from './store';
+import { findingsHidden, findingsList, type ReviewState, type ReviewStore } from './store';
+import { commentsList, commentToFinding, type ReviewComment } from './comments';
 import type { Finding } from '../types';
+
+const NO_FINDINGS: Finding[] = [];
 
 const StoreContext = createContext<ReviewStore | null>(null);
 
@@ -29,11 +32,30 @@ export function useReviewShallow<T>(selector: (state: ReviewState) => T): T {
   return useStore(useReviewStore(), useShallow(selector));
 }
 
-/** All findings in arrival order (stable reference until findings change) */
-export function useFindings(): Finding[] {
+/** Every AI finding in arrival order, even while "Think first" hides them (counts, posting) */
+export function useAllFindings(): Finding[] {
   const findings = useReview((state) => state.findings);
   const order = useReview((state) => state.findingOrder);
   return useMemo(() => findingsList({ findings, findingOrder: order }), [findings, order]);
+}
+
+/** The AI findings the reviewer can see: none while "Think first" hides them */
+export function useFindings(): Finding[] {
+  const all = useAllFindings();
+  const hidden = useReview(findingsHidden);
+  return hidden ? NO_FINDINGS : all;
+}
+
+/** The reviewer's own comments, oldest first */
+export function useComments(): ReviewComment[] {
+  const comments = useReview((state) => state.comments);
+  return useMemo(() => commentsList(comments), [comments]);
+}
+
+/** The reviewer's comments as findings (for placement, n/N and posting) */
+export function useCommentFindings(): Finding[] {
+  const comments = useComments();
+  return useMemo(() => comments.map(commentToFinding), [comments]);
 }
 
 /** Sidebar groups, shared by the sidebar and the j/k/J/K commands */

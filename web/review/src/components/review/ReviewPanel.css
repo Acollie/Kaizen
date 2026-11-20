@@ -127,3 +127,74 @@
 .rv-affected li:hover { background: var(--bg-hover); }
 .rv-affected-name { color: var(--text-2); }
 .rv-affected-loc { color: var(--text-3); font-size: var(--text-xs); }
+
+/* ---------- Your review: progress, look line, Think first, filter ---------- */
+.rv-yours {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line);
+}
+.rv-yours-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.rv-yours-line { font-size: var(--text-sm); color: var(--text-2); text-align: left; }
+.rv-look {
+  display: flex; align-items: baseline; gap: var(--space-2); width: 100%;
+  padding: 0; border: 0; background: transparent; cursor: pointer; font: inherit; font-size: var(--text-sm);
+}
+.rv-look:hover { color: var(--text); }
+.rv-look-next { margin-left: auto; flex: none; font-size: var(--text-xs); color: var(--text-3); }
+.rv-look:hover .rv-look-next { color: var(--accent); }
+.rv-look-done { color: var(--text-3); }
+.rv-look-check { margin-right: 6px; color: var(--accent); }
+
+.rv-switch {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 var(--space-1);
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--text-3); font: inherit; font-size: var(--text-xs); cursor: pointer;
+}
+.rv-switch:hover { color: var(--text); }
+.rv-switch kbd { height: 14px; min-width: 14px; font-size: 10px; }
+.rv-switch-track {
+  position: relative; width: 22px; height: 12px; border-radius: 6px;
+  background: var(--bg-active); box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: background var(--fast) var(--ease);
+}
+.rv-switch-thumb {
+  position: absolute; top: 2px; left: 2px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-3); transition: transform var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.rv-switch-on { color: var(--text-2); }
+.rv-switch-on .rv-switch-track { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.rv-switch-on .rv-switch-thumb { transform: translateX(10px); background: var(--accent); }
+
+.rv-filter { display: flex; gap: 2px; margin-top: var(--space-2); }
+.rv-filter-btn {
+  display: inline-flex; align-items: baseline; gap: 5px; height: 24px; padding: 0 var(--space-2);
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--text-3); font: inherit; font-size: var(--text-xs); cursor: pointer;
+}
+.rv-filter-btn:hover { color: var(--text); background: var(--bg-hover); }
+.rv-filter-on { color: var(--text); background: var(--bg-active); }
+.rv-filter-count { color: var(--text-3); }
+.rv-empty { padding: var(--space-4); color: var(--text-3); font-size: var(--text-sm); }
+
+/* ---------- Triage on items ---------- */
+.rv-check { color: var(--accent); }
+.rv-item-triage:empty { display: none; }
+.rv-item-triage { margin-top: 2px; }
+.rv-item-dismissed { padding-top: 0; padding-bottom: 0; }
+.rv-item-dismissed::before { opacity: 0.35; top: 7px; bottom: 7px; }
+.rv-similar-status { flex: none; font-size: var(--text-xs); color: var(--text-3); }
+.rv-similar-dismissed .rv-similar-title { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--line-focus); }
+.rv-similar li.rv-similar-action { height: 26px; }
+
+/* ---------- Your comments ---------- */
+.rv-you-title { color: var(--accent); }
+.rv-item-user::before { background: var(--accent); opacity: 0.6; }
+.rv-you { color: var(--accent); font-weight: 600; }
+.rv-comment-text { color: var(--text); }
+
+/* ---------- Think first ---------- */
+.rv-think { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--line); }
+.rv-think-text { margin: 0; color: var(--text-2); line-height: 1.5; }
+.rv-think-ready .rv-think-text { color: var(--text); }
+.rv-hidden-note { color: var(--text-3); }
+.rv-focus-viewed { margin-left: var(--space-2); color: var(--text-3); font-family: var(--font-ui); font-size: var(--text-xs); }

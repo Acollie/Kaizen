@@ -15,7 +15,7 @@
   border-bottom: 1px solid var(--line);
   font-size: var(--text-sm); color: var(--text-2); white-space: nowrap;
 }
-.cv-head-path { display: flex; min-width: 0; font-size: var(--code-size); }
+.cv-head-path { display: flex; min-width: 0; overflow: hidden; font-size: var(--code-size); }
 .cv-head-dir { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .cv-head-base { color: var(--text); font-weight: 500; flex: none; }
 .cv-head-dim { color: var(--text-3); }
@@ -167,7 +167,17 @@
 .cv-card-warning .cv-card-inner { --sev: var(--sev-warning); }
 .cv-card-suggestion .cv-card-inner { --sev: var(--sev-suggestion); }
 .cv-card-praise .cv-card-inner { --sev: var(--sev-praise); }
-.cv-card-excluded .cv-card-inner { opacity: 0.55; }
+.cv-card-dismissed { padding-top: 2px; padding-bottom: 2px; }
+.cv-card-dismissed .cv-card-inner { --sev: var(--line-focus); }
+.cv-card-check { color: var(--accent); font-weight: 700; }
+.cv-card-collapse { margin-left: auto; }
+.cv-card-comment .cv-card-inner, .cv-card-user .cv-card-inner { --sev: var(--accent-line); }
+.cv-card-user.cv-card-critical .cv-card-inner { --sev: var(--sev-critical); }
+.cv-card-user.cv-card-warning .cv-card-inner { --sev: var(--sev-warning); }
+.cv-card-user.cv-card-suggestion .cv-card-inner { --sev: var(--sev-suggestion); }
+.cv-card-comment .cv-card-sev { color: var(--text-2); }
+.cv-you { --agent-color: var(--accent); color: var(--accent); font-weight: 600; }
+.cv-comment-body { color: var(--text); }
 .cv-card-arrive { animation: cv-arrive 1600ms var(--ease); }
 @keyframes cv-arrive {
   from { background: var(--accent-soft); transform: translateY(-2px); }
@@ -196,8 +206,6 @@
   display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2);
   font-size: var(--text-xs); color: var(--text-3);
 }
-.cv-card-include { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-2); }
-.cv-card-include input { margin: 0; accent-color: var(--accent); }
 .cv-card-show { height: 22px; font-size: var(--text-xs); }
 .cv-card-spacer { flex: 1; }
 .cv-card-confidence { font-family: var(--font-mono); }
@@ -215,3 +223,38 @@
   .cv-card, .cv-notes-title { padding-left: var(--space-4); }
   .cv-hunk-inner, .cv-gap-inner { padding-left: var(--space-3); }
 }
+
+/* ---------- The reviewer's own comments ---------- */
+/* The gutter "+" (GitHub-style) shows on row hover, over the +/- mark column */
+.cv-add {
+  position: absolute; top: 1px; right: 0; width: var(--cv-mark-w); height: calc(var(--code-line) - 2px);
+  display: none; align-items: center; justify-content: center; padding: 0;
+  border: 0; border-radius: var(--radius-sm); background: var(--accent); color: var(--text-inverse);
+  font: 700 13px/1 var(--font-ui); cursor: pointer;
+}
+.cv-row:hover .cv-add { display: inline-flex; }
+.cv-row:hover .cv-mark { visibility: hidden; }
+.cv-add-blocked { background: var(--bg-active); color: var(--text-3); cursor: not-allowed; }
+.cv-in-range { background-image: linear-gradient(var(--accent-soft), var(--accent-soft)); }
+.cv-in-range .cv-ln-new { color: var(--accent-strong); }
+
+.cv-composer { display: flex; flex-direction: column; gap: var(--space-2); font-family: var(--font-ui); }
+.cv-composer-head { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--text-xs); }
+.cv-composer-text { width: 100%; min-height: 76px; font-size: var(--text-md); }
+.cv-composer-foot { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); }
+.cv-composer-foot kbd { height: 14px; min-width: 14px; font-size: 10px; }
+.cv-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: var(--text-xs); }
+.cv-chips-label { width: 56px; color: var(--text-3); }
+.cv-chip {
+  height: 20px; padding: 0 var(--space-2); border: 1px solid var(--line-strong); border-radius: 10px;
+  background: transparent; font: inherit; cursor: pointer;
+}
+.cv-chip:not(.cv-chip-on) { color: var(--text-3); }
+.cv-chip:not(.cv-chip-on):hover { color: var(--text); border-color: var(--line-focus); }
+.cv-chip-on { border-color: currentColor; background: var(--bg-active); color: var(--text); }
+
+.cv-card-hint .cv-card-inner { --sev: var(--line-focus); }
+.cv-hint { display: flex; align-items: center; gap: var(--space-3); font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-2); }
+.cv-head-viewed { font-size: var(--text-xs); color: var(--text-3); white-space: nowrap; }
+.cv-head > :not(.cv-head-path):not(.cv-head-spacer) { flex-shrink: 0; white-space: nowrap; }
+.cv-card-foot { flex-wrap: wrap; }

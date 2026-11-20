@@ -7,12 +7,17 @@ import { plural } from '../../lib/format';
 import { groupSeverity, isExpanded, totalFunctions } from './sidebarModel';
 import { SidebarFilter } from './SidebarFilter';
 import { FileRow } from './FileRow';
+import { AI_SKIPPED_HINT } from './FunctionRow';
+import { useAiCoverage } from '../../state/aiCoverage';
+import { aiSkippedFunction } from '../../state/viewing';
 import './Sidebar.css';
 
 export function Sidebar() {
   const groups = useSidebarGroups();
   const filter = useReview((state) => state.ui.filter);
   const activeFile = useReview((state) => state.selection.file);
+  const coverage = useAiCoverage();
+  const anySkipped = groups.some((group) => group.files.some((entry) => entry.functions.some((fn) => aiSkippedFunction(coverage, fn.id))));
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const context = { total: totalFunctions(groups), filter, activeFile };
 
@@ -28,11 +33,21 @@ export function Sidebar() {
             <GroupHeader group={group} />
             {group.files.map((entry) => {
               const expanded = isExpanded(entry, overrides, context);
-              return <FileRow key={entry.file.path} entry={entry} expanded={expanded} onToggle={() => toggle(entry.file.path, expanded)} />;
+              return <FileRow key={entry.file.path} entry={entry} expanded={expanded} coverage={coverage} onToggle={() => toggle(entry.file.path, expanded)} />;
             })}
           </section>
         ))}
       </div>
+      <SidebarLegend anySkipped={anySkipped} />
+    </div>
+  );
+}
+
+function SidebarLegend({ anySkipped }: { anySkipped: boolean }) {
+  return (
+    <div className="sb-legend">
+      <span><span className="sb-viewed">✓</span> you looked</span>
+      {anySkipped && <span title={AI_SKIPPED_HINT}><span className="sb-ai-skipped">◌</span> AI didn't open this</span>}
     </div>
   );
 }

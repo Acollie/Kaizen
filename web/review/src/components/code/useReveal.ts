@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { useReview, useReviewStore } from '../../state/StoreProvider';
 import type { ReviewState, Selection } from '../../state/store';
+import { commentToFinding } from '../../state/comments';
 import type { CursorStore } from './cursor';
 import { findingKey } from './FindingCard';
 import { findingAnchorLine } from './placement';
@@ -28,7 +29,8 @@ function functionRowKeys(rows: readonly Row[], start: number, end: number): stri
 }
 
 async function resolveTarget(state: ReviewState, selection: Selection, api: FileModelApi): Promise<ScrollRequest> {
-  const finding = selection.findingId ? state.findings[selection.findingId] : undefined;
+  const comment = selection.findingId ? state.comments[selection.findingId] : undefined;
+  const finding = selection.findingId ? (state.findings[selection.findingId] ?? (comment ? commentToFinding(comment) : undefined)) : undefined;
   if (finding && finding.file === selection.file) {
     if (finding.line && !(await api.revealLine(findingAnchorLine(finding)))) await api.revealLine(finding.line);
     const key = findingKey(finding.id);

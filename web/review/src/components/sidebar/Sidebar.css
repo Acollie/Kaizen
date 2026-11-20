@@ -90,3 +90,12 @@
 .sb-fn-risk { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .sb-bar { width: 18px; height: 2px; border-radius: 1px; background: var(--line-strong); overflow: hidden; }
 .sb-bar-fill { display: block; height: 100%; border-radius: 1px; }
+
+/* ---------- The reviewer's own marks ---------- */
+.sb-viewed { flex: none; color: var(--text-3); font-size: var(--text-xs); }
+.sb-ai-skipped { flex: none; color: var(--text-3); font-size: var(--text-sm); line-height: 1; cursor: help; }
+.sb-legend {
+  flex: none; display: flex; gap: var(--space-4); padding: 6px var(--space-3);
+  border-top: 1px solid var(--line); font-size: var(--text-xs); color: var(--text-3);
+}
+.sb-legend .sb-viewed, .sb-legend .sb-ai-skipped { margin-right: 4px; }

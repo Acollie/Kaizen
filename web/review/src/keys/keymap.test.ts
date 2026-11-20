@@ -108,3 +108,24 @@ test('keyToken normalises keyboard events', () => {
   expect(keyToken({ key: 'Shift', ctrlKey: false, metaKey: false, altKey: false })).toEqual(null);
   expect(keyToken({ key: 'j', metaKey: true, ctrlKey: false, altKey: false })).toEqual(null);
 });
+
+test('triage, comment and Think first keys', () => {
+  const parser = createKeyParser();
+  expect(action(parser.feed('a', 0))).toEqual('acceptx1');
+  expect(action(parser.feed('d', 10))).toEqual('dismissx1');
+  expect(action(parser.feed('x', 20))).toEqual('toggleAcceptx1');
+  expect(action(parser.feed('Space', 30))).toEqual('toggleAcceptx1');
+  expect(action(parser.feed('c', 40))).toEqual('commentx1');
+  expect(action(parser.feed('T', 50))).toEqual('toggleThinkFirstx1');
+  // Sequences that end in these keys still work
+  parser.feed('g', 60);
+  expect(action(parser.feed('d', 70))).toEqual('gotoDefinitionx1');
+  parser.feed(']', 80);
+  expect(action(parser.feed('c', 90))).toEqual('nextHunkx1');
+  parser.feed('g', 100);
+  expect(action(parser.feed('T', 110))).toEqual('prevTabx1');
+});
+
+test('no binding still talks about "include in post"', () => {
+  for (const binding of BINDINGS) expect(binding.description.toLowerCase()).not.toContain('include');
+});

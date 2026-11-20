@@ -28,12 +28,13 @@ export function FocusSection() {
 function FocusFunction({ fn }: { fn: FunctionRisk }) {
   const selectFunction = useReview((state) => state.selectFunction);
   const isActive = useReview((state) => state.selection.functionId === fn.id);
+  const viewed = useReview((state) => Boolean(state.viewed.functions[fn.id]));
   const reason = (fn.risk_reasons ?? []).find(Boolean) ?? '';
   return (
     <li className={`rv-focus-row${isActive ? ' rv-selected' : ''}`} title={fn.id} onClick={() => selectFunction(fn.id)}>
       <RiskNumber score={fn.risk_score} />
       <div className="rv-focus-main">
-        <div className="rv-focus-name mono">{qualifiedName(fn)}<span className="rv-focus-file">{splitPath(fn.file).base}</span></div>
+        <div className="rv-focus-name mono">{qualifiedName(fn)}<span className="rv-focus-file">{splitPath(fn.file).base}</span>{viewed && <ViewedMark />}</div>
         {reason && <div className="rv-focus-reason">{reason}</div>}
       </div>
     </li>
@@ -43,11 +44,12 @@ function FocusFunction({ fn }: { fn: FunctionRisk }) {
 function RiskyFile({ file }: { file: FileDiff }) {
   const openFile = useReview((state) => state.openFile);
   const isActive = useReview((state) => state.selection.file === file.path && !state.selection.functionId);
+  const viewed = useReview((state) => Boolean(state.viewed.files[file.path]));
   return (
     <li className={`rv-focus-row${isActive ? ' rv-selected' : ''}`} title={file.path} onClick={() => openFile(file.path)}>
       <RiskNumber score={file.risk_score} />
       <div className="rv-focus-main">
-        <div className="rv-focus-name mono">{file.path}</div>
+        <div className="rv-focus-name mono">{file.path}{viewed && <ViewedMark />}</div>
         <div className="rv-focus-reason">{(file.risk_reasons ?? []).filter(Boolean).join(' · ')}</div>
       </div>
     </li>
@@ -56,4 +58,8 @@ function RiskyFile({ file }: { file: FileDiff }) {
 
 function RiskNumber({ score }: { score: number }) {
   return <span className="rv-risk mono" style={{ color: riskColor(score) }} title={`Kaizen risk ${Math.round(score)}`}>{Math.round(score)}</span>;
+}
+
+function ViewedMark() {
+  return <span className="rv-focus-viewed" title="You've looked at this" aria-label="viewed">✓</span>;
 }

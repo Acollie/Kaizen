@@ -2,11 +2,11 @@
 // everything else goes to commands registered by components (see state/commands.ts).
 // While focus is in a text field or a modal is open, only Esc is handled.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createKeyParser, keyToken, type Action, type Binding, type ParseResult } from '../keys/keymap';
 import { runRegisteredCommand } from '../state/commands';
-import { useFindings, useReviewStore, useSidebarGroups } from '../state/StoreProvider';
-import { orderedFindings, type TabName } from '../state/store';
+import { useCommentFindings, useFindings, useReviewStore, useSidebarGroups } from '../state/StoreProvider';
+import { orderedFindings, type ReviewState, type TabName } from '../state/store';
 import { sidebarFiles, sidebarFunctions } from '../lib/grouping';
 
 export interface KeymapStatus {
@@ -20,10 +20,17 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
 }
 
+/** Where the dismiss picker opens: the Review panel when it has focus, else the code card */
+function dismissSurface(state: ReviewState): 'code' | 'panel' {
+  return state.ui.focusedPane === 'context' && state.ui.tab === 'review' ? 'panel' : 'code';
+}
+
 export function useKeymap(): KeymapStatus {
   const store = useReviewStore();
   const groups = useSidebarGroups();
-  const findings = useFindings();
+  const aiFindings = useFindings();
+  const commentFindings = useCommentFindings();
+  const findings = useMemo(() => [...commentFindings, ...aiFindings], [commentFindings, aiFindings]);
   const [status, setStatus] = useState<KeymapStatus>({ pending: '', mode: 'NORMAL' });
 
   // Handlers read the latest derived data through refs so the listener is installed once
@@ -50,11 +57,10 @@ export function useKeymap(): KeymapStatus {
       prevFile: (count) => stepFile(-count),
       nextFinding: (count) => stepFinding(count),
       prevFinding: (count) => stepFinding(-count),
-      toggleInclude: () => {
-        const state = store.getState();
-        const id = state.selection.findingId;
-        if (id) state.setIncluded(id, !state.included[id]);
-      },
+      toggleAccept: () => withCurrentFinding((state, id) => state.toggleAccept(id)),
+      accept: () => withCurrentFinding((state, id) => state.acceptFinding(id)),
+      dismiss: () => withCurrentFinding((state, id) => state.startDismiss(id, dismissSurface(state))),
+      toggleThinkFirst: () => store.getState().toggleThinkFirst(),
       back: () => store.getState().goBack(),
       focusLeft: () => store.getState().moveFocus(-1),
       focusRight: () => store.getState().moveFocus(1),
@@ -67,6 +73,15 @@ export function useKeymap(): KeymapStatus {
       post: () => store.getState().setPostOpen(true),
       help: () => store.getState().setHelpOpen(true),
     };
+
+    /** Run a triage action on the selected AI finding, if it is one the reviewer can see */
+    function withCurrentFinding(action: (state: ReviewState, id: string) => void) {
+      const state = store.getState();
+      const id = state.selection.findingId;
+      if (!id || !state.findings[id]) return;
+      if (!latest.current.findings.some((finding) => finding.id === id)) return;
+      action(state, id);
+    }
 
     function stepFunction(delta: number) {
       const list = sidebarFunctions(latest.current.groups);
@@ -97,7 +112,10 @@ export function useKeymap(): KeymapStatus {
       const { binding, count } = result;
       if (binding.action === 'escape') {
         const state = store.getState();
-        if (state.ui.helpOpen) state.setHelpOpen(false);
+        if (state.ui.dismissing) state.cancelDismiss();
+        else if (state.ui.composer) state.closeComposer();
+        else if (state.ui.blockedCommentKey) state.setBlockedComment(null);
+        else if (state.ui.helpOpen) state.setHelpOpen(false);
         else if (state.ui.postOpen) state.setPostOpen(false);
         else if (state.ui.flowExpanded) state.toggleFlowExpanded();
         runRegisteredCommand('escape', count, binding);
