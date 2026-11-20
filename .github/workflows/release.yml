@@ -165,3 +165,49 @@ jobs:
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  homebrew:
+    name: Update Homebrew tap
+    needs: release
+    # Prereleases are not published to the tap.
+    if: ${{ !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc') }}
+    runs-on: ubuntu-latest
+    env:
+      # Job-level `if` cannot read secrets, so expose the token here and guard
+      # each step. Until HOMEBREW_TAP_TOKEN is configured this job is a no-op.
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      TAP_REPO: Acollie/homebrew-tap
+    steps:
+      - name: Skip (HOMEBREW_TAP_TOKEN not configured)
+        if: env.HOMEBREW_TAP_TOKEN == ''
+        run: echo "HOMEBREW_TAP_TOKEN secret is not set; skipping tap update."
+
+      - name: Checkout code
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        uses: actions/checkout@v4
+
+      - name: Checkout tap
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TAP_REPO }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Render formula
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        run: scripts/update-homebrew-formula.sh "${{ github.ref_name }}" homebrew-tap/Formula/kaizen.rb
+
+      - name: Commit and push formula
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        working-directory: homebrew-tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/kaizen.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date."
+            exit 0
+          fi
+          git commit -m "kaizen ${{ github.ref_name }}"
+          git push
