@@ -46,11 +46,29 @@ export function findingBelongsTo(finding: Finding, fn: FunctionRisk): boolean {
   return finding.file === fn.file && line >= fn.start_line && line <= fn.end_line;
 }
 
-/** True when a finding sits on a head-side line shown in the diff (it can become an inline GitHub comment) */
+/** Index of the hunk holding a commentable (added or context) head-side line, or -1 */
+function commentableHunk(file: FileDiff, line: number): number {
+  // Later hunks win, like the Go index built by overwriting a map
+  let found = -1;
+  file.hunks.forEach((hunk, hunkNumber) => {
+    if (hunk.lines.some((diffLine) => diffLine.kind !== 'removed' && diffLine.new_line === line)) found = hunkNumber;
+  });
+  return found;
+}
+
+/**
+ * True when the finding will be posted as an inline GitHub comment. Mirrors Go's
+ * inlineComment (pkg/github/post.go) exactly: `line` must be a commentable head-side
+ * line, and when end_line > line, end_line must be commentable too and in the same hunk.
+ * Anything else goes into the review body.
+ */
 export function isInlineFinding(finding: Finding, file: FileDiff | undefined): boolean {
-  const line = finding.end_line || finding.line;
-  if (!file || !finding.line || !line) return false;
-  return file.hunks.some((hunk) => hunk.lines.some((diffLine) => diffLine.kind !== 'removed' && diffLine.new_line === line));
+  if (!file || !finding.file || !finding.line || finding.line <= 0) return false;
+  const startHunk = commentableHunk(file, finding.line);
+  if (startHunk === -1) return false;
+  const endLine = finding.end_line ?? 0;
+  if (endLine > finding.line) return commentableHunk(file, endLine) === startHunk;
+  return true;
 }
 
 export function formatLineRef(finding: Finding): string {
