@@ -10,7 +10,7 @@ import { useCommands } from '../../state/commands';
 import { FlowCanvas } from './FlowCanvas';
 import { FlowLegend, FlowToolbar } from './FlowChrome';
 import { FlowEmpty } from './FlowEmpty';
-import { flowHint } from './flowData';
+import { flowHint, isLargePr } from './flowData';
 import { useElementSize, useFlowZoom } from './useFlowZoom';
 import { useFlowView, type FlowView } from './useFlowView';
 import { requestCallersFocus } from '../function/callersRequest';
@@ -18,7 +18,40 @@ import './FlowPanel.css';
 
 export function FlowPanel() {
   const hasGraph = useReview((state) => (state.context.graph.nodes ?? []).length > 0);
-  return hasGraph ? <FlowDiagram /> : <FlowEmpty />;
+  const tooLargeForWholePr = useReview((state) => state.ui.flowScope === 'all' && isLargePr(state.context.functions?.length ?? 0));
+  if (!hasGraph) return <FlowEmpty />;
+  return tooLargeForWholePr ? <FlowLargePr /> : <FlowDiagram />;
+}
+
+/** Whole-PR flow on a large PR is an unreadable hairball: point to the Overview instead */
+function FlowLargePr() {
+  const store = useReviewStore();
+  const ui = useReview((state) => state.ui);
+  const count = useReview((state) => state.context.functions?.length ?? 0);
+  const openOverview = () => {
+    const state = store.getState();
+    if (state.ui.flowExpanded) state.toggleFlowExpanded();
+    state.setMainView('overview');
+  };
+  return (
+    <div className={`fl-panel${ui.flowExpanded ? ' fl-expanded' : ''}`}>
+      <FlowToolbar
+        scope="all"
+        expanded={ui.flowExpanded}
+        onToggleScope={() => store.getState().toggleFlowScope()}
+        onFit={() => undefined}
+        onToggleExpanded={() => store.getState().toggleFlowExpanded()}
+      />
+      <div className="fl-empty fl-large">
+        <div className="fl-empty-title">Large PR: {count} changed functions</div>
+        <p>Use Overview for the big picture; the flow shows one function's neighbourhood.</p>
+        <div className="fl-large-actions">
+          <button type="button" className="btn btn-outline" onClick={openOverview}>Open Overview <kbd>o</kbd></button>
+          <button type="button" className="btn" onClick={() => store.getState().toggleFlowScope()}>Show selection <kbd>L</kbd></button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function FlowDiagram() {

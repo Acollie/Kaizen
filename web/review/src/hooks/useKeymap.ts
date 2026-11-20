@@ -67,6 +67,7 @@ export function useKeymap(): KeymapStatus {
       nextTab: (count) => store.getState().cycleTab(count),
       prevTab: (count) => store.getState().cycleTab(-count),
       tab: (_count, binding) => store.getState().setTab((binding.argument ?? 'review') as TabName),
+      toggleOverview: () => store.getState().toggleMainView(),
       toggleWrap: () => store.getState().toggleWrap(),
       expandFlow: () => store.getState().toggleFlowExpanded(),
       toggleLayered: () => store.getState().toggleFlowScope(),

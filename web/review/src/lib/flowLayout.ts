@@ -199,8 +199,11 @@ function edgeKind(edge: GraphEdge, rankOf: Map<string, number>): EdgeKind {
   return to === from ? 'lateral' : 'back';
 }
 
+/** What ranking needs from a node: flow functions and Overview packages both qualify */
+export type RankableNode = Pick<GraphNode, 'id' | 'risk_score'>;
+
 /** Longest-path layering with back edges (found by DFS) ignored */
-export function longestPathRanks(nodes: readonly GraphNode[], edges: readonly GraphEdge[]): Map<string, number> {
+export function longestPathRanks(nodes: readonly RankableNode[], edges: readonly GraphEdge[]): Map<string, number> {
   const backEdges = findBackEdges(nodes, edges);
   const forward = edges.filter((edge) => !backEdges.has(edgeKey(edge)));
   const ranks = new Map(nodes.map((node) => [node.id, 0]));
@@ -219,7 +222,7 @@ export function longestPathRanks(nodes: readonly GraphNode[], edges: readonly Gr
 }
 
 /** DFS from uncalled nodes (riskiest first) so cycles break in a natural place */
-export function findBackEdges(nodes: readonly GraphNode[], edges: readonly GraphEdge[]): Set<string> {
+export function findBackEdges(nodes: readonly RankableNode[], edges: readonly GraphEdge[]): Set<string> {
   const outgoing = new Map<string, string[]>(nodes.map((node) => [node.id, []]));
   const incoming = new Map<string, number>(nodes.map((node) => [node.id, 0]));
   for (const edge of edges) {
