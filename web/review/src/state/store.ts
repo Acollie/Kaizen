@@ -90,6 +90,13 @@ export interface ReviewState {
   findings: Record<string, Finding>;
   /** Arrival order of finding IDs */
   findingOrder: string[];
+  /**
+   * AI findings the lead reviewer's final result left out. They are kept out of every
+   * active list (counts, sidebar, Review sections, inline cards, n/N, posting) and shown
+   * only in the "Withdrawn by the lead reviewer" section, so nothing silently disappears.
+   */
+  withdrawn: Record<string, Finding>;
+  withdrawnOrder: string[];
   /** Finding ID -> Date.now() when it first arrived (for arrival animations) */
   arrivedAt: Record<string, number>;
   /** The reviewer's decision per finding; absent = unreviewed. Accepted findings are posted. */
@@ -231,6 +238,8 @@ export function createReviewStore(rawContext: ReviewContext) {
       index,
       findings: {},
       findingOrder: [],
+      withdrawn: {},
+      withdrawnOrder: [],
       arrivedAt: {},
       triage: {},
       viewed: EMPTY_VIEWED,
@@ -275,11 +284,13 @@ export function createReviewStore(rawContext: ReviewContext) {
           case 'finding':
             addFinding(event.data);
             break;
-          case 'result':
-            for (const finding of event.data.findings ?? []) addFinding(finding);
+          case 'result': {
+            const resultFindings = event.data.findings;
+            if (Array.isArray(resultFindings)) set((state) => applyResultFindings(state, resultFindings));
             set({ result: event.data });
             setStatus({ state: 'done', message: 'Review complete', agent: '' });
             break;
+          }
           case 'error':
             setStatus({ state: 'error', message: event.data.text, agent: '' });
             break;
@@ -488,6 +499,49 @@ export function createReviewStore(rawContext: ReviewContext) {
 }
 
 export type ReviewStore = ReturnType<typeof createReviewStore>;
+
+type FindingSlice = Pick<ReviewState, 'findings' | 'findingOrder' | 'withdrawn' | 'withdrawnOrder' | 'arrivedAt'>;
+
+/** The reviewer's own comments are never withdrawn (they are not the AI's to withdraw) */
+function isOwnComment(finding: Finding): boolean {
+  return finding.id.startsWith('c-') || finding.source === 'you';
+}
+
+/**
+ * The lead reviewer's final result is authoritative: its findings become (or stay)
+ * active, and any AI finding currently shown that the result leaves out is withdrawn.
+ * A withdrawn finding the result lists again is restored. Triage entries are untouched.
+ * Live streams and cache replays both end with this, so they behave the same.
+ */
+export function applyResultFindings(state: FindingSlice, resultFindings: readonly Finding[]): FindingSlice {
+  const kept = resultFindings.filter((finding) => finding && finding.id);
+  const keptIds = new Set(kept.map((finding) => finding.id));
+  const findings: Record<string, Finding> = {};
+  const findingOrder: string[] = [];
+  const withdrawn: Record<string, Finding> = { ...state.withdrawn };
+  const withdrawnOrder = state.withdrawnOrder.filter((id) => !keptIds.has(id));
+  const arrivedAt = { ...state.arrivedAt };
+  for (const id of state.findingOrder) {
+    const finding = state.findings[id];
+    if (!finding) continue;
+    if (keptIds.has(id) || isOwnComment(finding)) {
+      findings[id] = finding;
+      findingOrder.push(id);
+    } else if (!(id in withdrawn)) {
+      withdrawn[id] = finding;
+      withdrawnOrder.push(id);
+    }
+  }
+  for (const finding of kept) {
+    delete withdrawn[finding.id];
+    if (!(finding.id in findings)) {
+      findingOrder.push(finding.id);
+      if (!(finding.id in arrivedAt)) arrivedAt[finding.id] = Date.now();
+    }
+    findings[finding.id] = finding;
+  }
+  return { findings, findingOrder, withdrawn, withdrawnOrder, arrivedAt };
+}
 
 function closeDismissFor(ui: UIState, id: string): UIState {
   return ui.dismissing?.id === id ? { ...ui, dismissing: null } : ui;
