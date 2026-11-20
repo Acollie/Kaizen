@@ -8,6 +8,7 @@ import { groupSeverity, isExpanded, totalFunctions } from './sidebarModel';
 import { SidebarFilter } from './SidebarFilter';
 import { FileRow } from './FileRow';
 import { AI_SKIPPED_HINT } from './FunctionRow';
+import { AI_LOOKED_HINT, YOU_REVIEWED_HINT } from '../../lib/coverageCopy';
 import { useAiCoverage } from '../../state/aiCoverage';
 import { aiSkippedFunction } from '../../state/viewing';
 import './Sidebar.css';
@@ -46,8 +47,8 @@ export function Sidebar() {
 function SidebarLegend({ anySkipped }: { anySkipped: boolean }) {
   return (
     <div className="sb-legend">
-      <span><span className="sb-viewed">✓</span> you looked</span>
-      {anySkipped && <span title={AI_SKIPPED_HINT}><span className="sb-ai-skipped">◌</span> AI didn't open this</span>}
+      <span title={YOU_REVIEWED_HINT}><span className="sb-viewed">✓</span> you reviewed (verified)</span>
+      {anySkipped && <span title={`${AI_SKIPPED_HINT} No mark doesn't mean checked either: ${AI_LOOKED_HINT}`}><span className="sb-ai-skipped">◌</span> AI didn't open this</span>}
     </div>
   );
 }

@@ -36,8 +36,8 @@ describe('blindSpotsView', () => {
     expect(view.skippedFunctions.map((fn) => fn.id)).toEqual(['pkg.Hot', 'pkg.Mid', 'pkg.Low']);
     expect(view.skippedFocus.map((fn) => fn.id)).toEqual(['pkg.Hot']);
     expect(view.skippedFiles.map((file) => file.path)).toEqual(['.github/workflows/ci.yml', 'pkg/a.go']);
-    expect(view.summary).toBe('AI opened 1 of 4 changed functions (1/2 focus) and 1 of 3 files');
-    expect(coverageSummary({ ...coverage, complete: false }, ctx.functions!, ctx.files!)).toBe('AI has opened 1 of 4 changed functions (1/2 focus) and 1 of 3 files so far');
+    expect(view.summary).toBe('AI looked at 1 of 4 changed functions (1/2 focus) and 1 of 3 files');
+    expect(coverageSummary({ ...coverage, complete: false }, ctx.functions!, ctx.files!)).toBe('AI has looked at 1 of 4 changed functions (1/2 focus) and 1 of 3 files so far');
   });
 });
 
@@ -65,7 +65,7 @@ describe('BlindSpots', () => {
 
     act(() => store.getState().applyEvent({ seq: 99, type: 'done', time: '', data: null }));
     expect(screen.getByText('The AI never opened 1 Kaizen focus function')).toBeTruthy();
-    expect(screen.getByText('AI opened 1 of 4 changed functions (1/2 focus) and 1 of 3 files')).toBeTruthy();
+    expect(screen.getByText('AI looked at 1 of 4 changed functions (1/2 focus) and 1 of 3 files')).toBeTruthy();
   });
 
   it('says so when everything was opened', () => {
@@ -76,6 +76,6 @@ describe('BlindSpots', () => {
       }
       store.getState().applyEvent({ seq: 100, type: 'done', time: '', data: null });
     });
-    expect(screen.getByText('The AI opened every changed function and file.')).toBeTruthy();
+    expect(screen.getByText("The AI looked at every changed function and file. That isn't a review: check the risky code yourself.")).toBeTruthy();
   });
 });

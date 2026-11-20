@@ -1,4 +1,4 @@
-// What the AI examined, derived from the engine's tool_call events. Lets the UI show
+// What the AI looked at (opened; not verified), derived from the engine's tool_call events. Lets the UI show
 // blind spots (changed code the AI never opened) so a review is never mistaken for
 // complete coverage.
 //

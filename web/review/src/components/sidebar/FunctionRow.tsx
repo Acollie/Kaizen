@@ -37,7 +37,7 @@ export function FunctionRow({ fn, fileFindings, aiSkipped }: FunctionRowProps) {
       <MiddleTruncated text={name} />
       {fn.is_new && <span className="sb-new" title="New function" aria-label="new" />}
       {aiSkipped && <span className="sb-ai-skipped" title={AI_SKIPPED_HINT} aria-label="AI didn't open this">◌</span>}
-      {viewed && <span className="sb-viewed" title="You've looked at this" aria-label="viewed">✓</span>}
+      {viewed && <span className="sb-viewed" title="You've reviewed this: it was on screen for 2 seconds. Only your review counts as verified." aria-label="you reviewed">✓</span>}
       <span className="sb-counts"><SeverityCounts findings={findings} /></span>
       <span className="sb-fn-risk" title={`Kaizen risk ${score}`}>
         <span className="sb-bar"><span className="sb-bar-fill" style={{ width: `${Math.max(2, Math.min(100, fn.risk_score))}%`, background: riskColor(fn.risk_score) }} /></span>

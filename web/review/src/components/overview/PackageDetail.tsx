@@ -7,6 +7,7 @@ import type { PackageInfo, PackageCoverage } from '../../lib/packageMap';
 import { lookReasons } from '../../lib/packageMap';
 import { qualifiedName, splitPath } from '../../lib/format';
 import { riskColor } from '../../lib/risk';
+import { AI_LOOKED_HINT, YOU_REVIEWED_HINT } from '../../lib/coverageCopy';
 import { SeverityCounts } from '../shared/bits';
 
 /** Rows shown per list before "Show all" */
@@ -18,10 +19,13 @@ interface PackageDetailProps {
   onClose(): void;
 }
 
-function coverageText(coverage: PackageCoverage, aiKnown: boolean, who: 'You' | 'AI'): string {
-  if (who === 'AI' && !aiKnown) return 'AI: unknown';
+/** "You reviewed 3/12 functions" (verified) or "AI looked at 5/12 functions (not verified)" */
+export function coverageText(coverage: PackageCoverage, aiKnown: boolean, who: 'You' | 'AI'): string {
+  if (who === 'AI' && !aiKnown) return 'AI looked at: unknown';
   const basis = coverage.functions.total > 0 ? { ...coverage.functions, noun: 'functions' } : { ...coverage.files, noun: 'files' };
-  return `${who}: ${basis.seen}/${basis.total} ${basis.noun}`;
+  return who === 'You'
+    ? `You reviewed ${basis.seen}/${basis.total} ${basis.noun}`
+    : `AI looked at ${basis.seen}/${basis.total} ${basis.noun} (not verified)`;
 }
 
 export function PackageDetail({ pkg, aiKnown, onClose }: PackageDetailProps) {
@@ -43,8 +47,8 @@ export function PackageDetail({ pkg, aiKnown, onClose }: PackageDetailProps) {
         <SeverityCounts findings={pkg.findings} />
       </div>
       <div className="ov-detail-meta">
-        <span className="ov-cov-you">{coverageText(pkg.you, true, 'You')}</span>
-        <span className={aiKnown ? '' : 'ov-unknown'}>{coverageText(pkg.ai, aiKnown, 'AI')}</span>
+        <span className="ov-cov-you" title={YOU_REVIEWED_HINT}>{coverageText(pkg.you, true, 'You')}</span>
+        <span className={aiKnown ? '' : 'ov-unknown'} title={AI_LOOKED_HINT}>{coverageText(pkg.ai, aiKnown, 'AI')}</span>
       </div>
       <div className="ov-detail-reason">{lookReasons(pkg).slice(0, 2).join(' · ')}</div>
 

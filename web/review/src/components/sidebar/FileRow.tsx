@@ -48,7 +48,7 @@ export function FileRow({ entry, expanded, onToggle, coverage }: FileRowProps) {
           {dir && <span className="sb-dir"><bdi>{dir}</bdi></span>}
           <span className="sb-base">{base}</span>
         </span>
-        {viewed && <span className="sb-viewed" title="You've had this file open" aria-label="viewed">✓</span>}
+        {viewed && <span className="sb-viewed" title="You've had this file open. Only your review counts as verified." aria-label="you reviewed">✓</span>}
         <span className="sb-counts"><SeverityCounts findings={findings} /></span>
         <span className="sb-risk mono" style={{ color: riskColor(file.risk_score) }} title={`Kaizen risk ${Math.round(file.risk_score)}`}>{Math.round(file.risk_score)}</span>
       </div>

@@ -1,10 +1,12 @@
 // One package box in the Overview map (SVG): path, size bar, risk stripe, finding
-// counts, focus count and the two coverage meters (you, AI).
+// counts, focus count and the two coverage meters: "you" (what you reviewed, the only
+// verified coverage) and "AI" (what the AI looked at, which verifies nothing).
 
 import { memo, type MouseEvent } from 'react';
 import type { PackageInfo } from '../../lib/packageMap';
 import { percent } from '../../lib/packageMap';
 import { riskColor } from '../../lib/risk';
+import { AI_LOOKED_HINT, YOU_REVIEWED_HINT } from '../../lib/coverageCopy';
 import type { Severity } from '../../types';
 import type { PlacedPackage } from './overviewLayout';
 
@@ -76,8 +78,10 @@ export const PackageNode = memo(function PackageNode({ node, selected, scale, on
       </text>
       <SizeBar pkg={pkg} x={TEXT_X} y={47} width={inner} scale={scale} />
       <FocusAndFindings pkg={pkg} y={70} right={width - RIGHT_PAD} />
-      <Meter label="you" share={pkg.you.share} x={TEXT_X} y={84} width={inner} tone="you" />
-      <Meter label="AI" share={pkg.ai.share} x={TEXT_X} y={99} width={inner} tone="ai" />
+      <Meter label="you" share={pkg.you.share} x={TEXT_X} y={84} width={inner} tone="you"
+        hint={`You reviewed ${pkg.you.share === null ? 'unknown' : percent(pkg.you.share)} (verified). ${YOU_REVIEWED_HINT}`} />
+      <Meter label="AI" share={pkg.ai.share} x={TEXT_X} y={99} width={inner} tone="ai"
+        hint={`AI looked at ${pkg.ai.share === null ? 'an unknown share' : percent(pkg.ai.share)} (not verified). ${AI_LOOKED_HINT}`} />
     </g>
   );
 });
@@ -118,12 +122,23 @@ function FocusAndFindings({ pkg, y, right }: { pkg: PackageInfo; y: number; righ
   );
 }
 
-function Meter({ label, share, x, y, width, tone }: { label: string; share: number | null; x: number; y: number; width: number; tone: 'you' | 'ai' }) {
+interface MeterProps {
+  label: string;
+  share: number | null;
+  x: number;
+  y: number;
+  width: number;
+  tone: 'you' | 'ai';
+  hint: string;
+}
+
+function Meter({ label, share, x, y, width, tone, hint }: MeterProps) {
   const barX = x + METER_X - TEXT_X;
   const barWidth = width - (METER_X - TEXT_X) - METER_VALUE_WIDTH;
   const value = share === null ? 'unknown' : percent(share);
   return (
     <g className={`ov-meter ov-meter-${tone}`}>
+      <title>{hint}</title>
       <text className="ov-meter-label" x={x} y={y + 4}>{label}</text>
       <rect x={barX} y={y} width={barWidth} height={3} rx={1.5} className={share === null ? 'ov-track ov-track-unknown' : 'ov-track'} />
       {share !== null && share > 0 && <rect className="ov-meter-fill" x={barX} y={y} width={Math.max(2, barWidth * share)} height={3} rx={1.5} />}

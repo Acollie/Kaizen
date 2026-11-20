@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  generateSummary, planPost, postButtonLabel, postedFindings, postWarnings, selectionNote, sortForPost,
+  generateSummary, MAX_WARNING_ITEMS, planPost, postButtonLabel, postedFindings, postWarnings, selectionNote, sortForPost,
 } from './postLogic';
 import { makeFile, makeFinding } from './testFixtures';
 import type { ReviewComment } from '../../state/comments';
@@ -85,6 +85,40 @@ describe('postWarnings', () => {
       acceptedCount: 0,
     });
     expect(warnings).toEqual([]);
+  });
+});
+
+describe('postWarnings: what you have not viewed, whatever the AI did', () => {
+  const focus = [
+    { id: 'a', name: 'Post', receiver_type: '*Client', focus: true } as FunctionRisk,
+    { id: 'b', name: 'encode', focus: true } as FunctionRisk,
+  ];
+
+  it('names unviewed focus functions and says when the AI only looked at them', () => {
+    const warnings = postWarnings({
+      findings: [], triage: {}, acceptedCount: 0,
+      look: lookProgress(focus, [], { functions: {}, files: {} }),
+      aiFunctions: new Set(['a']),
+    });
+    expect(warnings).toEqual([{
+      key: 'unviewed',
+      text: "You haven't looked at 2 focus functions.",
+      items: [{ label: 'Client.Post', aiLooked: true }, { label: 'encode', aiLooked: false }],
+    }]);
+  });
+
+  it('lists risky packages you have not opened, capped, including ones the AI looked at', () => {
+    const packages = Array.from({ length: MAX_WARNING_ITEMS + 2 }, (_, index) => ({ label: `pkg/p${index}`, aiLooked: index === 0 }));
+    const [warning] = postWarnings({
+      findings: [], triage: {}, acceptedCount: 0,
+      look: lookProgress([], [], { functions: {}, files: {} }),
+      unviewedPackages: packages,
+    });
+    expect(warning!.key).toBe('unviewed-packages');
+    expect(warning!.text).toBe("You haven't opened 8 risky packages:");
+    expect(warning!.items).toHaveLength(MAX_WARNING_ITEMS);
+    expect(warning!.items![0]).toEqual({ label: 'pkg/p0', aiLooked: true });
+    expect(warning!.more).toBe(2);
   });
 });
 

@@ -211,7 +211,7 @@ export interface ToolCallData {
   /**
    * What the tool looked at, when known: a function ID (get_function, get_callers,
    * get_callees) or a repo-relative file path (get_file_diff, read_lines, Read).
-   * Used to show which changed code the AI examined and which it never opened.
+   * Used to show which changed code the AI looked at and which it never opened.
    */
   target?: string;
   target_kind?: 'function' | 'file';

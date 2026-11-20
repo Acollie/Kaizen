@@ -1,11 +1,13 @@
-// Blind spots: the changed code the AI never opened, so a review is verified rather than
-// trusted. Skipped Kaizen focus functions get a prominent warning; they are the riskiest.
+// Blind spots: the changed code the AI never opened. Code it did open is "looked at",
+// never "examined" or "verified": the human checks both. Skipped Kaizen focus functions
+// get a prominent warning; they are the riskiest.
 
 import { useMemo, useState } from 'react';
 import { useReview } from '../../state/StoreProvider';
 import { useAiCoverage, type AiCoverage } from '../../state/aiCoverage';
 import { plural, qualifiedName, splitPath } from '../../lib/format';
 import { riskColor } from '../../lib/risk';
+import { AI_LOOKED_HINT } from '../../lib/coverageCopy';
 import type { FileDiff, FunctionRisk } from '../../types';
 import { Disclosure } from './Disclosure';
 import './BlindSpots.css';
@@ -37,7 +39,7 @@ export function blindSpotsView(coverage: AiCoverage, functions: readonly Functio
   return { skippedFunctions, skippedFocus, skippedFiles, summary: coverageSummary(coverage, functions, files) };
 }
 
-/** "AI opened 11 of 32 changed functions (3/3 focus) and 4 of 7 files", "… so far" while running */
+/** "AI looked at 11 of 32 changed functions (3/3 focus) and 4 of 7 files", "… so far" while running */
 export function coverageSummary(coverage: AiCoverage, functions: readonly FunctionRisk[], files: readonly FileDiff[]): string {
   const opened = functions.filter((fn) => coverage.examinedFunctions.has(fn.id)).length;
   const focus = functions.filter((fn) => fn.focus);
@@ -46,7 +48,7 @@ export function coverageSummary(coverage: AiCoverage, functions: readonly Functi
   const focusPart = focus.length > 0 ? ` (${focusOpened}/${focus.length} focus)` : '';
   const functionPart = `${opened} of ${functions.length} changed ${functions.length === 1 ? 'function' : 'functions'}${focusPart}`;
   const filePart = `${filesOpened} of ${files.length} ${files.length === 1 ? 'file' : 'files'}`;
-  const verb = coverage.complete ? 'AI opened' : 'AI has opened';
+  const verb = coverage.complete ? 'AI looked at' : 'AI has looked at';
   return `${verb} ${functionPart} and ${filePart}${coverage.complete ? '' : ' so far'}`;
 }
 
@@ -66,10 +68,11 @@ export function BlindSpots() {
   }
   const skippedCount = view.skippedFunctions.length + view.skippedFiles.length;
   return (
-    <Disclosure title="What the AI didn't examine" count={skippedCount} hint={coverage.complete ? undefined : 'so far'} defaultOpen>
-      <p className="rv-blind-summary">{view.summary}</p>
+    <Disclosure title="What the AI didn't look at" count={skippedCount} hint={coverage.complete ? undefined : 'so far'} defaultOpen>
+      <p className="rv-blind-summary" title={AI_LOOKED_HINT}>{view.summary}</p>
+      <p className="rv-blind-caveat">{AI_LOOKED_HINT}</p>
       {view.skippedFocus.length > 0 && <FocusWarning skipped={view.skippedFocus} complete={coverage.complete} />}
-      {skippedCount === 0 && <p className="rv-blind-empty">The AI opened every changed function and file.</p>}
+      {skippedCount === 0 && <p className="rv-blind-empty">The AI looked at every changed function and file. That isn't a review: check the risky code yourself.</p>}
       {view.skippedFunctions.length > 0 && (
         <SkippedList label={`Functions not opened · ${view.skippedFunctions.length}`} items={view.skippedFunctions} render={(fn) => <SkippedFunction key={fn.id} fn={fn} />} />
       )}

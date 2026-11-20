@@ -4,7 +4,7 @@
 
 import type { FileDiff, Finding, Severity } from '../../types';
 import { formatLineRef, isInlineFinding, isUrgent, SEVERITIES, severityRank } from '../../lib/findings';
-import { plural } from '../../lib/format';
+import { plural, qualifiedName } from '../../lib/format';
 import { commentToFinding, type ReviewComment } from '../../state/comments';
 import { acceptedFindings, untriagedUrgent, withReviewerNote, type TriageMap } from '../../state/triage';
 import type { LookProgress } from '../../state/viewing';
@@ -70,17 +70,48 @@ export function postButtonLabel(plan: PostPlan): string {
   return parts.length ? `Post ${parts.join(' and ')}` : 'Post summary only';
 }
 
-export interface PostWarning {
-  key: 'untriaged' | 'unviewed' | 'ai-text';
-  text: string;
+export interface PostWarningItem {
+  label: string;
+  /** Set when the AI looked at it: a reminder that this is not a check */
+  aiLooked: boolean;
 }
 
-/** Things the reviewer may want to check first. Informative only. */
+export interface PostWarning {
+  key: 'untriaged' | 'unviewed' | 'unviewed-packages' | 'ai-text';
+  text: string;
+  /** Named things to check (focus functions, packages); at most MAX_WARNING_ITEMS */
+  items?: PostWarningItem[];
+  /** How many more were left out of items */
+  more?: number;
+}
+
+/** A risky package the reviewer hasn't opened, with whether the AI looked at any of it */
+export interface UnviewedPackage {
+  label: string;
+  aiLooked: boolean;
+}
+
+export const MAX_WARNING_ITEMS = 6;
+
+function capped(items: PostWarningItem[]): Pick<PostWarning, 'items' | 'more'> {
+  const shown = items.slice(0, MAX_WARNING_ITEMS);
+  return { items: shown, ...(items.length > shown.length ? { more: items.length - shown.length } : {}) };
+}
+
+/**
+ * Things the reviewer may want to check first. Informative only, never blocking.
+ * Unviewed focus functions and risky packages are listed by name whether or not the
+ * AI looked at them: the AI looking at code is not a review.
+ */
 export function postWarnings(input: {
   findings: readonly Finding[];
   triage: TriageMap;
   look: LookProgress;
   acceptedCount: number;
+  /** Changed functions the AI looked at (to say so next to unviewed ones) */
+  aiFunctions?: ReadonlySet<string>;
+  /** Risky or flagged packages the reviewer hasn't opened, most important first */
+  unviewedPackages?: readonly UnviewedPackage[];
 }): PostWarning[] {
   const warnings: PostWarning[] = [];
   const urgent = untriagedUrgent(input.findings, input.triage);
@@ -88,7 +119,19 @@ export function postWarnings(input: {
     warnings.push({ key: 'untriaged', text: `${plural(urgent.length, 'must-fix or should-fix finding')} not triaged yet.` });
   }
   const unviewed = unviewedSentence(input.look);
-  if (unviewed) warnings.push({ key: 'unviewed', text: unviewed });
+  if (unviewed) {
+    const aiFunctions = input.aiFunctions ?? new Set<string>();
+    const items = input.look.focus.unseen.map((fn) => ({ label: qualifiedName(fn), aiLooked: aiFunctions.has(fn.id) }));
+    warnings.push({ key: 'unviewed', text: unviewed, ...(items.length ? capped(items) : {}) });
+  }
+  const packages = input.unviewedPackages ?? [];
+  if (packages.length) {
+    warnings.push({
+      key: 'unviewed-packages',
+      text: `You haven't opened ${plural(packages.length, 'risky package')}:`,
+      ...capped(packages.map((pkg) => ({ label: pkg.label, aiLooked: pkg.aiLooked }))),
+    });
+  }
   if (input.acceptedCount > 0) {
     warnings.push({ key: 'ai-text', text: "You're posting AI-written text as yourself. Make sure you've checked each one." });
   }

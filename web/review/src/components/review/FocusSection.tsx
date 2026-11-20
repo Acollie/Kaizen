@@ -61,5 +61,5 @@ function RiskNumber({ score }: { score: number }) {
 }
 
 function ViewedMark() {
-  return <span className="rv-focus-viewed" title="You've looked at this" aria-label="viewed">✓</span>;
+  return <span className="rv-focus-viewed" title="You've reviewed this: it was on screen for 2 seconds. Only your review counts as verified." aria-label="you reviewed">✓</span>;
 }
