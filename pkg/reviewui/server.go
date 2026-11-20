@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alexcollie/kaizen/pkg/review"
@@ -53,6 +54,11 @@ type Server struct {
 	httpServer   *http.Server
 	allowedHosts map[string]bool
 	cancelBase   context.CancelFunc
+
+	// postMutex serialises posts so lastPost is checked and set atomically: two
+	// clicks (or tabs) can never both post a review
+	postMutex sync.Mutex
+	lastPost  *review.PostResult // the session's successful post, nil until one
 }
 
 // New validates the options and prepares a server; call Start to listen

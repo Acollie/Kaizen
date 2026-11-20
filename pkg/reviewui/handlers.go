@@ -153,13 +153,30 @@ func (server *Server) handlePost(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 
+	server.postMutex.Lock()
+	defer server.postMutex.Unlock()
+	if server.lastPost != nil && !postRequest.ConfirmRepost {
+		writeJSON(writer, http.StatusConflict, alreadyPosted{
+			Error:       "a review was already posted in this session; send confirm_repost to post another",
+			PreviousURL: server.lastPost.URL,
+		})
+		return
+	}
+
 	reviewContext := server.options.Context
 	result, err := server.options.Poster.PostReview(request.Context(), reviewContext.PR, reviewContext.Files, postRequest)
 	if err != nil {
 		writeError(writer, http.StatusBadGateway, err.Error())
 		return
 	}
+	server.lastPost = result
 	writeJSON(writer, http.StatusOK, result)
+}
+
+// alreadyPosted is the 409 body for a repost without confirmation
+type alreadyPosted struct {
+	Error       string `json:"error"`
+	PreviousURL string `json:"previous_url"`
 }
 
 // originHost strips the scheme from an Origin header value

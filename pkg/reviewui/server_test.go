@@ -448,8 +448,56 @@ func TestPostReview(t *testing.T) {
 	}
 
 	ts.poster.fail = true
-	if response := post(t, ts, body, good); response.StatusCode != http.StatusBadGateway {
+	confirmed := `{"summary":"again","confirm_repost":true}`
+	if response := post(t, ts, confirmed, good); response.StatusCode != http.StatusBadGateway {
 		t.Errorf("poster failure = %d, want 502", response.StatusCode)
+	}
+}
+
+func TestPostReviewRefusesUnconfirmedRepost(t *testing.T) {
+	ts := startServer(t, loadFixture(t))
+	good := map[string]string{tokenHeader: ts.server.Token(), "Content-Type": "application/json"}
+
+	if response := post(t, ts, `{"summary":"first"}`, good); response.StatusCode != http.StatusOK {
+		t.Fatalf("first post = %d", response.StatusCode)
+	}
+
+	response := post(t, ts, `{"summary":"second"}`, good)
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("unconfirmed repost = %d, want 409", response.StatusCode)
+	}
+	var conflict struct {
+		Error       string `json:"error"`
+		PreviousURL string `json:"previous_url"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&conflict); err != nil {
+		t.Fatal(err)
+	}
+	if conflict.PreviousURL != "https://example.test/review/1" || conflict.Error == "" {
+		t.Errorf("conflict body %+v", conflict)
+	}
+	if len(ts.poster.requests) != 1 {
+		t.Fatalf("the poster must not be called for a refused repost, got %d calls", len(ts.poster.requests))
+	}
+
+	if response := post(t, ts, `{"summary":"second","confirm_repost":true}`, good); response.StatusCode != http.StatusOK {
+		t.Fatalf("confirmed repost = %d, want 200", response.StatusCode)
+	}
+	if len(ts.poster.requests) != 2 || ts.poster.requests[1].Summary != "second" {
+		t.Fatalf("poster got %+v", ts.poster.requests)
+	}
+}
+
+func TestFailedPostDoesNotBlockRetry(t *testing.T) {
+	ts := startServer(t, loadFixture(t))
+	good := map[string]string{tokenHeader: ts.server.Token(), "Content-Type": "application/json"}
+	ts.poster.fail = true
+	if response := post(t, ts, `{"summary":"x"}`, good); response.StatusCode != http.StatusBadGateway {
+		t.Fatalf("failed post = %d", response.StatusCode)
+	}
+	ts.poster.fail = false
+	if response := post(t, ts, `{"summary":"x"}`, good); response.StatusCode != http.StatusOK {
+		t.Fatalf("retry after failure = %d, want 200 (nothing was posted)", response.StatusCode)
 	}
 }
 
