@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -66,7 +67,7 @@ func TestDiffCommand(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "diff --git a/x b/x\n", diff)
 	assert.Equal(t, "git --attr-source=mb diff mb head --unified=0 --no-ext-diff --no-color --no-textconv "+
-		"--src-prefix=a/ --dst-prefix=b/ --diff-algorithm=myers -M", runner.lastCall().commandLine())
+		"--src-prefix=a/ --dst-prefix=b/ --diff-algorithm=myers -M --inter-hunk-context=0", runner.lastCall().commandLine())
 	assert.Equal(t, "/tmp/wt", runner.lastCall().Dir)
 }
 
@@ -152,20 +153,25 @@ func TestDiffIgnoresPRGitattributesAndUserDiffConfig(t *testing.T) {
 	repo := t.TempDir()
 	gitRun(t, repo, "init", "-q", "-b", "main")
 	writeFile(t, repo, "main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, repo, "near.txt", numberedLines(12, -1, -1))
 	gitRun(t, repo, "add", ".")
 	gitRun(t, repo, "commit", "-q", "-m", "base")
 	baseSHA := strings.TrimSpace(gitRun(t, repo, "rev-parse", "HEAD"))
 
 	writeFile(t, repo, ".gitattributes", "*.go -diff\n")
 	writeFile(t, repo, "main.go", "package main\n\nfunc main() { evil() }\n")
+	// Two changes four lines apart: separate hunks at --unified=0
+	writeFile(t, repo, "near.txt", numberedLines(12, 3, 8))
 	gitRun(t, repo, "add", ".")
 	gitRun(t, repo, "commit", "-q", "-m", "hide it")
 	headSHA := strings.TrimSpace(gitRun(t, repo, "rev-parse", "HEAD"))
 
-	// Hostile user config: colour always on, an external diff that would fail, no prefixes
+	// Hostile user config: colour always on, an external diff that would fail, no
+	// prefixes, and inter-hunk context that would merge nearby hunks
 	gitRun(t, repo, "config", "color.ui", "always")
 	gitRun(t, repo, "config", "diff.external", "false")
 	gitRun(t, repo, "config", "diff.noprefix", "true")
+	gitRun(t, repo, "config", "diff.interHunkContext", "10")
 
 	diff, err := NewClient(repo).Diff(ctx, repo, baseSHA, headSHA, 3)
 	require.NoError(t, err)
@@ -173,6 +179,26 @@ func TestDiffIgnoresPRGitattributesAndUserDiffConfig(t *testing.T) {
 	assert.NotContains(t, diff, "Binary files")
 	assert.NotContains(t, diff, "\x1b[", "no ANSI colour codes")
 	assert.Contains(t, diff, "diff --git a/main.go b/main.go")
+
+	mappingDiff, err := NewClient(repo).Diff(ctx, repo, baseSHA, headSHA, 0)
+	require.NoError(t, err)
+	nearDiff := mappingDiff[strings.Index(mappingDiff, "diff --git a/near.txt"):]
+	assert.Equal(t, 2, strings.Count(nearDiff, "\n@@ "), "diff.interHunkContext must not merge nearby hunks:\n%s", nearDiff)
+}
+
+// numberedLines returns "line 1\n".."line N\n", with the given lines (1-based) changed
+func numberedLines(count int, changed ...int) string {
+	var builder strings.Builder
+	for lineNumber := 1; lineNumber <= count; lineNumber++ {
+		suffix := ""
+		for _, changedLine := range changed {
+			if changedLine == lineNumber {
+				suffix = " changed"
+			}
+		}
+		builder.WriteString("line " + strconv.Itoa(lineNumber) + suffix + "\n")
+	}
+	return builder.String()
 }
 
 const upstreamURL = "https://github.com/acme/widgets.git"

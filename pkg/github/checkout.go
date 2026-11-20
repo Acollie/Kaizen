@@ -147,10 +147,12 @@ func (client *Client) worktreeCleanup(worktreePath string) func() error {
 
 // diffFlags make the diff independent of the user's git config, so it always parses
 // the same way and matches the hunks GitHub shows (inline comments must land in them):
-// no external diff tools, colour, textconv, mnemonic/no prefixes or custom algorithms.
+// no external diff tools, colour, textconv, mnemonic/no prefixes, custom algorithms,
+// or diff.interHunkContext merging nearby hunks.
 var diffFlags = []string{
 	"--no-ext-diff", "--no-color", "--no-textconv",
 	"--src-prefix=a/", "--dst-prefix=b/", "--diff-algorithm=myers", "-M",
+	"--inter-hunk-context=0",
 }
 
 // Diff returns the diff between mergeBase and headSHA with N lines of context.
