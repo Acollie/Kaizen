@@ -29,7 +29,7 @@ const (
 	readHeaderTimeout = 10 * time.Second
 
 	contentSecurityPolicy = "default-src 'self'; " +
-		"script-src 'self' https://cdn.jsdelivr.net; " +
+		"script-src 'self'; " +
 		"style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; " +
 		"object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
 )

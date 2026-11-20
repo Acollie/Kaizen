@@ -4,124 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
   <title>Kaizen Review</title>
-  <link rel="stylesheet" href="/static/app.css">
-  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js" crossorigin="anonymous" defer></script>
-  <script type="module" src="/static/app.js"></script>
+  <script type="module" crossorigin src="/static/assets/app.js"></script>
+  <link rel="stylesheet" crossorigin href="/static/assets/index.css">
 </head>
 <body>
-  <header class="topbar" id="topbar">
-    <div class="pr-info">
-      <span class="brand" aria-hidden="true" title="Kaizen">改</span>
-      <div class="pr-text">
-        <div class="pr-title-row">
-          <span class="pr-number" id="pr-number">#…</span>
-          <h1 class="pr-title" id="pr-title">Loading review…</h1>
-        </div>
-        <div class="pr-meta" id="pr-meta"></div>
-      </div>
-    </div>
-    <div class="topbar-actions">
-      <div class="severity-counts" id="severity-counts" aria-label="Findings by severity"></div>
-      <div class="status-pill" id="status-pill" data-state="connecting">
-        <span class="status-dot"></span><span class="status-text" id="status-text">Connecting</span>
-      </div>
-      <button type="button" class="icon-button" id="help-button" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
-      <button type="button" class="primary-button" id="post-button" title="Post review (P)">Post review</button>
-    </div>
-  </header>
-
-  <main class="workspace" id="workspace">
-    <aside class="pane sidebar" id="pane-sidebar" data-pane="sidebar" aria-label="Changes">
-      <div class="pane-header">
-        <h2>Changes</h2>
-        <span class="pane-sub" id="changes-summary"></span>
-        <button type="button" class="collapse-button" data-collapse="sidebar" title="Collapse sidebar" aria-label="Collapse sidebar">⟨</button>
-      </div>
-      <div class="filter-row">
-        <input type="search" id="filter" placeholder="Filter files and functions  ( / )" autocomplete="off" spellcheck="false">
-      </div>
-      <nav class="changes-list" id="changes-list" tabindex="-1"></nav>
-    </aside>
-
-    <div class="divider" data-divider="sidebar" role="separator" aria-orientation="vertical" tabindex="-1"></div>
-
-    <section class="pane code-pane" id="pane-code" data-pane="code" aria-label="Code">
-      <div class="code-header" id="code-header"></div>
-      <div class="code-scroll" id="code-scroll" tabindex="-1">
-        <div class="code-body" id="code-body">
-          <div class="empty-state">Select a file or function from the Changes list.</div>
-        </div>
-      </div>
-    </section>
-
-    <div class="divider" data-divider="context" role="separator" aria-orientation="vertical" tabindex="-1"></div>
-
-    <aside class="pane context-pane" id="pane-context" data-pane="context" aria-label="Context">
-      <div class="pane-header tabs-header">
-        <div class="tabs" role="tablist" id="tabs">
-          <button type="button" role="tab" data-tab="review" aria-selected="true" title="AI review (g1)">Review<span class="tab-badge tab-badge-findings" id="review-badge" hidden></span></button>
-          <button type="button" role="tab" data-tab="graph" aria-selected="false" title="Call flow (g2)">Flow</button>
-          <button type="button" role="tab" data-tab="function" aria-selected="false" title="Function (g3)">Function</button>
-          <button type="button" role="tab" data-tab="activity" aria-selected="false" title="Agent activity (g4)">Activity<span class="tab-badge" id="activity-badge" hidden></span></button>
-        </div>
-        <button type="button" class="collapse-button" data-collapse="context" title="Collapse context panel" aria-label="Collapse context panel">⟩</button>
-      </div>
-      <div class="tab-panel" data-panel="review" id="panel-review"></div>
-      <div class="tab-panel" data-panel="graph" id="panel-graph" hidden>
-        <div class="graph-bar">
-          <span class="graph-hint" id="graph-hint"></span>
-          <div class="graph-toolbar">
-            <button type="button" class="small-button" id="graph-layered" title="Switch between the selected function's flow and the whole PR (L)">Whole PR</button>
-            <button type="button" class="small-button" id="graph-fit" title="Fit to view (f)">Fit</button>
-            <button type="button" class="small-button" id="graph-expand" title="Expand the flow to full width (F)">Expand</button>
-          </div>
-        </div>
-        <div class="graph-canvas" id="graph-canvas"></div>
-        <div class="graph-legend" id="graph-legend"></div>
-        <div class="graph-tooltip" id="graph-tooltip" hidden></div>
-      </div>
-      <div class="tab-panel" data-panel="function" id="panel-function" hidden></div>
-      <div class="tab-panel" data-panel="activity" id="panel-activity" hidden>
-        <div class="activity-feed" id="activity-feed"></div>
-        <button type="button" class="jump-latest" id="activity-latest" hidden>↓ New activity</button>
-      </div>
-    </aside>
-
-    <button type="button" class="restore-button restore-sidebar" data-restore="sidebar" hidden title="Show sidebar">Changes ⟩</button>
-    <button type="button" class="restore-button restore-context" data-restore="context" hidden title="Show context panel">⟨ Context</button>
-  </main>
-
-  <div class="mode-indicator" id="mode-indicator" aria-live="polite">NORMAL</div>
-
-  <dialog class="modal" id="post-modal" aria-labelledby="post-modal-title">
-    <form method="dialog" class="modal-inner" id="post-form">
-      <header class="modal-header">
-        <h2 id="post-modal-title">Post review to GitHub</h2>
-        <button type="button" class="icon-button" id="post-cancel-x" aria-label="Close">✕</button>
-      </header>
-      <div class="modal-body">
-        <label class="field-label" for="post-summary">Review summary <span class="hint">Markdown</span></label>
-        <textarea id="post-summary" rows="8" spellcheck="true"></textarea>
-        <div class="post-findings" id="post-findings"></div>
-        <div class="post-outcome" id="post-outcome" hidden></div>
-      </div>
-      <footer class="modal-footer">
-        <span class="post-note" id="post-note"></span>
-        <button type="button" class="secondary-button" id="post-cancel">Cancel</button>
-        <button type="button" class="primary-button" id="post-confirm">Post review</button>
-      </footer>
-    </form>
-  </dialog>
-
-  <dialog class="modal help-modal" id="help-modal" aria-labelledby="help-title">
-    <div class="modal-inner">
-      <header class="modal-header">
-        <h2 id="help-title">Keyboard shortcuts</h2>
-        <button type="button" class="icon-button" id="help-close" aria-label="Close">✕</button>
-      </header>
-      <div class="modal-body help-body" id="help-body"></div>
-    </div>
-  </dialog>
+  <div id="root"></div>
 </body>
 </html>

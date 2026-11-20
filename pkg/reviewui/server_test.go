@@ -119,7 +119,7 @@ func TestIndexAndStaticServedWithCSP(t *testing.T) {
 		t.Fatalf("GET / = %d", response.StatusCode)
 	}
 	csp := response.Header.Get("Content-Security-Policy")
-	for _, want := range []string{"default-src 'self'", "script-src 'self' https://cdn.jsdelivr.net"} {
+	for _, want := range []string{"default-src 'self'", "script-src 'self';"} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("CSP %q missing %q", csp, want)
 		}
@@ -127,7 +127,10 @@ func TestIndexAndStaticServedWithCSP(t *testing.T) {
 	if strings.Contains(csp, "unsafe-inline") {
 		t.Errorf("CSP must not allow inline scripts: %q", csp)
 	}
-	for _, asset := range []string{"/static/app.js", "/static/app.css", "/static/keys.js"} {
+	if strings.Contains(csp, "http") {
+		t.Errorf("CSP must not allow remote origins (the UI is fully bundled): %q", csp)
+	}
+	for _, asset := range []string{"/static/assets/app.js", "/static/assets/index.css"} {
 		if response := ts.get(t, asset, nil); response.StatusCode != http.StatusOK {
 			t.Errorf("GET %s = %d", asset, response.StatusCode)
 		}
@@ -140,19 +143,18 @@ func TestIndexAndStaticServedWithCSP(t *testing.T) {
 	}
 }
 
-func TestKeymapModuleIsEmbeddedAndImported(t *testing.T) {
+func TestBuiltAppIsEmbeddedAndReferenced(t *testing.T) {
 	ts := startServer(t, loadFixture(t))
-	response := ts.get(t, "/static/keys.js", nil)
-	body, _ := io.ReadAll(response.Body)
-	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "export") {
-		t.Fatalf("keys.js not served as a module: %d", response.StatusCode)
+	response := ts.get(t, "/static/assets/app.js", nil)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("app.js not served: %d", response.StatusCode)
 	}
 	if contentType := response.Header.Get("Content-Type"); !strings.Contains(contentType, "javascript") {
-		t.Errorf("keys.js content type %q", contentType)
+		t.Errorf("app.js content type %q", contentType)
 	}
-	app, err := staticFiles.ReadFile("static/app.js")
-	if err != nil || !strings.Contains(string(app), "./keys.js") {
-		t.Error("app.js does not import ./keys.js")
+	index, err := staticFiles.ReadFile("static/index.html")
+	if err != nil || !strings.Contains(string(index), "/static/assets/app.js") {
+		t.Error("index.html does not load the built app (run: cd web/review && npm run build)")
 	}
 }
 

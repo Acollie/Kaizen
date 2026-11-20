@@ -19,6 +19,7 @@ trend-export.json
 !go.mod
 !go.sum
 !package.json
+!package-lock.json
 !tsconfig.json
 !**/testdata/**/*.json
 
@@ -48,3 +49,4 @@ coverage.html
 
 # Claude Code agent worktrees
 .claude/worktrees/
+.gstack/

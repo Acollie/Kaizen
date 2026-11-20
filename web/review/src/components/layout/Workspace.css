@@ -1,0 +1,12 @@
+.workspace {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--context-w);
+  min-height: 0;
+}
+.pane { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.pane-sidebar { background: var(--bg-raised); border-right: 1px solid var(--line); }
+.pane-context { background: var(--bg-raised); border-left: 1px solid var(--line); }
+.workspace.sidebar-collapsed { grid-template-columns: 0 minmax(0, 1fr) var(--context-w); }
+.workspace.context-collapsed { grid-template-columns: var(--sidebar-w) minmax(0, 1fr) 0; }
+.workspace.flow-expanded { grid-template-columns: 0 0 minmax(0, 1fr); }
+.workspace.flow-expanded .pane-sidebar, .workspace.flow-expanded .pane-code { visibility: hidden; }

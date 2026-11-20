@@ -2,7 +2,6 @@ package reviewui
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -80,18 +79,5 @@ func TestLoadDemoContextExtractsWorktree(t *testing.T) {
 	cleanup()
 	if _, err := os.Stat(worktree); !os.IsNotExist(err) {
 		t.Error("cleanup did not remove the demo worktree")
-	}
-}
-
-// The keymap parser has a node unit test; run it when node is installed so CI
-// never depends on node.
-func TestKeymapParserWithNode(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not installed")
-	}
-	output, err := exec.Command(node, "--test", filepath.Join("testdata", "keys.test.mjs")).CombinedOutput()
-	if err != nil {
-		t.Fatalf("node --test failed: %v\n%s", err, output)
 	}
 }
