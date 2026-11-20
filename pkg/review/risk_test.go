@@ -195,3 +195,48 @@ func containsFragment(reasons []string, fragment string) bool {
 	}
 	return false
 }
+
+func TestIsTestFile(t *testing.T) {
+	cases := map[string]bool{
+		"internal/config/validation_test.go": true,
+		"pkg/app/test_views.py":              true,
+		"pkg/app/views_test.py":              true,
+		"app/src/CartTest.kt":                true,
+		"Sources/CartTests.swift":            true,
+		"tests/fixtures/helpers.go":          true,
+		"internal/config/config.go":          false,
+		"pkg/testing/assert.go":              false,
+		"cmd/contest/main.go":                false,
+	}
+	for path, expected := range cases {
+		assert.Equal(t, expected, IsTestFile(path), path)
+	}
+}
+
+func TestScoreFunctionsWeightsDownTestCode(t *testing.T) {
+	functions := []FunctionRisk{
+		{ID: "prod", File: "internal/config/config.go", LinesAdded: 166, Metrics: &models.FunctionAnalysis{CyclomaticComplexity: 6}},
+		{ID: "test", File: "internal/config/config_test.go", LinesAdded: 166, Metrics: &models.FunctionAnalysis{CyclomaticComplexity: 6}},
+	}
+	ScoreFunctions(functions, 5)
+
+	assert.Less(t, functions[1].RiskScore, functions[0].RiskScore)
+	assert.Contains(t, functions[1].RiskReasons[len(functions[1].RiskReasons)-1], "test code")
+}
+
+func TestAssignFocusGuaranteesTopFewModerateFunctions(t *testing.T) {
+	functions := []FunctionRisk{
+		{ID: "high", RiskScore: 21.8},
+		{ID: "moderate", RiskScore: 14.7},
+		{ID: "lower", RiskScore: 9.4},
+		{ID: "fourth", RiskScore: 7.7},
+		{ID: "trivial", RiskScore: 3.0},
+	}
+	assignFocus(functions, 5)
+
+	focused := map[string]bool{}
+	for _, function := range functions {
+		focused[function.ID] = function.Focus
+	}
+	assert.Equal(t, map[string]bool{"high": true, "moderate": true, "lower": true, "fourth": false, "trivial": false}, focused)
+}

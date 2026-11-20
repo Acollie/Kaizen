@@ -3,6 +3,7 @@ package review
 import (
 	"fmt"
 	"math"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
@@ -52,6 +53,14 @@ const DefaultFocusCount = 5
 // MinFocusScore is the minimum RiskScore for a function to be a focus function
 const MinFocusScore = 15.0
 
+// GuaranteedFocusCount top-ranked functions are focused even below MinFocusScore,
+// as long as they reach GuaranteedFocusMinScore, so a PR of moderate changes still
+// gives the review a few concrete starting points instead of one or none.
+const (
+	GuaranteedFocusCount    = 3
+	GuaranteedFocusMinScore = 5.0
+)
+
 // riskFactor is one weighted contribution to a function's score
 type riskFactor struct {
 	contribution float64
@@ -73,8 +82,41 @@ func ScoreFunctionsWithDiff(functions []FunctionRisk, files []FileDiff, focusCou
 		function := &functions[index]
 		factors := collectRiskFactors(function, addedLinesInRange(addedLines[function.File], function.StartLine, function.EndLine))
 		function.RiskScore, function.RiskReasons = combineFactors(factors)
+		if IsTestFile(function.File) {
+			function.RiskScore = math.Round(function.RiskScore*TestCodeMultiplier*10) / 10
+			function.RiskReasons = append(function.RiskReasons, "test code: weighted down so production changes get reviewed first")
+		}
 	}
 	assignFocus(functions, focusCount)
+}
+
+// TestCodeMultiplier scales the score of functions in test files. Tests still show up
+// in the ranking, but a large new test should not outrank the production code it tests.
+const TestCodeMultiplier = 0.35
+
+// IsTestFile reports whether a repo-relative path follows a test-file naming convention
+// for one of the supported languages, or lives under a test directory.
+func IsTestFile(path string) bool {
+	slashed := filepath.ToSlash(path)
+	base := filepath.Base(slashed)
+	switch {
+	case strings.HasSuffix(base, "_test.go"):
+		return true
+	case strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py"):
+		return true
+	case strings.HasSuffix(base, "_test.py"):
+		return true
+	case strings.HasSuffix(base, "Test.kt"), strings.HasSuffix(base, "Tests.kt"):
+		return true
+	case strings.HasSuffix(base, "Tests.swift"), strings.HasSuffix(base, "Test.swift"):
+		return true
+	}
+	for _, segment := range strings.Split(slashed, "/") {
+		if segment == "test" || segment == "tests" || segment == "__tests__" {
+			return true
+		}
+	}
+	return false
 }
 
 // collectRiskFactors evaluates every factor for one function
@@ -136,7 +178,12 @@ func assignFocus(functions []FunctionRisk, focusCount int) {
 	})
 
 	for rank, index := range order {
-		if rank >= focusCount || functions[index].RiskScore < MinFocusScore {
+		if rank >= focusCount {
+			break
+		}
+		score := functions[index].RiskScore
+		guaranteed := rank < GuaranteedFocusCount && score >= GuaranteedFocusMinScore
+		if score < MinFocusScore && !guaranteed {
 			break
 		}
 		functions[index].Focus = true
