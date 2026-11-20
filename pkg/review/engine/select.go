@@ -26,9 +26,9 @@ type SelectOptions struct {
 	Getenv   func(key string) string
 }
 
-const setupHelp = `To run an AI review, set up one of:
-  - Claude Code (recommended): install the claude CLI (https://claude.com/claude-code) and log in, so "claude" is on your PATH. Uses your Claude subscription or Console account.
-  - Anthropic API: export ANTHROPIC_API_KEY=<key from https://platform.claude.com/settings/keys>.`
+const setupHelp = `To run an AI review:
+  - Use your Claude Code login (recommended): install the claude CLI (https://claude.com/claude-code), run "claude" once and log in, so "claude" is on your PATH. Reviews run on your Claude subscription or Console login; Kaizen never passes an API key to it.
+  - Fallback, an Anthropic API key: export ANTHROPIC_API_KEY=<key from https://platform.claude.com/settings/keys> and use --engine api (or auto without the claude CLI). Usage is billed to that key.`
 
 // Select returns the engine named by name: "cli", "api", or "auto" (or empty),
 // which prefers the claude CLI when it is on PATH and falls back to the API

@@ -241,7 +241,33 @@ func validFinding() FindingInput {
 	return FindingInput{
 		Severity: "critical", Category: "correctness", File: "calc/calc.go", Line: 5,
 		Title: "Add subtracts", Body: "Returns a - b; Add(2,3) is -1.", Confidence: 0.95,
+		Verify: "Call Add(2, 3) and check it returns 5, not -1",
 	}
+}
+
+func TestReportFindingKeepsVerifyAndToleratesItsAbsence(t *testing.T) {
+	toolbox, _ := newFixture(t)
+	_, err := toolbox.ReportFinding(validFinding())
+	require.NoError(t, err)
+	assert.Equal(t, "Call Add(2, 3) and check it returns 5, not -1", toolbox.Findings()[0].Verify)
+
+	// Older clients and cached reviews have no verify; the tool still accepts it
+	output, err := toolbox.Call(ToolReportFinding, json.RawMessage(`{"severity":"warning","category":"tests","file":"calc/calc.go","line":5,"title":"No verify","body":"b","confidence":0.4}`))
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(output, "recorded f-"))
+
+	tooLong := validFinding()
+	tooLong.Verify = strings.Repeat("v", maxVerifyLength+1)
+	_, err = toolbox.ReportFinding(tooLong)
+	assert.ErrorContains(t, err, "verify is")
+}
+
+func TestCanonicalFunctionIDAndPath(t *testing.T) {
+	toolbox, _ := newFixture(t)
+	assert.Equal(t, "example.com/calc.Add", toolbox.CanonicalFunctionID("Add"))
+	assert.Equal(t, "unknown.Fn", toolbox.CanonicalFunctionID(" unknown.Fn "))
+	assert.Equal(t, "calc/calc.go", toolbox.CanonicalPath("./calc/calc.go"))
+	assert.Equal(t, "docs/x.md", toolbox.CanonicalPath(" ./docs/x.md"))
 }
 
 func TestReportFindingRecords(t *testing.T) {
@@ -362,7 +388,7 @@ func TestDefinitionsSchemas(t *testing.T) {
 	}
 	var finding map[string]any
 	require.NoError(t, json.Unmarshal(definitions[len(definitions)-1].InputSchema, &finding))
-	assert.ElementsMatch(t, []any{"severity", "category", "file", "line", "title", "body", "confidence"}, finding["required"])
+	assert.ElementsMatch(t, []any{"severity", "category", "file", "line", "title", "body", "verify", "confidence"}, finding["required"])
 	properties := finding["properties"].(map[string]any)
 	severity := properties["severity"].(map[string]any)
 	assert.ElementsMatch(t, []any{"critical", "warning", "suggestion", "praise"}, severity["enum"])

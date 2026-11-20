@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,8 +29,10 @@ const (
 
 	defaultCLIModel  = "opus"
 	defaultCLIEffort = "high"
-	stderrTailBytes  = 4096
-	killWaitDelay    = 5 * time.Second
+	// DefaultMaxBudgetUSD caps what one CLI review may spend when MaxBudgetUSD is unset
+	DefaultMaxBudgetUSD = 10.0
+	stderrTailBytes     = 4096
+	killWaitDelay       = 5 * time.Second
 )
 
 // leadAllowedTools are the tools the CLI may run without asking. With
@@ -48,6 +51,36 @@ type CLIEngine struct {
 	Model      string   // --model; default "opus"
 	Effort     string   // --effort; default "high"
 	ExtraArgs  []string // appended to the claude arguments
+	// MaxBudgetUSD is passed as --max-budget-usd so a runaway (or prompt-injected)
+	// review stops; default DefaultMaxBudgetUSD
+	MaxBudgetUSD float64
+}
+
+// cliStrippedEnv are removed from the claude process environment so the CLI
+// always uses the user's Claude Code login, never an API key or proxy that
+// happens to be set in the parent shell
+var cliStrippedEnv = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"}
+
+// claudeEnvironment returns environ without the variables in cliStrippedEnv.
+// Everything else (HOME, PATH, XDG dirs...) is kept so the CLI finds its login.
+func claudeEnvironment(environ []string) []string {
+	kept := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		name, _, _ := strings.Cut(entry, "=")
+		if !isStrippedEnv(name) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
+func isStrippedEnv(name string) bool {
+	for _, stripped := range cliStrippedEnv {
+		if strings.EqualFold(name, stripped) {
+			return true
+		}
+	}
+	return false
 }
 
 // Name implements review.Engine
@@ -61,6 +94,9 @@ func (engine *CLIEngine) resolved() (CLIEngine, error) {
 	}
 	if config.Effort == "" {
 		config.Effort = defaultCLIEffort
+	}
+	if config.MaxBudgetUSD <= 0 {
+		config.MaxBudgetUSD = DefaultMaxBudgetUSD
 	}
 	if config.ClaudePath == "" {
 		path, err := exec.LookPath("claude")
@@ -103,6 +139,7 @@ func (engine *CLIEngine) Run(ctx context.Context, reviewContext *review.ReviewCo
 		return nil, err
 	}
 	parser := newStreamParser(emit, reviewContext.WorktreePath)
+	parser.toolbox = tools.New(reviewContext)
 	emitStatus(emit, fmt.Sprintf("Starting Claude Code review (model %s, effort %s)", config.Model, config.Effort), sourceLead)
 	if err := config.runClaude(ctx, args, reviewContext.WorktreePath, parser); err != nil {
 		return nil, err
@@ -150,6 +187,7 @@ func (engine *CLIEngine) buildArgs(contextFile string, pr review.PullRequest) ([
 		"--agents", string(agents),
 		"--json-schema", string(ReviewOutputSchema()),
 		"--no-session-persistence",
+		"--max-budget-usd", strconv.FormatFloat(engine.MaxBudgetUSD, 'f', -1, 64),
 	}
 	return append(args, engine.ExtraArgs...), nil
 }
@@ -177,6 +215,7 @@ func mcpConfigJSON(kaizenPath, contextFile string) (string, error) {
 func (engine *CLIEngine) runClaude(ctx context.Context, args []string, workDir string, parser *streamParser) error {
 	command := exec.CommandContext(ctx, engine.ClaudePath, args...)
 	command.Dir = workDir
+	command.Env = claudeEnvironment(os.Environ())
 	command.Stdin = nil
 	command.WaitDelay = killWaitDelay
 	configureProcessGroup(command)
@@ -195,7 +234,7 @@ func (engine *CLIEngine) runClaude(ctx context.Context, args []string, workDir s
 		return fmt.Errorf("review cancelled: %w", ctx.Err())
 	}
 	if waitErr != nil {
-		return fmt.Errorf("claude exited with an error: %w%s", waitErr, formatTail(stderr.String()))
+		return claudeExitError(waitErr, stderr.String(), parser.lastResultText())
 	}
 	if readErr != nil {
 		return fmt.Errorf("read claude output: %w", readErr)
@@ -233,7 +272,7 @@ func (engine *CLIEngine) finish(parser *streamParser, reviewContext *review.Revi
 	if err != nil {
 		return nil, err
 	}
-	reviewResult := assembleResult(output, parser.live, tools.New(reviewContext), emit)
+	reviewResult := assembleResult(output, parser.live, parser.toolbox, emit)
 	reviewResult.Engine = CLIEngineName
 	reviewResult.Model = engine.Model
 	if result != nil {
@@ -243,6 +282,37 @@ func (engine *CLIEngine) finish(parser *streamParser, reviewContext *review.Revi
 	return reviewResult, nil
 }
 
+// loginHelp is the fix for an authentication failure: the CLI engine only
+// ever uses the Claude Code login
+const loginHelp = `Claude Code is not logged in (or its login expired). Run "claude" in a terminal and log in (/login), then retry. Kaizen's CLI engine always uses your Claude Code login and ignores ANTHROPIC_API_KEY.`
+
+// claudeExitError explains a non-zero exit, with the login fix for auth failures
+func claudeExitError(waitErr error, stderrTail, resultText string) error {
+	if isAuthFailure(stderrTail) || isAuthFailure(resultText) {
+		return fmt.Errorf("%s\nclaude exited with an error: %w%s", loginHelp, waitErr, formatTail(stderrTail))
+	}
+	if isBudgetStop(resultText) {
+		return fmt.Errorf("the review stopped at its spending cap (--max-budget-usd); raise the budget and rerun: %w", waitErr)
+	}
+	return fmt.Errorf("claude exited with an error: %w%s", waitErr, formatTail(stderrTail))
+}
+
+// isAuthFailure spots the CLI's authentication errors in its output
+func isAuthFailure(text string) bool {
+	lower := strings.ToLower(text)
+	for _, marker := range []string{"not logged in", "please run /login", "invalid api key", "authentication_error", "authentication failed", "oauth token has expired", "401"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// isBudgetStop reports a result subtype or message from --max-budget-usd
+func isBudgetStop(text string) bool {
+	return strings.Contains(strings.ToLower(text), "budget")
+}
+
 func missingOutputError(result *streamResult) error {
 	if result == nil {
 		return errors.New("claude finished without a review result")
@@ -250,6 +320,12 @@ func missingOutputError(result *streamResult) error {
 	detail := strings.TrimSpace(result.Text)
 	if len(detail) > 500 {
 		detail = detail[:500] + "…"
+	}
+	if isBudgetStop(result.Subtype) {
+		return fmt.Errorf("the review stopped at its spending cap (--max-budget-usd, spent $%.2f) before producing a result; raise the budget and rerun", result.CostUSD)
+	}
+	if result.IsError && isAuthFailure(detail) {
+		return fmt.Errorf("%s (%s)", loginHelp, detail)
 	}
 	if result.IsError {
 		return fmt.Errorf("claude reported an error (%s, %s): %s", result.Subtype, result.TerminalReason, detail)

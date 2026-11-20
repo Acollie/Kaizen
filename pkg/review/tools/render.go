@@ -414,3 +414,21 @@ func (t *Toolbox) findFunction(id string) (*review.FunctionRisk, error) {
 	}
 	return nil, fmt.Errorf("no changed function with id %q; get_risk_ranking lists the ids (use read_lines for unchanged code)", id)
 }
+
+// CanonicalFunctionID returns the id of the changed function that id names
+// (an exact id or an unambiguous bare name), or id trimmed when none matches
+func (t *Toolbox) CanonicalFunctionID(id string) string {
+	if function, err := t.findFunction(id); err == nil {
+		return function.ID
+	}
+	return strings.TrimSpace(id)
+}
+
+// CanonicalPath returns the PR's spelling of a changed file (resolving a
+// rename's old path), or the path cleaned to repo-relative form otherwise
+func (t *Toolbox) CanonicalPath(path string) string {
+	if fileDiff := t.findFile(path); fileDiff != nil {
+		return fileDiff.Path
+	}
+	return strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(path), "\\", "/"), "./")
+}

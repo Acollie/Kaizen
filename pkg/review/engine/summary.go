@@ -17,6 +17,8 @@ type toolArguments struct {
 	Start        int    `json:"start"`
 	End          int    `json:"end"`
 	FilePath     string `json:"file_path"`
+	Offset       int    `json:"offset"`
+	Limit        int    `json:"limit"`
 	Pattern      string `json:"pattern"`
 	Glob         string `json:"glob"`
 	SubagentType string `json:"subagent_type"`
@@ -55,8 +57,8 @@ func summarizeKnownTool(name string, arguments toolArguments, worktreePath strin
 		return fmt.Sprintf("report_finding(%s %s:%d %s)", arguments.Severity, arguments.File, arguments.Line, arguments.Title)
 	case toolSubmitReview:
 		return fmt.Sprintf("submit_review(%s)", arguments.Verdict)
-	case "Read":
-		return fmt.Sprintf("Read(%s)", relativeTo(worktreePath, arguments.FilePath))
+	case toolRead:
+		return summarizeRead(arguments, worktreePath)
 	case "Grep":
 		return summarizeSearch("Grep", arguments, worktreePath)
 	case "Glob":
@@ -66,6 +68,20 @@ func summarizeKnownTool(name string, arguments toolArguments, worktreePath strin
 	default:
 		return ""
 	}
+}
+
+// summarizeRead shows the line range when Read was given one, as
+// "Read(path:offset-last)", so the UI can tell which lines were opened
+func summarizeRead(arguments toolArguments, worktreePath string) string {
+	path := relativeTo(worktreePath, arguments.FilePath)
+	if arguments.Offset <= 0 && arguments.Limit <= 0 {
+		return fmt.Sprintf("Read(%s)", path)
+	}
+	first := max(arguments.Offset, 1)
+	if arguments.Limit <= 0 {
+		return fmt.Sprintf("Read(%s:%d-)", path, first)
+	}
+	return fmt.Sprintf("Read(%s:%d-%d)", path, first, first+arguments.Limit-1)
 }
 
 func summarizeSearch(name string, arguments toolArguments, worktreePath string) string {

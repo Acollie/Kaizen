@@ -29,6 +29,7 @@ type streamLine struct {
 
 	// system events
 	Model        string `json:"model"`
+	APIKeySource string `json:"apiKeySource"`
 	Description  string `json:"description"`
 	Status       string `json:"status"`
 	ToolUseID    string `json:"tool_use_id"`
@@ -100,6 +101,8 @@ type streamParser struct {
 	emit         review.EmitFunc
 	worktreePath string
 	live         *findingSet
+	// toolbox, when set, canonicalises tool targets (bare names, renamed paths)
+	toolbox *tools.Toolbox
 
 	mu                 sync.Mutex
 	agentsByToolUse    map[string]string
@@ -169,6 +172,7 @@ func (parser *streamParser) handleSystem(event *streamLine) {
 		if !parser.sessionStarted {
 			parser.sessionStarted = true
 			emitStatus(parser.emit, fmt.Sprintf("Claude Code session started (model %s)", event.Model), sourceLead)
+			parser.reportCredentials(event.APIKeySource)
 		}
 	case "task_started":
 		agent := parser.subagentName(event)
@@ -181,6 +185,40 @@ func (parser *streamParser) handleSystem(event *streamLine) {
 		}
 		emitStatus(parser.emit, fmt.Sprintf("%s %s", agent, status), agent)
 	}
+}
+
+// reportCredentials says which credentials the CLI is billing. "none" means
+// the Claude Code (OAuth) login; "/login managed key" is the Console login.
+// Anything else is an API key from the environment, settings or a key helper.
+func (parser *streamParser) reportCredentials(source string) {
+	if source == "" {
+		return
+	}
+	emitStatus(parser.emit, fmt.Sprintf("Claude Code (credentials: %s)", credentialLabel(source)), sourceLead)
+	if !isLoginCredential(source) {
+		emitStatus(parser.emit, fmt.Sprintf("Warning: Claude Code is using an API key (%s) instead of your Claude Code login, so usage is billed to that key. Remove it from your Claude Code settings or apiKeyHelper to use your login.", source), sourceLead)
+	}
+}
+
+func isLoginCredential(source string) bool {
+	return source == "none" || source == "/login managed key"
+}
+
+func credentialLabel(source string) string {
+	if source == "none" {
+		return "Claude Code login"
+	}
+	return source
+}
+
+// lastResultText is the last result's subtype and text, for error messages
+func (parser *streamParser) lastResultText() string {
+	parser.mu.Lock()
+	defer parser.mu.Unlock()
+	if parser.lastResult == nil {
+		return ""
+	}
+	return parser.lastResult.Subtype + " " + parser.lastResult.Text
 }
 
 func (parser *streamParser) subagentName(event *streamLine) string {
@@ -225,10 +263,13 @@ func (parser *streamParser) handleToolUse(block contentBlock, agent string) {
 	case mcpToolPrefix + tools.ToolReportFinding:
 		parser.trackFinding(block, agent)
 	}
+	target, targetKind := toolTarget(block.Name, block.Input, parser.worktreePath, parser.toolbox)
 	emitEvent(parser.emit, review.EventToolCall, review.ToolCallData{
-		Tool:    strings.TrimPrefix(block.Name, mcpToolPrefix),
-		Summary: summarizeToolCall(block.Name, block.Input, parser.worktreePath),
-		Agent:   agent,
+		Tool:       strings.TrimPrefix(block.Name, mcpToolPrefix),
+		Summary:    summarizeToolCall(block.Name, block.Input, parser.worktreePath),
+		Agent:      agent,
+		Target:     target,
+		TargetKind: targetKind,
 	})
 }
 
@@ -262,6 +303,12 @@ func (parser *streamParser) acceptFinding(pending pendingFinding, block contentB
 		return
 	}
 	finding := pending.finding
+	if parser.toolbox != nil {
+		// Same normalisation the MCP process applied: "./" stripped, a renamed
+		// file's old path mapped to its new one, end_line clamped. It passed
+		// there, so a failure here only leaves the input as the model sent it.
+		_ = parser.toolbox.ValidateFinding(&finding)
+	}
 	finding.ID = strings.TrimSpace(strings.TrimPrefix(text, "recorded "))
 	finding.Source = pending.agent
 	if finding.EndLine == finding.Line {
@@ -286,6 +333,9 @@ func (parser *streamParser) handleResult(event *streamLine) {
 		parser.structuredResult = result
 	}
 	parser.lastResult = result
+	if isBudgetStop(event.Subtype) {
+		emitStatus(parser.emit, fmt.Sprintf("Review stopped: reached the spending cap (--max-budget-usd) after $%.2f", event.TotalCostUSD), sourceLead)
+	}
 	parser.reportDenials(event.PermissionDenials)
 }
 

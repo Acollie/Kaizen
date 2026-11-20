@@ -30,7 +30,18 @@ Report a finding only when you have verified it by reading the code: you can nam
 - Do not report pre-existing problems in code the PR did not touch, unless the PR makes them reachable or worse.
 - Severity: critical = will cause a bug, outage, data loss or vulnerability in realistic use; warning = likely problem or clear correctness risk; suggestion = worthwhile improvement that is not a defect. Use praise rarely, only for something notably good.
 - Line numbers are head-side (new) line numbers exactly as get_function, get_file_diff or read_lines print them. Pin each finding to a changed line where possible. The file must be one of the PR's changed files; if the breakage is in unchanged code, report it on the changed line that causes it and name the affected location in the body.
-- Record each finding with report_finding as soon as it is verified, not in a batch at the end. If report_finding returns an error, fix the input and call it again.`
+- Record each finding with report_finding as soon as it is verified, not in a batch at the end. If report_finding returns an error, fix the input and call it again.
+- If you suspect a serious problem but could not trace the whole code path, you may still report it, with confidence below 0.5, and say in the body exactly what is unconfirmed.
+
+` + evidenceStandard
+
+// evidenceStandard is shared by every prompt: the developer verifies findings
+// rather than trusting them, so each one carries a check and honest confidence
+const evidenceStandard = `## Evidence for the developer
+The developer will verify your findings rather than trust them, so every finding must carry its own evidence.
+- verify: every finding must include verify, one concrete, specific step the developer can take in a minute or two to confirm it themselves. Name the exact file:line to open and what to look for, the exact test or command to run and the input that triggers the problem, or the call to make and the result to expect. Good: "Run ` + "`go test ./internal/config -run TestValidate`" + ` with languages: [java]"; "Open action.yml:71 and check whether inputs.base-branch is quoted"; "Call scoreDeltaIndicator(3) and look at the rendered comment". Bad: "Review the code", "Check the logic", "Add tests".
+- confidence: an honest probability that the finding is real. Use the full range. 0.9 or above only when you read the whole code path and can name the input that triggers it; 0.6 to 0.8 when you read the path but a caller, config value or runtime condition is unconfirmed; below 0.5 when you are inferring behaviour from names, the diff or the PR description rather than having read the code path. Never round up to sound certain: a low-confidence finding with a good verify step is useful, an overconfident one is harmful.
+- body: say what you read to reach the conclusion, and what you did not check.`
 
 // subagentTools is the tool list every subagent gets
 var subagentTools = []string{
@@ -44,7 +55,7 @@ var subagentTools = []string{
 }
 
 const subagentReportFormat = `## When you finish
-Reply with a short plain-text report for the lead reviewer: one line per finding you recorded (its id from report_finding, severity, file:line, title), then one or two sentences on what you checked and found to be fine. Do not repeat finding bodies. If you found nothing, say so and say what you checked.`
+Reply with a short plain-text report for the lead reviewer: one line per finding you recorded (its id from report_finding, severity, file:line, title), then one or two sentences on what you checked and found to be fine, and one line naming anything in your scope you did not get to examine. Do not repeat finding bodies. If you found nothing, say so and say what you checked.`
 
 const hotspotPrompt = `You are hotspot-reviewer, a senior engineer doing a deep review of ONE changed function in a pull request, and of how its callers use it. The lead reviewer's message names the function id and why it was ranked risky. Your working directory is the PR head checkout. You can read code but cannot run it.
 
@@ -144,9 +155,9 @@ const leadPromptTemplate = `You are the lead reviewer for pull request #%d in a 
 3. Wait for every subagent to return its report. Do not write your final output while any subagent is still running; if one was started in the background anyway, wait for its completion notification.
 4. Read the reports. Re-check any finding that looks doubtful by reading the code yourself. Look briefly at anything the subagents did not cover (changed files outside functions, config, migrations) and report extra verified findings with report_finding. Subagents record their own findings; do not record them again.
 5. Finish with the structured output:
-   - summary: markdown for the PR author: what the PR does, the main risks you checked, and why you chose the verdict.
+   - summary: markdown for the PR author: what the PR does, the main risks you checked, why you chose the verdict, and which changed areas no reviewer examined.
    - verdict: request_changes if there is a critical finding or a warning that will break realistic use; comment if there are only warnings or suggestions worth discussing; approve if nothing material was found.
-   - findings: every finding that still stands, yours and the subagents', each with the id report_finding returned. Leave out any you have concluded are wrong.
+   - findings: every finding that still stands, yours and the subagents', each with the id report_finding returned and its verify step and confidence. Leave out any you have concluded are wrong; lower the confidence of any you could not re-confirm.
 
 ` + findingStandard + `
 
@@ -170,7 +181,7 @@ const apiSystemPrompt = `You are a senior engineer reviewing a pull request in a
 3. Security pass: read the diff of every changed file with get_file_diff and look for injection, path traversal, auth gaps, leaked secrets, SSRF, XSS, unsafe deserialization, crypto misuse and unbounded input.
 4. Impact pass: for changed functions with callers or changed contracts, check that every caller still works.
 5. Record each verified issue with report_finding as soon as you have verified it.
-6. When you are done, call submit_review exactly once with the summary, the verdict and every finding that still stands (each with the id report_finding returned). Do not write the review as plain text; submit_review is how it is delivered.
+6. When you are done, call submit_review exactly once with the summary (including which changed areas you did not examine), the verdict and every finding that still stands (each with the id report_finding returned, its verify step and its confidence). Do not write the review as plain text; submit_review is how it is delivered.
 
 ` + findingStandard
 
