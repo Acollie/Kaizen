@@ -52,15 +52,24 @@ test('sequences time out after 800ms', () => {
   assert.equal(action(parser.feed('g', 2000)), 'topx1');
 });
 
-test('a lone digit resolves to its tab binding on timeout', () => {
+test('tabs use g-prefixed keys; digits after g are keys, not counts', () => {
   const parser = createKeyParser();
-  parser.feed('3', 0);
-  const result = parser.expire(400);
+  parser.feed('g', 0);
+  const result = parser.feed('3', 100);
   assert.equal(result.binding.action, 'tab');
   assert.equal(result.binding.argument, 'activity');
-  parser.feed('2', 1000);
-  parser.feed('5', 1100);
-  assert.deepEqual(parser.expire(2000), { type: 'none' }, 'a multi-digit count is dropped, not a tab');
+  parser.feed('g', 200);
+  assert.equal(action(parser.feed('t', 300)), 'nextTabx1');
+  parser.feed('g', 400);
+  assert.equal(action(parser.feed('T', 500)), 'prevTabx1');
+});
+
+test('a bare count with no motion shows as pending, then times out', () => {
+  const parser = createKeyParser();
+  assert.equal(parser.feed('2', 0).type, 'pending');
+  assert.equal(parser.display(), '2');
+  assert.deepEqual(parser.expire(900), { type: 'none' });
+  assert.equal(parser.display(), '');
 });
 
 test('unknown keys reset, and an aborted prefix retries the new key', () => {

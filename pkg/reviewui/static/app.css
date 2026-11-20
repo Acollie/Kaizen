@@ -52,7 +52,7 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
-  --sidebar-w: 290px;
+  --sidebar-w: 300px;
   --context-w: 420px;
   --code-font: 12.5px;
   --row-h: 20px;
@@ -119,6 +119,7 @@ body {
   font: 13px/1.45 var(--font-ui);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -148,7 +149,7 @@ kbd {
 }
 .pr-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand {
-  font-size: 12px;
+  font-size: 17px;
   letter-spacing: -0.5px;
   white-space: nowrap;
   color: var(--terracotta);
@@ -304,15 +305,14 @@ kbd {
 .file-side { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .fn-list { padding-bottom: 4px; }
 .fn-row {
-  grid-template-columns: 14px minmax(0, 1fr) 54px 26px;
-  padding: 4px 12px 4px 30px; font-size: 12.5px;
+  grid-template-columns: 12px minmax(0, 1fr) auto 36px 22px;
+  padding: 4px 12px 4px 26px; font-size: 12.5px; min-height: 26px;
 }
 .fn-row.active { background: var(--surface); border-left-color: var(--terracotta-dark); }
 .fn-row .star { color: var(--amber-dark); font-size: 11px; }
 .fn-name { font-family: var(--font-mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fn-name .recv { color: var(--muted); }
-.fn-row .badges { grid-column: 2 / 5; display: flex; gap: 4px; min-height: 0; }
-.fn-row .badges:empty { display: none; }
+.fn-row .badges { display: flex; gap: 3px; }
 .risk-bar { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .risk-bar > span { display: block; height: 100%; border-radius: 3px; }
 .risk-score { font-size: 11px; color: var(--text-2); text-align: right; font-variant-numeric: tabular-nums; }
@@ -645,14 +645,17 @@ kbd {
   .topbar { flex-wrap: wrap; }
   .topbar-actions { flex-wrap: wrap; }
   .workspace, .workspace.sidebar-collapsed, .workspace.context-collapsed, .workspace.sidebar-collapsed.context-collapsed {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
+    display: flex; flex-direction: column; min-height: auto;
   }
   .divider, .collapse-button, .restore-button { display: none !important; }
-  .workspace .sidebar, .workspace .context-pane { visibility: visible !important; }
-  .sidebar { max-height: 38vh; }
-  .code-pane { height: 70vh; }
-  .context-pane { height: 75vh; }
+  .workspace .sidebar, .workspace .context-pane { visibility: visible !important; overflow: visible; }
+  .workspace .pane { flex: none; }
+  .sidebar { height: 40vh; border-bottom: 1px solid var(--border); }
+  .code-pane { height: 75vh; }
+  .context-pane { height: 75vh; border-top: 1px solid var(--border); }
+  .topbar-actions { width: 100%; }
+  .topbar-actions .primary-button { margin-left: auto; }
+  .severity-counts { flex-wrap: wrap; }
   .finding-slot { padding-left: 16px; }
   .status-pill { max-width: 100%; }
 }
@@ -667,3 +670,52 @@ kbd {
 .post-item .sev-label.sev-suggestion { color: var(--sev-suggestion); }
 .post-item .sev-label.sev-praise { color: var(--sev-praise); }
 .activity-item .badge { text-transform: uppercase; font-size: 9.5px; }
+
+/* Code view: fixed gutters while scrolling horizontally, pane-width cards, soft-wrap */
+.row .ln, .row .sign { position: sticky; z-index: 2; }
+.row .ln.old { left: 0; }
+.row .ln.new { left: 52px; }
+.row .sign { left: 104px; background: var(--surface); }
+.row.added .sign { box-shadow: inset 0 0 0 100px var(--add-bg); }
+.row.removed .sign { box-shadow: inset 0 0 0 100px var(--del-bg); }
+.row.added .ln { background: color-mix(in srgb, var(--surface), var(--sage-dark) 30%); }
+.row.removed .ln { background: color-mix(in srgb, var(--surface), var(--terracotta) 24%); }
+.finding-slot, .file-notes, .gap { width: var(--code-view-w, 100%); max-width: none; box-sizing: border-box; }
+.gap { left: 0; }
+.finding-card { max-width: min(860px, 100%); }
+.finding-body, .finding-title { overflow-wrap: anywhere; }
+.code-body.wrap { min-width: 0; }
+.code-body.wrap .row .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-body.wrap .finding-slot, .code-body.wrap .file-notes, .code-body.wrap .gap { width: auto; }
+
+/* Changed-function range: thin risk-coloured edge and a faint tint; add/remove colours stay dominant */
+.row.in-fn .text {
+  box-shadow: inset 3px 0 0 var(--fn-color, transparent);
+  background: color-mix(in srgb, var(--fn-color, transparent) 5%, transparent);
+}
+.row.added.in-fn .text, .row.removed.in-fn .text { background: none; }
+.row.flash { animation: none; }
+.row.flash .text { animation: fn-flash 1.4s ease-out; }
+@keyframes fn-flash {
+  0%, 25% { box-shadow: inset 6px 0 0 var(--fn-color, var(--amber-dark)); background-color: color-mix(in srgb, var(--fn-color, var(--amber)) 16%, transparent); }
+  100% { box-shadow: inset 3px 0 0 var(--fn-color, transparent); }
+}
+/* Graph: toolbar, hint, legible labels and dimming */
+.graph-toolbar { position: static; }
+.graph-bar {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border);
+  min-height: 40px;
+}
+.graph-hint { flex: 1; min-width: 0; font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); }
+.small-button[aria-pressed="true"] { background: var(--surface-2); border-color: var(--border-strong); font-weight: 600; }
+.arrow-head { fill: var(--edge); }
+.arrow-head.hl { fill: var(--amber-dark); }
+.graph-link.caller-hl + .arrow-head { fill: var(--slate); }
+.graph-dim .graph-node:not(.nbr) { opacity: 0.35; }
+.graph-dim .graph-link:not(.hl):not(.caller-hl) { stroke-opacity: 0.22; }
+.graph-node text.label { font-size: 11.5px; font-weight: 500; stroke: var(--bg-2); stroke-width: 4px; stroke-linejoin: round; }
+.graph-node.selected text.label { font-weight: 700; }
+.legend-arrow { color: var(--text-2); font-weight: 700; }
+.tabs button { padding: 0 9px; }
+.row.call-site .text { background: var(--cursor-bg); }
+.row.call-site { background: none; }

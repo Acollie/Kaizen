@@ -80,6 +80,7 @@ function createApp(store) {
     canvasEl: byId('graph-canvas'),
     legendEl: byId('graph-legend'),
     tooltipEl: byId('graph-tooltip'),
+    hintEl: byId('graph-hint'),
     onNodeClick: (id) => selectNode(id, { openFile: true }),
   });
   const activity = createActivityFeed({
@@ -91,6 +92,7 @@ function createApp(store) {
 
   byId('graph-fit').addEventListener('click', () => graph.fit());
   byId('graph-reset').addEventListener('click', () => graph.clear());
+  byId('graph-layered').addEventListener('click', () => graph.toggleLayered());
   byId('post-button').addEventListener('click', () => post.open());
   byId('help-button').addEventListener('click', () => openHelp());
   byId('help-close').addEventListener('click', () => byId('help-modal').close());
@@ -399,7 +401,11 @@ function createApp(store) {
     focusRight: () => layout.moveFocus(1),
     focusFilter: () => { layout.focusPane('sidebar', { moveFocus: false }); sidebar.focusFilter(); },
     tab: (count, binding) => layout.showTab(binding.argument),
+    nextTab: (count) => layout.cycleTab(count),
+    prevTab: (count) => layout.cycleTab(-count),
+    toggleWrap: () => code.toggleWrap(),
     fitGraph: () => { layout.showTab('graph'); graph.fit(); },
+    toggleLayered: () => { layout.showTab('graph'); graph.toggleLayered(); },
     post: () => post.open(),
     help: () => openHelp(),
     escape: () => {

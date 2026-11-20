@@ -20,6 +20,7 @@ trend-export.json
 !go.sum
 !package.json
 !tsconfig.json
+!**/testdata/**/*.json
 
 # Database
 .kaizen/

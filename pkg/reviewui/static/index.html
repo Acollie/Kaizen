@@ -12,7 +12,7 @@
 <body>
   <header class="topbar" id="topbar">
     <div class="pr-info">
-      <span class="brand" aria-hidden="true">改善</span>
+      <span class="brand" aria-hidden="true" title="Kaizen">改</span>
       <div class="pr-text">
         <div class="pr-title-row">
           <span class="pr-number" id="pr-number">#…</span>
@@ -60,17 +60,21 @@
     <aside class="pane context-pane" id="pane-context" data-pane="context" aria-label="Context">
       <div class="pane-header tabs-header">
         <div class="tabs" role="tablist" id="tabs">
-          <button type="button" role="tab" data-tab="graph" aria-selected="true">Graph<kbd>1</kbd></button>
-          <button type="button" role="tab" data-tab="function" aria-selected="false">Function<kbd>2</kbd></button>
-          <button type="button" role="tab" data-tab="activity" aria-selected="false">Activity<kbd>3</kbd><span class="tab-badge" id="activity-badge" hidden></span></button>
-          <button type="button" role="tab" data-tab="summary" aria-selected="false">Summary<kbd>4</kbd></button>
+          <button type="button" role="tab" data-tab="graph" aria-selected="true" title="Graph (g1)">Graph</button>
+          <button type="button" role="tab" data-tab="function" aria-selected="false" title="Function (g2)">Function</button>
+          <button type="button" role="tab" data-tab="activity" aria-selected="false" title="Activity (g3)">Activity<span class="tab-badge" id="activity-badge" hidden></span></button>
+          <button type="button" role="tab" data-tab="summary" aria-selected="false" title="Summary (g4)">Summary</button>
         </div>
         <button type="button" class="collapse-button" data-collapse="context" title="Collapse context panel" aria-label="Collapse context panel">⟩</button>
       </div>
       <div class="tab-panel" data-panel="graph" id="panel-graph">
-        <div class="graph-toolbar">
-          <button type="button" class="small-button" id="graph-fit" title="Fit graph (f)">Fit</button>
-          <button type="button" class="small-button" id="graph-reset" title="Clear selection">Clear focus</button>
+        <div class="graph-bar">
+          <span class="graph-hint" id="graph-hint"></span>
+          <div class="graph-toolbar">
+            <button type="button" class="small-button" id="graph-layered" aria-pressed="true" title="Layered layout: callers left, callees right (L)">Layered</button>
+            <button type="button" class="small-button" id="graph-fit" title="Fit graph (f)">Fit</button>
+            <button type="button" class="small-button" id="graph-reset" title="Clear selection">Clear</button>
+          </div>
         </div>
         <div class="graph-canvas" id="graph-canvas"></div>
         <div class="graph-legend" id="graph-legend"></div>

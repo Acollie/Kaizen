@@ -108,5 +108,11 @@ export function createLayout({ workspaceEl, onTabChange }) {
     onTabChange(name);
   }
 
-  return { showTab, focusPane, moveFocus, activeTab: () => activeTab, focusedPane: () => focusedPane };
+  function cycleTab(delta) {
+    const tabs = [...document.querySelectorAll('[data-tab]')].map((tab) => tab.dataset.tab);
+    const index = tabs.indexOf(activeTab);
+    showTab(tabs[(((index + delta) % tabs.length) + tabs.length) % tabs.length]);
+  }
+
+  return { showTab, cycleTab, focusPane, moveFocus, activeTab: () => activeTab, focusedPane: () => focusedPane };
 }

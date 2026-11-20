@@ -17,6 +17,16 @@ export function createCodeView({ store, scrollEl, bodyEl, headerEl, onSelectFunc
   let view = null; // per-render lookups for the current model
   let cursorEl = null;
 
+  // Cards, gaps and notes are sized to the visible pane width so they never run off-screen
+  new ResizeObserver(() => {
+    bodyEl.style.setProperty('--code-view-w', `${scrollEl.clientWidth}px`);
+  }).observe(scrollEl);
+
+  function toggleWrap() {
+    bodyEl.classList.toggle('wrap');
+    return bodyEl.classList.contains('wrap');
+  }
+
   store.on('finding', ({ finding }) => {
     if (!current || finding.file !== current.path) return;
     const card = view.cards.get(finding.id);
@@ -490,6 +500,7 @@ export function createCodeView({ store, scrollEl, bodyEl, headerEl, onSelectFunc
 
   return {
     show,
+    toggleWrap,
     showFunction,
     showFinding,
     scrollToLine,
