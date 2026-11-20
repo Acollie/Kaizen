@@ -219,6 +219,49 @@ func MyFunction(items []int) {
 	assert.Equal(t, 2, goFunc.MaxNestingDepth())
 }
 
+func TestMaxNestingDepthElseIfChainIsFlat(t *testing.T) {
+	code := `package main
+
+func Classify(value int) string {
+	if value == 1 {
+		return "one"
+	} else if value == 2 {
+		return "two"
+	} else if value == 3 {
+		return "three"
+	} else if value == 4 {
+		return "four"
+	} else if value == 5 {
+		return "five"
+	} else {
+		return "many"
+	}
+}
+`
+
+	goFunc := parseGoFunction(t, code)
+	assert.Equal(t, 1, goFunc.MaxNestingDepth())
+}
+
+func TestMaxNestingDepthIfInsideElseIfNests(t *testing.T) {
+	code := `package main
+
+func Classify(value int, strict bool) string {
+	if value == 1 {
+		return "one"
+	} else if value == 2 {
+		if strict {
+			return "two"
+		}
+	}
+	return ""
+}
+`
+
+	goFunc := parseGoFunction(t, code)
+	assert.Equal(t, 2, goFunc.MaxNestingDepth())
+}
+
 func TestCalculateCyclomaticComplexitySimple(t *testing.T) {
 	code := `package main
 
@@ -443,10 +486,10 @@ func MyFunction() {
 
 func TestCyclomaticComplexityKnownValues(t *testing.T) {
 	tests := []struct {
-		name            string
-		code            string
-		minExpectedCC   int
-		maxExpectedCC   int
+		name          string
+		code          string
+		minExpectedCC int
+		maxExpectedCC int
 	}{
 		{
 			name: "simple function",

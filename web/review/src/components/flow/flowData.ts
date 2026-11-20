@@ -5,6 +5,7 @@ import type { FileDiff, Finding, FunctionRisk } from '../../types';
 import { findingBelongsTo } from '../../lib/findings';
 import type { Bounds, FlowDirection, FlowLayout } from '../../lib/flowLayout';
 import { plural } from '../../lib/format';
+import { callerCount } from '../function/functionData';
 
 /** Panels at least this wide lay the flow out left to right */
 export const WIDE_PANEL = 720;
@@ -37,14 +38,24 @@ export interface HintInput {
   focusName: string | null;
   /** Highlighted node in whole-PR scope */
   highlightName: string | null;
+  /** The focus node's changed function, when it is one: supplies the full caller and call-site counts */
+  focusFunction?: FunctionRisk;
 }
 
-/** "ValidateConfiguration · 1 caller → 5 callees" or "Whole PR · 6 call flows" */
-export function flowHint({ layout, scope, focusName, highlightName }: HintInput): string {
+/**
+ * "ValidateConfiguration · 11 callers (36 call sites) · 8 shown → 5 callees", or
+ * "Whole PR · 6 call flows". Callers are distinct calling functions, matching the
+ * Function tab; the diagram may draw fewer than the call graph knows about.
+ */
+export function flowHint({ layout, scope, focusName, highlightName, focusFunction }: HintInput): string {
   if (scope === 'selection' && focusName) {
-    const callers = layout.nodes.filter((node) => node.rank < 0).length;
+    const drawnCallers = layout.nodes.filter((node) => node.rank === -1).length;
     const callees = layout.nodes.filter((node) => node.rank > 0).length;
-    return `${focusName} · ${plural(callers, 'caller')} → ${plural(callees, 'callee')}`;
+    const callers = focusFunction ? Math.max(callerCount(focusFunction), drawnCallers) : drawnCallers;
+    const sites = focusFunction && focusFunction.fan_in > 0
+      ? ` (${focusFunction.fan_in_approximate ? '≈' : ''}${plural(focusFunction.fan_in, 'call site')})` : '';
+    const shown = drawnCallers < callers ? ` · ${drawnCallers} shown` : '';
+    return `${focusName} · ${plural(callers, 'caller')}${sites}${shown} → ${plural(callees, 'callee')}`;
   }
   const flows = Math.max(1, layout.groups.filter((group) => group.key !== 'loose').length);
   const prefix = scope === 'selection' ? 'Nothing selected' : 'Whole PR';

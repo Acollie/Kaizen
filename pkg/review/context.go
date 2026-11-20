@@ -382,8 +382,11 @@ func attachRelationships(entries []*changedEntry, callGraph *models.CallGraph, r
 func attachGoRelationships(entry *changedEntry, callGraph *models.CallGraph, fullName, root string) {
 	entry.risk.ID = fullName
 	entry.risk.FanIn = callSiteCount(callGraph, fullName)
+	callers := callGraph.Callers(fullName)
+	entry.risk.CallerCount = len(callers) // edges are deduplicated per caller
+	entry.risk.FanInApproximate = anyInferred(callers)
 
-	for _, edge := range callGraph.Callers(fullName) {
+	for _, edge := range callers {
 		if len(entry.risk.Callers) >= maxRelatedFunctions {
 			break
 		}
@@ -412,6 +415,17 @@ func callSiteCount(callGraph *models.CallGraph, fullName string) int {
 		count += edge.Weight
 	}
 	return count
+}
+
+// anyInferred reports whether any edge was resolved by method name alone, which
+// makes the fan-in built from them approximate
+func anyInferred(edges []models.CallEdge) bool {
+	for _, edge := range edges {
+		if edge.Inferred {
+			return true
+		}
+	}
+	return false
 }
 
 // calleeRef describes a callee by its definition site

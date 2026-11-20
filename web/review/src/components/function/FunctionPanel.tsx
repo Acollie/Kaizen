@@ -7,7 +7,7 @@ import { useFindings, useReview, useReviewStore } from '../../state/StoreProvide
 import { useCommands } from '../../state/commands';
 import { findingBelongsTo } from '../../lib/findings';
 import type { FunctionRef, FunctionRisk } from '../../types';
-import { refAction, type RefAction, type RefDirection } from './functionData';
+import { callersCapNote, callersHeading, refAction, type RefAction, type RefDirection } from './functionData';
 import { FindingList, FunctionHeader, MetricsTable, RefList, RiskReasons } from './FunctionSections';
 import { NodeInfo } from './NodeInfo';
 import { onCallersRequest, requestCallersFocus, takeCallersRequest } from './callersRequest';
@@ -52,7 +52,8 @@ function ChangedFunction({ fn }: { fn: FunctionRisk }) {
       <RiskReasons reasons={fn.risk_reasons ?? []} />
       <MetricsTable fn={fn} />
       <FindingList findings={findings} onOpen={(id) => store.getState().openFinding(id)} />
-      <RefList title="Callers" refs={fn.callers ?? []} actionFor={actionFor('callers')} onAction={run} sectionRef={callersRef} />
+      <RefList title="Callers" heading={callersHeading(fn)} note={callersCapNote(fn)} refs={fn.callers ?? []}
+        actionFor={actionFor('callers')} onAction={run} sectionRef={callersRef} />
       <RefList title="Callees" refs={fn.callees ?? []} actionFor={actionFor('callees')} onAction={run} />
     </div>
   );

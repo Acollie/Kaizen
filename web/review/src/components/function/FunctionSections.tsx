@@ -89,12 +89,17 @@ interface RefListProps {
   actionFor(ref: FunctionRef): RefAction;
   onAction(action: RefAction): void;
   sectionRef?: Ref<HTMLElement>;
+  /** Replaces the title and count badge, e.g. "Callers (11 functions, 36 call sites)" */
+  heading?: string;
+  /** Shown above the list, e.g. "showing 25 of 40" when the list is capped */
+  note?: string | null;
 }
 
-export function RefList({ title, refs, actionFor, onAction, sectionRef }: RefListProps) {
+export function RefList({ title, refs, actionFor, onAction, sectionRef, heading, note }: RefListProps) {
   return (
-    <Section title={title} count={refs.length} sectionRef={sectionRef}>
+    <Section title={heading ?? title} count={heading ? undefined : refs.length} sectionRef={sectionRef}>
       {!refs.length && <p className="fn-note">No {title.toLowerCase()} found.</p>}
+      {note && <p className="fn-note">{note}</p>}
       <ul className="fn-list">
         {refs.map((ref) => {
           const action = actionFor(ref);

@@ -42,9 +42,10 @@ function FlowDiagram() {
     gotoCallers: () => requestCallersFocus(store),
   });
 
+  const focusFunction = useReview((state) => (view.layoutFocusId ? state.index.functions.get(view.layoutFocusId) : undefined));
   const nodeName = (id: string | null) => (id ? view.model.nodes.get(id)?.name ?? null : null);
   const hint = flowHint({
-    layout: view.layout, scope: view.scope, focusName: nodeName(view.layoutFocusId), highlightName: nodeName(view.highlightId),
+    layout: view.layout, scope: view.scope, focusName: nodeName(view.layoutFocusId), highlightName: nodeName(view.highlightId), focusFunction,
   });
 
   return (

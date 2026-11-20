@@ -18,7 +18,9 @@ import (
 // registers all function declarations, the second resolves call expressions against
 // that complete set. Resolution is syntactic (no type checking), using, in order:
 // the file's imports, the enclosing method's receiver name, and method names that
-// are declared exactly once in the analyzed code.
+// are declared exactly once in the analyzed code. That last guess is skipped for
+// common interface method names (String, Close, ...) and calls rooted in an import,
+// and the edges it produces are marked Inferred.
 type CallGraphAnalyzer struct {
 	graph       *models.CallGraph
 	currentFile string
@@ -205,7 +207,7 @@ func (analyzer *CallGraphAnalyzer) extractCallsFromFunction(funcDecl *ast.FuncDe
 			return true
 		}
 
-		calleeName := analyzer.resolveCallee(callExpr, scope)
+		calleeName, inferred := analyzer.resolveCallee(callExpr, scope)
 		if calleeName == "" {
 			return true // builtins, conversions and anonymous functions
 		}
@@ -215,11 +217,12 @@ func (analyzer *CallGraphAnalyzer) extractCallsFromFunction(funcDecl *ast.FuncDe
 		}
 
 		analyzer.graph.AddEdge(models.CallEdge{
-			From:   callerFullName,
-			To:     calleeName,
-			Weight: 1,
-			File:   analyzer.currentFile,
-			Line:   analyzer.fileSet.Position(callExpr.Pos()).Line,
+			From:     callerFullName,
+			To:       calleeName,
+			Weight:   1,
+			File:     analyzer.currentFile,
+			Line:     analyzer.fileSet.Position(callExpr.Pos()).Line,
+			Inferred: inferred,
 		})
 
 		return true
@@ -242,22 +245,22 @@ func receiverName(funcDecl *ast.FuncDecl) string {
 }
 
 // resolveCallee returns the node key for the function a call expression targets,
-// or "" when the call should not be recorded
-func (analyzer *CallGraphAnalyzer) resolveCallee(callExpr *ast.CallExpr, scope callScope) string {
+// or "" when the call should not be recorded. inferred marks a name-only guess.
+func (analyzer *CallGraphAnalyzer) resolveCallee(callExpr *ast.CallExpr, scope callScope) (callee string, inferred bool) {
 	switch fun := callExpr.Fun.(type) {
 	case *ast.Ident:
-		return analyzer.resolveIdentCall(fun.Name)
+		return analyzer.resolveIdentCall(fun.Name), false
 	case *ast.SelectorExpr:
 		return analyzer.resolveSelectorCall(fun, scope)
 	case *ast.IndexExpr:
 		// Explicitly instantiated generic: Map[int](...)
 		if ident, ok := fun.X.(*ast.Ident); ok {
-			return analyzer.resolveIdentCall(ident.Name)
+			return analyzer.resolveIdentCall(ident.Name), false
 		}
-		return ""
+		return "", false
 	default:
 		// Anonymous functions, calls on call results, etc.
-		return ""
+		return "", false
 	}
 }
 
@@ -274,31 +277,102 @@ func (analyzer *CallGraphAnalyzer) resolveIdentCall(name string) string {
 	return ""
 }
 
-// resolveSelectorCall resolves pkg.Func(), receiver.Method() and value.Method()
-func (analyzer *CallGraphAnalyzer) resolveSelectorCall(selector *ast.SelectorExpr, scope callScope) string {
+// resolveSelectorCall resolves pkg.Func(), receiver.Method() and value.Method().
+// inferred is true when the target was guessed from a method name declared only
+// once in the analyzed code, rather than from an import or the enclosing receiver.
+func (analyzer *CallGraphAnalyzer) resolveSelectorCall(selector *ast.SelectorExpr, scope callScope) (callee string, inferred bool) {
 	methodName := selector.Sel.Name
 
 	if ident, ok := selector.X.(*ast.Ident); ok {
 		if packageName, isImport := scope.imports[ident.Name]; isImport {
-			return packageName + "." + methodName
+			return packageName + "." + methodName, false
 		}
 		if scope.receiverName != "" && ident.Name == scope.receiverName {
 			candidate := analyzer.packageName + "." + scope.receiverType + "." + methodName
 			if _, exists := analyzer.graph.Nodes[candidate]; exists {
-				return candidate
+				return candidate, false
 			}
 		}
 	}
 
-	if candidates := analyzer.methodsByName[methodName]; len(candidates) == 1 {
-		return candidates[0]
+	if analyzer.canInferUniqueMethod(selector, scope) {
+		if candidates := analyzer.methodsByName[methodName]; len(candidates) == 1 {
+			return candidates[0], true
+		}
 	}
 
 	// Ambiguous or external method: keep a readable placeholder
 	if ident, ok := selector.X.(*ast.Ident); ok {
-		return ident.Name + "." + methodName
+		return ident.Name + "." + methodName, false
 	}
-	return methodName
+	return methodName, false
+}
+
+// canInferUniqueMethod reports whether value.Method() may be resolved by method name
+// alone. Without type information that guess is only safe for distinctive names:
+// String, Close or Write are implemented all over the standard library, so a single
+// repo method with that name would otherwise collect every buf.String() call. Calls
+// rooted in an imported package (os.Stdout.Write) are never repo methods either.
+func (analyzer *CallGraphAnalyzer) canInferUniqueMethod(selector *ast.SelectorExpr, scope callScope) bool {
+	if commonMethodNames[selector.Sel.Name] {
+		return false
+	}
+	root := rootIdentifier(selector.X)
+	if root == nil {
+		return true
+	}
+	_, isImport := scope.imports[root.Name]
+	return !isImport
+}
+
+// rootIdentifier returns the left-most identifier of a selector chain such as
+// os.Stdout.Write or items[0].field.Method, or nil when the chain starts elsewhere
+func rootIdentifier(expr ast.Expr) *ast.Ident {
+	for {
+		switch typed := expr.(type) {
+		case *ast.Ident:
+			return typed
+		case *ast.SelectorExpr:
+			expr = typed.X
+		case *ast.CallExpr:
+			expr = typed.Fun
+		case *ast.IndexExpr:
+			expr = typed.X
+		case *ast.StarExpr:
+			expr = typed.X
+		case *ast.ParenExpr:
+			expr = typed.X
+		default:
+			return nil
+		}
+	}
+}
+
+// commonMethodNames are method names implemented by many standard-library and
+// interface types; a call to one of them is never resolved by name alone
+var commonMethodNames = map[string]bool{
+	"String": true, "Error": true, "Close": true, "Read": true, "Write": true, "Len": true,
+	"Less": true, "Swap": true, "Get": true, "Set": true, "Run": true, "Do": true, "Next": true,
+	"Reset": true, "Lock": true, "Unlock": true, "RLock": true, "RUnlock": true, "Wait": true,
+	"Add": true, "Done": true, "Stop": true, "Start": true, "Bytes": true, "Value": true,
+	"Key": true, "Name": true, "Load": true, "Store": true, "Scan": true, "Format": true,
+	"Copy": true, "Clone": true, "Equal": true, "ServeHTTP": true, "Header": true,
+	"WriteHeader": true, "Unwrap": true, "Is": true, "As": true, "Flush": true, "Sync": true,
+	"Seek": true, "ReadFrom": true, "WriteTo": true, "WriteString": true, "WriteByte": true,
+	"WriteRune": true, "ReadByte": true, "ReadRune": true, "ReadString": true, "ReadLine": true,
+	"MarshalJSON": true, "UnmarshalJSON": true, "MarshalText": true, "UnmarshalText": true,
+	"Err": true, "Deadline": true, "Delete": true, "Range": true, "Len64": true, "Cap": true,
+	"Type": true, "Kind": true, "Interface": true, "Elem": true, "Index": true, "Path": true,
+	"Open": true, "Execute": true, "Parse": true,
+	"Size": true, "Mode": true, "ModTime": true, "IsDir": true, "Sys": true,
+	"Info": true, "Debug": true, "Warn": true, "Printf": true, "Println": true, "Print": true,
+	"Fatal": true, "Fatalf": true, "Errorf": true, "Logf": true, "Log": true, "Helper": true,
+	"Cleanup": true, "Context": true, "WithContext": true, "Query": true, "Exec": true,
+	"Commit": true, "Rollback": true, "Ping": true, "Count": true, "Push": true, "Pop": true,
+	"Peek": true, "Contains": true, "Keys": true, "Values": true, "Items": true, "Send": true,
+	"Recv": true, "Accept": true, "Dial": true, "Listen": true, "Serve": true, "Shutdown": true,
+	"Handle": true, "Handler": true, "Hash": true, "Sum": true, "Encode": true, "Decode": true,
+	"Lookup": true, "Match": true, "Update": true, "Insert": true, "Remove": true,
 }
 
 // goBuiltins are predeclared functions that never become call graph nodes

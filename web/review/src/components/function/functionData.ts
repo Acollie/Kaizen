@@ -2,6 +2,7 @@
 // callee does.
 
 import type { FunctionRef, FunctionRisk, ReviewContext } from '../../types';
+import { plural } from '../../lib/format';
 
 export type MetricLevel = 'ok' | 'notable' | 'high';
 
@@ -48,10 +49,39 @@ export function metricRows(fn: FunctionRisk): MetricRow[] {
     label: 'Fan-in',
     value: `${fn.fan_in_approximate ? '≈' : ''}${fn.fan_in}`,
     level: level(fn.fan_in, 8, 15),
-    title: fn.fan_in_approximate ? 'Approximate: found by text search, not the call graph' : undefined,
+    title: fn.fan_in_approximate
+      ? `Approximate: some calls were matched by name, not by the call graph. ${callerSummary(fn)}`
+      : callerSummary(fn),
   });
   if (metrics) rows.push({ label: 'Churn', value: churn === undefined ? '—' : `${churn}`, level: level(churn, 10, 20), title: 'Commits touching this function' });
   return rows;
+}
+
+/**
+ * Distinct calling functions. Fan-in counts call sites (one caller calling twice
+ * adds 2), and the callers list is capped, so neither is this number.
+ */
+export function callerCount(fn: FunctionRisk): number {
+  return fn.caller_count ?? (fn.callers ?? []).length;
+}
+
+/** "11 functions, 36 call sites", or just the call sites when callers are unknown (text-search fan-in) */
+export function callerSummary(fn: FunctionRisk): string {
+  const sites = `${fn.fan_in_approximate ? '≈' : ''}${plural(fn.fan_in, 'call site')}`;
+  const callers = callerCount(fn);
+  return callers > 0 ? `${plural(callers, 'function')}, ${sites}` : sites;
+}
+
+/** Section heading for the callers list: "Callers (11 functions, 36 call sites)" */
+export function callersHeading(fn: FunctionRisk): string {
+  return fn.fan_in > 0 || callerCount(fn) > 0 ? `Callers (${callerSummary(fn)})` : 'Callers';
+}
+
+/** "showing 25 of 40" when the server capped the callers list, else null */
+export function callersCapNote(fn: FunctionRisk): string | null {
+  const shown = (fn.callers ?? []).length;
+  const total = callerCount(fn);
+  return shown < total ? `showing ${shown} of ${total}` : null;
 }
 
 export type RefDirection = 'callers' | 'callees';

@@ -79,3 +79,43 @@ func TestRepoRelativePath(t *testing.T) {
 	assert.Equal(t, "/elsewhere/x.go", RepoRelativePath("/elsewhere/x.go", "/repo"))
 	assert.Equal(t, "", RepoRelativePath("", "/repo"))
 }
+
+func TestMatchCallGraphNameIgnoresFixtureCopies(t *testing.T) {
+	repoPath := "/repo"
+	graph := models.NewCallGraph()
+	graph.AddNode(&models.CallNode{Name: "Analyze", FullName: "analyzer.Pipeline.Analyze", File: "/repo/pkg/analyzer/pipeline.go", Line: 40})
+
+	fixture := ChangedFunction{
+		FilePath: "pkg/reviewui/testdata/worktree/pkg/analyzer/pipeline.go", Name: "Analyze",
+		HasReceiver: true, ReceiverType: "Pipeline", StartLine: 40,
+	}
+	assert.Empty(t, MatchCallGraphName(fixture, graph, repoPath))
+
+	original := fixture
+	original.FilePath = "/repo/pkg/analyzer/pipeline.go"
+	assert.Equal(t, "analyzer.Pipeline.Analyze", MatchCallGraphName(original, graph, repoPath))
+}
+
+func TestSameSourceFile(t *testing.T) {
+	testCases := []struct {
+		name        string
+		nodePath    string
+		changedPath string
+		expected    bool
+	}{
+		{"identical relative", "pkg/a/b.go", "pkg/a/b.go", true},
+		{"identical after cleaning", "./pkg/a/../a/b.go", "pkg/a/b.go", true},
+		{"fixture copy is a different file", "pkg/x/testdata/pkg/a/b.go", "pkg/a/b.go", false},
+		{"fixture copy, reversed", "pkg/a/b.go", "pkg/x/testdata/pkg/a/b.go", false},
+		{"absolute node, relative change", "/elsewhere/repo/pkg/a/b.go", "pkg/a/b.go", true},
+		{"relative node, absolute change", "pkg/a/b.go", "/elsewhere/repo/pkg/a/b.go", true},
+		{"suffix must end on a segment boundary", "/elsewhere/xpkg/a/b.go", "pkg/a/b.go", false},
+		{"two different absolute paths", "/one/pkg/a/b.go", "/two/pkg/a/b.go", false},
+		{"empty", "", "pkg/a/b.go", false},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expected, sameSourceFile(testCase.nodePath, testCase.changedPath))
+		})
+	}
+}

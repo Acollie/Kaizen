@@ -88,6 +88,58 @@ func Run(target *store.Store) {
 	assert.Len(t, graph.Callers("store.Open"), 1)
 }
 
+func TestCallGraphMarksUniqueMethodNameEdgesInferred(t *testing.T) {
+	root := writeGoFiles(t, map[string]string{
+		"store/store.go": "package store\n\ntype Store struct{}\n\nfunc (store *Store) Persist() {}\n\nfunc (store *Store) Flushes() { store.Persist() }\n",
+		"app/app.go":     "package app\n\nfunc Run(target *Thing) { target.Persist() }\n",
+	})
+
+	graph, err := NewCallGraphAnalyzer().AnalyzeDirectory(root)
+	require.NoError(t, err)
+
+	inferredByCaller := map[string]bool{}
+	for _, edge := range graph.Callers("store.Store.Persist") {
+		inferredByCaller[edge.From] = edge.Inferred
+	}
+	assert.Equal(t, map[string]bool{"app.Run": true, "store.Store.Flushes": false}, inferredByCaller)
+}
+
+func TestCallGraphDoesNotResolveCommonMethodNamesByName(t *testing.T) {
+	root := writeGoFiles(t, map[string]string{
+		"buffer/tail.go": "package buffer\n\ntype tailBuffer struct{}\n\nfunc (tail *tailBuffer) String() string { return \"\" }\n\nfunc (tail *tailBuffer) Dump() string { return tail.String() }\n",
+		"report/report.go": `package report
+
+import "strings"
+
+func Render() string {
+	var buf strings.Builder
+	buf.WriteString("x")
+	return buf.String()
+}
+`,
+	})
+
+	graph, err := NewCallGraphAnalyzer().AnalyzeDirectory(root)
+	require.NoError(t, err)
+
+	callers := graph.Callers("buffer.tailBuffer.String")
+	require.Len(t, callers, 1, "only the receiver call inside tailBuffer resolves")
+	assert.Equal(t, "buffer.tailBuffer.Dump", callers[0].From)
+	assert.False(t, callers[0].Inferred)
+}
+
+func TestCallGraphDoesNotInferMethodsOnImportedValues(t *testing.T) {
+	root := writeGoFiles(t, map[string]string{
+		"sink/sink.go": "package sink\n\ntype Sink struct{}\n\nfunc (sink *Sink) Emit() {}\n",
+		"app/app.go":   "package app\n\nimport \"example.com/vendor/logs\"\n\nfunc Run() { logs.Default.Emit() }\n",
+	})
+
+	graph, err := NewCallGraphAnalyzer().AnalyzeDirectory(root)
+	require.NoError(t, err)
+
+	assert.Empty(t, graph.Callers("sink.Sink.Emit"))
+}
+
 func TestCallGraphSkipsBuiltinsAndConversions(t *testing.T) {
 	root := writeGoFiles(t, map[string]string{
 		"main.go": "package demo\n\ntype ID int\n\nfunc Build(items []int) int {\n\tlist := make([]int, 0, len(items))\n\treturn int(ID(len(append(list, 1))))\n}\n",

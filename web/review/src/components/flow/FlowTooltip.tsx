@@ -4,6 +4,7 @@ import type { Finding, FunctionRisk, GraphNode } from '../../types';
 import { qualifiedName } from '../../lib/format';
 import { riskColor } from '../../lib/risk';
 import { SeverityCounts } from '../shared/bits';
+import { callerCount } from '../function/functionData';
 
 export interface TooltipTarget { id: string; left: number; top: number }
 
@@ -18,6 +19,7 @@ interface FlowTooltipProps {
 export function FlowTooltip({ node, fn, findings, left, top }: FlowTooltipProps) {
   const reason = fn?.risk_reasons?.[0];
   const fanIn = fn ? `${fn.fan_in_approximate ? '≈' : ''}${fn.fan_in}` : String(node.fan_in);
+  const callers = fn ? callerCount(fn) : 0;
   return (
     <div className="fl-tooltip" style={{ left, top }} role="tooltip">
       <div className="fl-tt-name">{fn ? qualifiedName(fn) : node.name}</div>
@@ -26,7 +28,7 @@ export function FlowTooltip({ node, fn, findings, left, top }: FlowTooltipProps)
         <div className="fl-tt-stats">
           <span>risk <b style={{ color: riskColor(node.risk_score) }}>{Math.round(node.risk_score)}</b></span>
           <span>complexity <b>{node.complexity}</b></span>
-          <span>fan-in <b>{fanIn}</b></span>
+          <span title="Fan-in: call sites targeting this function">fan-in <b>{fanIn}</b>{callers > 0 && <> from <b>{callers}</b> {callers === 1 ? 'caller' : 'callers'}</>}</span>
         </div>
       )}
       {node.kind !== 'changed' && <div className="fl-tt-kind">{node.kind === 'external' ? 'Outside this repository' : `Unchanged ${node.kind}`}</div>}
