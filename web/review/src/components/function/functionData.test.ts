@@ -1,5 +1,5 @@
 import type { FunctionRef, FunctionRisk, ReviewContext } from '../../types';
-import { connectedFunctions, metricRows, refAction } from './functionData';
+import { callerSummary, callersCapNote, callersHeading, connectedFunctions, metricRows, refAction } from './functionData';
 
 const fn = (overrides: Partial<FunctionRisk> = {}): FunctionRisk => ({
   id: 'pkg.f', name: 'f', file: 'a.go', language: 'Go', start_line: 1, end_line: 10, lines_added: 3, lines_removed: 1, is_new: false,
@@ -11,6 +11,24 @@ const metrics = {
   churn: { total_commits: 12 },
 };
 const ref = (overrides: Partial<FunctionRef>): FunctionRef => ({ id: 'x', name: 'x', file: 'b.go', line: 7, external: false, ...overrides });
+
+describe('callers heading', () => {
+  it('separates distinct callers from call sites and notes a capped list', () => {
+    const callers = Array.from({ length: 25 }, (_, position) => ref({ id: `c${position}` }));
+    const capped = fn({ fan_in: 36, caller_count: 30, callers });
+    expect(callerSummary(capped)).toBe('30 functions, 36 call sites');
+    expect(callersHeading(capped)).toBe('Callers (30 functions, 36 call sites)');
+    expect(callersCapNote(capped)).toBe('showing 25 of 30');
+  });
+
+  it('falls back to the list length and to call sites alone', () => {
+    const uncapped = fn({ fan_in: 3, callers: [ref({ id: 'a' }), ref({ id: 'b' })] });
+    expect(callersHeading(uncapped)).toBe('Callers (2 functions, 3 call sites)');
+    expect(callersCapNote(uncapped)).toBeNull();
+    expect(callersHeading(fn({ fan_in: 4, fan_in_approximate: true }))).toBe('Callers (≈4 call sites)');
+    expect(callersHeading(fn({ fan_in: 0 }))).toBe('Callers');
+  });
+});
 
 describe('metricRows', () => {
   it('shows each metric with a level from its thresholds', () => {

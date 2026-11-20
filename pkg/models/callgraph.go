@@ -46,6 +46,10 @@ type CallEdge struct {
 	Weight int    `json:"weight"` // Number of call sites
 	File   string `json:"file"`   // Where the call happens
 	Line   int    `json:"line"`   // Line number of call
+
+	// Inferred is true when every call site behind this edge was resolved by method
+	// name alone (no import or receiver evidence), so the callee may be wrong
+	Inferred bool `json:"inferred,omitempty"`
 }
 
 // CallGraphStats provides summary statistics
@@ -89,6 +93,9 @@ func (graph *CallGraph) AddEdge(edge CallEdge) {
 	key := edgeKey(edge.From, edge.To)
 	if position, exists := positions[key]; exists {
 		graph.Edges[position].Weight++
+		if !edge.Inferred {
+			graph.Edges[position].Inferred = false
+		}
 		return
 	}
 

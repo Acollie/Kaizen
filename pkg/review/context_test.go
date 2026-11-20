@@ -187,6 +187,7 @@ func TestBuildContextCallersAndCallees(t *testing.T) {
 	compute := findFunction(t, reviewContext.Functions, "app.Compute")
 
 	assert.Equal(t, 3, compute.FanIn)
+	assert.Equal(t, 3, compute.CallerCount)
 	assert.False(t, compute.FanInApproximate)
 	callerIDs := []string{}
 	for _, caller := range compute.Callers {

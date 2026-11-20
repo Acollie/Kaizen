@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -84,7 +85,7 @@ func ScoreFunctionsWithDiff(functions []FunctionRisk, files []FileDiff, focusCou
 		function.RiskScore, function.RiskReasons = combineFactors(factors)
 		if IsTestFile(function.File) {
 			function.RiskScore = math.Round(function.RiskScore*TestCodeMultiplier*10) / 10
-			function.RiskReasons = append(function.RiskReasons, "test code: weighted down so production changes get reviewed first")
+			function.RiskReasons = append(function.RiskReasons, "test code or fixture: weighted down so production changes get reviewed first")
 		}
 	}
 	assignFocus(functions, focusCount)
@@ -94,8 +95,15 @@ func ScoreFunctionsWithDiff(functions []FunctionRisk, files []FileDiff, focusCou
 // in the ranking, but a large new test should not outrank the production code it tests.
 const TestCodeMultiplier = 0.35
 
+// testDirectorySegments are directory names that hold tests or test inputs (fixtures,
+// golden files, snapshots) rather than production code
+var testDirectorySegments = map[string]bool{
+	"test": true, "tests": true, "__tests__": true,
+	"testdata": true, "fixtures": true, "__fixtures__": true, "__snapshots__": true,
+}
+
 // IsTestFile reports whether a repo-relative path follows a test-file naming convention
-// for one of the supported languages, or lives under a test directory.
+// for one of the supported languages, or lives under a test or fixture directory.
 func IsTestFile(path string) bool {
 	slashed := filepath.ToSlash(path)
 	base := filepath.Base(slashed)
@@ -112,7 +120,7 @@ func IsTestFile(path string) bool {
 		return true
 	}
 	for _, segment := range strings.Split(slashed, "/") {
-		if segment == "test" || segment == "tests" || segment == "__tests__" {
+		if testDirectorySegments[segment] {
 			return true
 		}
 	}
@@ -128,15 +136,63 @@ func collectRiskFactors(function *FunctionRisk, changedLines []string) []riskFac
 		securityFactor(function, changedLines),
 	}
 	if function.Metrics != nil {
-		factors = append(factors,
-			cyclomaticFactor(function.Metrics.CyclomaticComplexity),
-			cognitiveFactor(function.Metrics.CognitiveComplexity),
-			nestingFactor(function.Metrics.NestingDepth),
-			maintainabilityFactor(function.Metrics.MaintainabilityIndex, function.Metrics.HalsteadVolume),
-			newComplexFactor(function.IsNew, function.Metrics.CyclomaticComplexity),
-		)
+		factors = append(factors, intrinsicFactors(function)...)
+		factors = append(factors, newComplexFactor(function.IsNew, function.Metrics.CyclomaticComplexity))
 	}
 	return factors
+}
+
+// intrinsicFactors scores the function's own shape (complexity, nesting, MI), scaled
+// by how much of it the PR changed: a 3-line touch to a complex function is mostly
+// a review of those 3 lines, while a rewrite of it is a review of all its complexity.
+func intrinsicFactors(function *FunctionRisk) []riskFactor {
+	metrics := function.Metrics
+	factors := []riskFactor{
+		cyclomaticFactor(metrics.CyclomaticComplexity),
+		cognitiveFactor(metrics.CognitiveComplexity),
+		nestingFactor(metrics.NestingDepth),
+		maintainabilityFactor(metrics.MaintainabilityIndex, metrics.HalsteadVolume),
+	}
+
+	share, changed, length := changeShare(function)
+	if share >= 1 {
+		return factors
+	}
+	hasIntrinsicRisk := false
+	for index := range factors {
+		hasIntrinsicRisk = hasIntrinsicRisk || factors[index].contribution > 0
+		factors[index].contribution *= share
+	}
+	if hasIntrinsicRisk {
+		factors = append(factors, riskFactor{
+			reason: fmt.Sprintf("small edit (%d of %d lines): complexity weighted down", changed, length),
+		})
+	}
+	return factors
+}
+
+// Change-share scaling: the share of a function the PR changed is
+// changed lines / length * ChangeShareGain, clamped to [MinChangeShare, 1], so
+// editing half the function (or more) counts its complexity in full
+const (
+	ChangeShareGain = 2.0
+	MinChangeShare  = 0.25
+)
+
+// changeShare returns the scale applied to intrinsic factors, with the changed
+// line count and function length it was computed from. New functions, and
+// functions whose change size or length is unknown, are not scaled.
+func changeShare(function *FunctionRisk) (share float64, changed, length int) {
+	changed = function.LinesAdded + function.LinesRemoved
+	length = function.Metrics.Length
+	if length <= 0 && function.EndLine >= function.StartLine && function.StartLine > 0 {
+		length = function.EndLine - function.StartLine + 1
+	}
+	if function.IsNew || changed <= 0 || length <= 0 {
+		return 1, changed, length
+	}
+	share = float64(changed) / float64(length) * ChangeShareGain
+	return math.Max(MinChangeShare, math.Min(1, share)), changed, length
 }
 
 // combineFactors sums contributions into a 0-100 score and orders reasons by contribution
@@ -233,16 +289,33 @@ func fanInFactor(function *FunctionRisk) riskFactor {
 	if function.FanIn < ReasonFanInWarning {
 		return factor
 	}
-	approximate := ""
-	if function.FanInApproximate {
-		approximate = " (approximate)"
-	}
+	subject := fanInSubject(function)
 	if function.FanIn >= ReasonFanInCritical {
-		factor.reason = fmt.Sprintf("fan-in %d%s: critical blast radius, many callers depend on this", function.FanIn, approximate)
+		factor.reason = subject + ": critical blast radius, many callers depend on this"
 	} else {
-		factor.reason = fmt.Sprintf("fan-in %d%s: changes ripple to many callers", function.FanIn, approximate)
+		factor.reason = subject + ": changes ripple to many callers"
 	}
 	return factor
+}
+
+// fanInSubject describes fan-in as call sites and, when known, distinct callers:
+// "fan-in 36 call sites from 11 callers (approximate)"
+func fanInSubject(function *FunctionRisk) string {
+	subject := fmt.Sprintf("fan-in %d", function.FanIn)
+	if function.CallerCount > 0 {
+		subject += fmt.Sprintf(" call sites from %d %s", function.CallerCount, pluralize(function.CallerCount, "caller", "callers"))
+	}
+	if function.FanInApproximate {
+		subject += " (approximate)"
+	}
+	return subject
+}
+
+func pluralize(count int, singular, plural string) string {
+	if count == 1 {
+		return singular
+	}
+	return plural
 }
 
 func churnFactor(function *FunctionRisk) riskFactor {
@@ -298,15 +371,41 @@ var securityNameTokens = map[string]bool{
 	"deserialize": true, "unmarshal": true, "template": true, "sanitize": true, "permission": true,
 }
 
-// securityLinePatterns are code fragments in added lines that suggest security-sensitive code
-var securityLinePatterns = []string{
-	"exec.Command", "os/exec", "subprocess", "os.system", "Runtime.getRuntime", "ProcessBuilder",
-	"database/sql", ".Query(", ".Exec(", "SELECT ", "INSERT ", "UPDATE ", "DELETE FROM",
-	"crypto/", "hashlib", "password", "secret", "token", "Authorization",
+// securityCodePatterns are code fragments that suggest security-sensitive code. They
+// are matched against changed lines with comments and string literals removed, so a
+// word like "secret" in a help text or a comment does not count.
+var securityCodePatterns = []string{
+	// process execution
+	"exec.CommandContext", "exec.Command", "syscall.Exec", "subprocess", "os.system",
+	"Runtime.getRuntime", "ProcessBuilder",
+	// outbound effects and listeners
+	"http.Post", "http.NewRequest", "net.Listen", "ListenAndServe",
+	"os.WriteFile", "os.RemoveAll", "os.Setenv",
+	// HTML injection
+	"template.HTML", "dangerouslySetInnerHTML", "innerHTML",
+	// data access, secrets and request handling
+	".Query(", ".Exec(", "hashlib", "password", "secret", "token", "Authorization",
 	"http.ResponseWriter", "http.Request", "HandleFunc", "ServeHTTP",
 	"Unmarshal", "pickle.load", "yaml.load", "gob.NewDecoder", "Decodable",
-	"template.HTML", "text/template", "html/template",
-	"filepath.Join", "os.path.join", "path.Join",
+}
+
+// securityLiteralPatterns only ever appear inside string literals (import paths, SQL,
+// command-line arguments), so they are matched against the raw changed line
+var securityLiteralPatterns = []string{
+	"os/exec", "database/sql", "crypto/", "text/template", "html/template",
+	"SELECT ", "INSERT ", "UPDATE ", "DELETE FROM",
+	"gh api", `"gh", "api"`, "--method POST", `"--method", "POST"`,
+	"--permission-mode", "--dangerously-skip-permissions", "--allowedTools",
+}
+
+// securityCodeExpressions are patterns that need word boundaries or context, named
+// by the label used in the risk reason
+var securityCodeExpressions = []struct {
+	label      string
+	expression *regexp.Regexp
+}{
+	{"eval(", regexp.MustCompile(`\beval\(`)},
+	{".Do( on an HTTP client", regexp.MustCompile(`(?i)client\)?\.Do\(`)},
 }
 
 func securityFactor(function *FunctionRisk, changedLines []string) riskFactor {
@@ -317,16 +416,78 @@ func securityFactor(function *FunctionRisk, changedLines []string) riskFactor {
 		}
 	}
 	for _, line := range changedLines {
-		for _, pattern := range securityLinePatterns {
-			if strings.Contains(line, pattern) {
-				return riskFactor{
-					contribution: WeightSecurity,
-					reason:       fmt.Sprintf("security-sensitive: changed lines use %q", strings.TrimSpace(pattern)),
-				}
+		if pattern := firstSecurityPattern(line); pattern != "" {
+			return riskFactor{
+				contribution: WeightSecurity,
+				reason:       fmt.Sprintf("security-sensitive: changed lines use %q", strings.TrimSpace(pattern)),
 			}
 		}
 	}
 	return riskFactor{}
+}
+
+// firstSecurityPattern returns the first security pattern a changed line uses, or ""
+func firstSecurityPattern(line string) string {
+	code := stripLiteralsAndComments(line)
+	for _, pattern := range securityCodePatterns {
+		if strings.Contains(code, pattern) {
+			return pattern
+		}
+	}
+	for _, candidate := range securityCodeExpressions {
+		if candidate.expression.MatchString(code) {
+			return candidate.label
+		}
+	}
+	for _, pattern := range securityLiteralPatterns {
+		if strings.Contains(line, pattern) {
+			return pattern
+		}
+	}
+	return ""
+}
+
+// stripLiteralsAndComments blanks the contents of "...", '...' and `...` literals
+// and drops // and /* */ comments from a single line. It is a per-line heuristic:
+// literals and comments spanning lines are not tracked.
+func stripLiteralsAndComments(line string) string {
+	var code strings.Builder
+	for position := 0; position < len(line); position++ {
+		character := line[position]
+		switch {
+		case strings.HasPrefix(line[position:], "//"):
+			return code.String()
+		case strings.HasPrefix(line[position:], "/*"):
+			end := strings.Index(line[position+2:], "*/")
+			if end < 0 {
+				return code.String()
+			}
+			position += end + 3
+			code.WriteByte(' ')
+		case character == '"' || character == '\'' || character == '`':
+			position = skipLiteral(line, position)
+			code.WriteString(`""`)
+		default:
+			code.WriteByte(character)
+		}
+	}
+	return code.String()
+}
+
+// skipLiteral returns the index of the quote closing the literal opened at start,
+// honouring backslash escapes except in raw (backtick) strings
+func skipLiteral(line string, start int) int {
+	quote := line[start]
+	for position := start + 1; position < len(line); position++ {
+		if line[position] == '\\' && quote != '`' {
+			position++
+			continue
+		}
+		if line[position] == quote {
+			return position
+		}
+	}
+	return len(line)
 }
 
 // firstSecurityToken splits identifiers and paths into words and returns the first sensitive one
@@ -418,6 +579,9 @@ const (
 	FileRiskDependencies = 18.0
 	// FileRiskGitattributes applies to .gitattributes, which can hide changes from diffs
 	FileRiskGitattributes = 30.0
+	// FileRiskAgentInstructions applies to CLAUDE.md, AGENTS.md, .claude/ and similar
+	// files, which AI tools (including the AI half of this review) follow as instructions
+	FileRiskAgentInstructions = 30.0
 	// WeightUnstructuredSize scales the size factor for files without analyzable functions:
 	// 0 at <=10 changed lines, full at >=200
 	WeightUnstructuredSize = 20.0
@@ -457,8 +621,30 @@ func fileKindRisk(path string) (float64, []string) {
 		return FileRiskDependencies, []string{"dependency manifest: supply-chain change"}
 	case base == ".gitattributes":
 		return FileRiskGitattributes, []string{"changes how git diffs and merges files: check for -diff, binary or merge attributes that hide changes"}
+	case isAgentInstructionFile(slashed, base):
+		return FileRiskAgentInstructions, []string{"AI agent instructions: can steer AI tools (including this review); read it yourself"}
 	}
 	return 0, nil
+}
+
+// agentInstructionFiles are lower-case file names AI coding tools load as instructions
+var agentInstructionFiles = map[string]bool{
+	"claude.md": true, "claude.local.md": true, "agents.md": true, ".cursorrules": true,
+	"copilot-instructions.md": true, "gemini.md": true, ".windsurfrules": true,
+}
+
+// isAgentInstructionFile reports whether a file is read by AI tools as instructions:
+// a known instruction file name, or anything under a .claude or .cursor directory
+func isAgentInstructionFile(slashed, base string) bool {
+	if agentInstructionFiles[base] {
+		return true
+	}
+	for _, segment := range strings.Split(slashed, "/") {
+		if segment == ".claude" || segment == ".cursor" {
+			return true
+		}
+	}
+	return false
 }
 
 // dependencyManifests are file names whose changes alter third-party code pulled into the build

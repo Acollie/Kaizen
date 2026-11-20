@@ -117,6 +117,11 @@ type FunctionRisk struct {
 	Callers          []FunctionRef `json:"callers"`
 	Callees          []FunctionRef `json:"callees"`
 
+	// CallerCount is the number of distinct calling functions (uncapped; Callers is
+	// capped). FanIn counts call sites, so one caller calling twice adds 2 to FanIn.
+	// 0 when unknown (grep-based fan-in).
+	CallerCount int `json:"caller_count"`
+
 	RiskScore   float64  `json:"risk_score"`   // 0-100, higher is riskier
 	RiskReasons []string `json:"risk_reasons"` // human-readable, e.g. "cyclomatic complexity 21 (high)"
 	Focus       bool     `json:"focus"`        // in the top-N the review should concentrate on

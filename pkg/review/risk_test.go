@@ -1,6 +1,7 @@
 package review
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -198,15 +199,21 @@ func containsFragment(reasons []string, fragment string) bool {
 
 func TestIsTestFile(t *testing.T) {
 	cases := map[string]bool{
-		"internal/config/validation_test.go": true,
-		"pkg/app/test_views.py":              true,
-		"pkg/app/views_test.py":              true,
-		"app/src/CartTest.kt":                true,
-		"Sources/CartTests.swift":            true,
-		"tests/fixtures/helpers.go":          true,
-		"internal/config/config.go":          false,
-		"pkg/testing/assert.go":              false,
-		"cmd/contest/main.go":                false,
+		"internal/config/validation_test.go":                      true,
+		"pkg/app/test_views.py":                                   true,
+		"pkg/app/views_test.py":                                   true,
+		"app/src/CartTest.kt":                                     true,
+		"Sources/CartTests.swift":                                 true,
+		"tests/fixtures/helpers.go":                               true,
+		"pkg/reviewui/testdata/worktree/pkg/analyzer/pipeline.go": true,
+		"web/src/fixtures/review.ts":                              true,
+		"web/src/__fixtures__/pr.json":                            true,
+		"web/src/__snapshots__/App.test.tsx.snap":                 true,
+		"pkg/fixture/loader.go":                                   false,
+		"pkg/testdatagen/gen.go":                                  false,
+		"internal/config/config.go":                               false,
+		"pkg/testing/assert.go":                                   false,
+		"cmd/contest/main.go":                                     false,
 	}
 	for path, expected := range cases {
 		assert.Equal(t, expected, IsTestFile(path), path)
@@ -260,4 +267,127 @@ func TestScoreFileRanksNonCodeFiles(t *testing.T) {
 	assert.Zero(t, readme)
 	assert.Empty(t, readmeReasons)
 	assert.Zero(t, source, "source files with functions are scored through their functions")
+}
+
+func complexMetrics() *models.FunctionAnalysis {
+	return &models.FunctionAnalysis{
+		Length: 94, CyclomaticComplexity: 17, CognitiveComplexity: 20, NestingDepth: 3,
+		MaintainabilityIndex: 30, HalsteadVolume: 100,
+	}
+}
+
+func TestScoreFunctionsScalesComplexityByChangeShare(t *testing.T) {
+	testCases := []struct {
+		name          string
+		linesAdded    int
+		linesRemoved  int
+		isNew         bool
+		expectedScore float64
+		smallEdit     bool
+	}{
+		{name: "3-line touch drops to a quarter", linesAdded: 3, linesRemoved: 3, expectedScore: 6.6, smallEdit: true},
+		{name: "partial edit scales proportionally", linesAdded: 12, linesRemoved: 8, expectedScore: 13.0, smallEdit: true},
+		{name: "large edit keeps full complexity", linesAdded: 50, linesRemoved: 10, expectedScore: 33.1},
+		{name: "new function keeps full complexity", linesAdded: 3, isNew: true, expectedScore: 29.4},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			functions := []FunctionRisk{{
+				ID: "app.FormatReport", Name: "FormatReport", File: "app/report.go", IsNew: testCase.isNew,
+				LinesAdded: testCase.linesAdded, LinesRemoved: testCase.linesRemoved, Metrics: complexMetrics(),
+			}}
+			ScoreFunctions(functions, 5)
+
+			assert.InDelta(t, testCase.expectedScore, functions[0].RiskScore, 0.15)
+			changed := testCase.linesAdded + testCase.linesRemoved
+			reason := fmt.Sprintf("small edit (%d of 94 lines): complexity weighted down", changed)
+			assert.Equal(t, testCase.smallEdit, containsFragment(functions[0].RiskReasons, reason), "%v", functions[0].RiskReasons)
+		})
+	}
+}
+
+func TestChangeShareDoesNotScaleFanInOrSecurity(t *testing.T) {
+	functions := []FunctionRisk{{
+		ID: "app.Run", Name: "Run", File: "app/run.go", FanIn: 15, LinesAdded: 1,
+		Metrics: &models.FunctionAnalysis{Length: 100, CyclomaticComplexity: 1},
+	}}
+	ScoreFunctions(functions, 5)
+	assert.Equal(t, WeightFanIn, functions[0].RiskScore)
+	assert.False(t, containsFragment(functions[0].RiskReasons, "small edit"), "no intrinsic risk, nothing to weight down")
+}
+
+func TestSecurityLinePatterns(t *testing.T) {
+	testCases := []struct {
+		name    string
+		line    string
+		pattern string
+	}{
+		{"filepath.Join is not security-sensitive", `path := filepath.Join(root, name)`, ""},
+		{"word in a description string", `return 0, []string{"runs with repository secrets and write tokens"}`, ""},
+		{"word in a raw string", "help := `paste your secret token here`", ""},
+		{"word in a comment", `count++ // the secret sauce`, ""},
+		{"escaped quote stays inside the literal", `message := "say \"secret\" twice"`, ""},
+		{"process execution", `command := exec.CommandContext(ctx, name, args...)`, "exec.CommandContext"},
+		{"syscall exec", `return syscall.Exec(binary, args, env)`, "syscall.Exec"},
+		{"outbound HTTP post", `response, err := http.Post(url, "application/json", body)`, "http.Post"},
+		{"outbound request", `request, err := http.NewRequestWithContext(ctx, "POST", url, nil)`, "http.NewRequest"},
+		{"client Do", `response, err := client.Do(request)`, ".Do( on an HTTP client"},
+		{"http.DefaultClient Do", `response, err := http.DefaultClient.Do(request)`, ".Do( on an HTTP client"},
+		{"once.Do is not HTTP", `once.Do(setup)`, ""},
+		{"gh api through a runner", `runner.Run(ctx, dir, "gh", "api", endpoint, "--method", "POST")`, `"gh", "api"`},
+		{"gh api in a shell string", `script := "gh api repos/x --method POST"`, "gh api"},
+		{"listener", `listener, err := net.Listen("tcp", address)`, "net.Listen"},
+		{"server", `log.Fatal(http.ListenAndServe(":8080", nil))`, "ListenAndServe"},
+		{"file write", `err := os.WriteFile(path, data, 0o600)`, "os.WriteFile"},
+		{"recursive delete", `defer os.RemoveAll(directory)`, "os.RemoveAll"},
+		{"environment", `os.Setenv("HOME", home)`, "os.Setenv"},
+		{"trusted HTML", `return template.HTML(rendered)`, "template.HTML"},
+		{"React raw HTML", `<div dangerouslySetInnerHTML={{ __html: body }} />`, "dangerouslySetInnerHTML"},
+		{"DOM raw HTML", `element.innerHTML = body;`, "innerHTML"},
+		{"eval", `const result = eval(source);`, "eval("},
+		{"retrieval( is not eval", `const result = retrieval(source);`, ""},
+		{"import path", `import "os/exec"`, "os/exec"},
+		{"AI subprocess permissions", `"--permission-mode", "dontAsk",`, "--permission-mode"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.pattern, firstSecurityPattern(testCase.line))
+		})
+	}
+}
+
+func TestScoreFunctionsSecurityReasonNamesTheToken(t *testing.T) {
+	functions := []FunctionRisk{{ID: "github.Client.PostReview", Name: "PostReview", File: "pkg/github/post.go", StartLine: 1, EndLine: 5}}
+	files := []FileDiff{{Path: "pkg/github/post.go", Hunks: []Hunk{{Lines: []DiffLine{
+		{Kind: LineAdded, NewLine: 3, Text: `output, err := client.runner().RunWithInput(ctx, dir, input, "gh", "api", endpoint, "--method", "POST")`},
+	}}}}}
+	ScoreFunctionsWithDiff(functions, files, 5)
+	assert.Equal(t, WeightSecurity, functions[0].RiskScore)
+	assert.Equal(t, []string{`security-sensitive: changed lines use "\"gh\", \"api\""`}, functions[0].RiskReasons)
+}
+
+func TestFanInReasonCountsCallSitesAndCallers(t *testing.T) {
+	functions := []FunctionRisk{
+		{ID: "a", FanIn: 36, CallerCount: 11},
+		{ID: "b", FanIn: 6, CallerCount: 1, FanInApproximate: true},
+	}
+	ScoreFunctions(functions, 5)
+	assert.Contains(t, functions[0].RiskReasons, "fan-in 36 call sites from 11 callers: critical blast radius, many callers depend on this")
+	assert.Contains(t, functions[1].RiskReasons, "fan-in 6 call sites from 1 caller (approximate): changes ripple to many callers")
+}
+
+func TestScoreFileFlagsAgentInstructionFiles(t *testing.T) {
+	paths := []string{
+		"CLAUDE.md", "pkg/review/CLAUDE.md", "AGENTS.md", ".cursorrules",
+		".github/copilot-instructions.md", ".claude/settings.json", ".claude/agents/reviewer.md",
+	}
+	for _, path := range paths {
+		score, reasons := ScoreFile(FileDiff{Path: path, Additions: 2}, false)
+		assert.Equal(t, FileRiskAgentInstructions, score, path)
+		require.NotEmpty(t, reasons, path)
+		assert.Equal(t, "AI agent instructions: can steer AI tools (including this review); read it yourself", reasons[0], path)
+	}
+
+	docs, _ := ScoreFile(FileDiff{Path: "docs/claude-integration.md", Additions: 2}, false)
+	assert.Zero(t, docs)
 }

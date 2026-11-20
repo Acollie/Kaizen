@@ -109,6 +109,8 @@ export interface FunctionRisk {
   fan_in_approximate: boolean;
   callers: FunctionRef[] | null;
   callees: FunctionRef[] | null;
+  /** Distinct calling functions, uncapped (callers is capped; fan_in counts call sites) */
+  caller_count?: number;
   risk_score: number;
   risk_reasons: string[] | null;
   focus: boolean;

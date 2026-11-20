@@ -93,14 +93,41 @@ func RepoRelativePath(path, repoPath string) string {
 	return filepath.ToSlash(cleanPath)
 }
 
-// sameSourceFile reports whether two normalised paths name the same file,
-// tolerating one being a suffix of the other (mixed absolute and relative inputs)
+// sameSourceFile reports whether two normalised paths name the same file. Paths
+// are compared exactly after cleaning: a fixture copy such as
+// pkg/x/testdata/worktree/pkg/analyzer/pipeline.go is a different file from
+// pkg/analyzer/pipeline.go. Only when one side is absolute and the other relative
+// (a path outside the repo root against a repo-relative one) may the relative path
+// match the absolute path's tail, and then only on a whole path-segment boundary.
 func sameSourceFile(nodePath, changedPath string) bool {
 	if nodePath == "" || changedPath == "" {
 		return false
 	}
-	if nodePath == changedPath {
+	cleanNode := filepath.ToSlash(filepath.Clean(nodePath))
+	cleanChanged := filepath.ToSlash(filepath.Clean(changedPath))
+	if cleanNode == cleanChanged {
 		return true
 	}
-	return strings.HasSuffix(nodePath, "/"+changedPath) || strings.HasSuffix(changedPath, "/"+nodePath)
+
+	nodeAbsolute, changedAbsolute := isAbsoluteSlashPath(cleanNode), isAbsoluteSlashPath(cleanChanged)
+	switch {
+	case nodeAbsolute && !changedAbsolute:
+		return hasPathSuffix(cleanNode, cleanChanged)
+	case changedAbsolute && !nodeAbsolute:
+		return hasPathSuffix(cleanChanged, cleanNode)
+	}
+	return false
+}
+
+// isAbsoluteSlashPath reports whether a slash-separated path is absolute on any platform
+func isAbsoluteSlashPath(path string) bool {
+	return strings.HasPrefix(path, "/") || filepath.IsAbs(filepath.FromSlash(path))
+}
+
+// hasPathSuffix reports whether relative names the trailing path segments of absolute
+func hasPathSuffix(absolute, relative string) bool {
+	if relative == "." || relative == ".." || strings.HasPrefix(relative, "../") {
+		return false
+	}
+	return strings.HasSuffix(absolute, "/"+relative)
 }

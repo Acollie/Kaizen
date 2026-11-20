@@ -43,6 +43,13 @@ describe('flowHint', () => {
     expect(flowHint({ layout, scope: 'selection', focusName: 'f', highlightName: null })).toBe('f · 1 caller → 2 callees');
   });
 
+  it('reports distinct callers and call sites from the function, noting how many are drawn', () => {
+    const layout = layoutFlow(model, visibleNodeIds(model, 'f'), { focusId: 'f' });
+    const focusFunction = { ...fn('f', 1, 10), fan_in: 36, caller_count: 11 };
+    expect(flowHint({ layout, scope: 'selection', focusName: 'f', highlightName: null, focusFunction }))
+      .toBe('f · 11 callers (36 call sites) · 1 shown → 2 callees');
+  });
+
   it('describes the whole PR', () => {
     const layout = layoutFlow(model, visibleNodeIds(model, null));
     expect(flowHint({ layout, scope: 'all', focusName: null, highlightName: 'f' })).toBe('Whole PR · 1 call flow · f highlighted');

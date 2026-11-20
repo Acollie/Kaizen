@@ -88,11 +88,14 @@ func (goFunc *GoFunction) ReturnCount() int {
 
 // MaxNestingDepth returns the maximum nesting level of control-flow statements.
 // ast.Inspect calls the visitor with nil after each node's children, so we keep
-// a stack recording whether each visited node opened a nesting level.
+// a stack recording whether each visited node opened a nesting level. An
+// "else if" continues its parent if chain rather than nesting inside it, so a
+// flat if / else if / else if chain is depth 1.
 func (goFunc *GoFunction) MaxNestingDepth() int {
 	maxDepth := 0
 	currentDepth := 0
 	var opensLevel []bool
+	elseIfs := make(map[*ast.IfStmt]bool)
 
 	ast.Inspect(goFunc.declaration, func(node ast.Node) bool {
 		if node == nil {
@@ -104,7 +107,9 @@ func (goFunc *GoFunction) MaxNestingDepth() int {
 			return true
 		}
 
-		isNesting := isNestingNode(node)
+		markElseIf(node, elseIfs)
+		ifStmt, _ := node.(*ast.IfStmt)
+		isNesting := isNestingNode(node) && !elseIfs[ifStmt]
 		opensLevel = append(opensLevel, isNesting)
 		if isNesting {
 			currentDepth++
@@ -116,6 +121,17 @@ func (goFunc *GoFunction) MaxNestingDepth() int {
 	})
 
 	return maxDepth
+}
+
+// markElseIf records the IfStmt in an "else if" position of an if statement
+func markElseIf(node ast.Node, elseIfs map[*ast.IfStmt]bool) {
+	ifStmt, ok := node.(*ast.IfStmt)
+	if !ok {
+		return
+	}
+	if elseIf, chained := ifStmt.Else.(*ast.IfStmt); chained {
+		elseIfs[elseIf] = true
+	}
 }
 
 // isNestingNode reports whether a node introduces a control-flow nesting level
