@@ -2,7 +2,9 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -11,8 +13,13 @@ import (
 	"github.com/alexcollie/kaizen/pkg/review"
 )
 
-// defaultRemote is the remote PR refs are fetched from
+// defaultRemote is the fallback remote PR refs are fetched from when fetching
+// from the base repository's URL fails
 const defaultRemote = "origin"
+
+// ErrFetchAuth wraps a fetch from the base repository that failed for lack of credentials
+var ErrFetchAuth = errors.New("could not authenticate to fetch the pull request; " +
+	"run `gh auth setup-git` so git uses your GitHub CLI login")
 
 // Checkout fetches the PR head (via refs/pull/<n>/head, so forks work) and
 // base, creates a detached worktree at the head SHA in a new temporary
@@ -47,17 +54,79 @@ func (client *Client) Checkout(ctx context.Context, pr *review.PullRequest) (str
 	return worktreePath, cleanup, nil
 }
 
-// fetchPRRefs fetches the PR head ref and the base branch from the remote
+// fetchPRRefs fetches the PR head ref and the base branch. They are fetched from
+// the base repository's URL, because the PR lives there: in a clone where gh
+// resolves another remote (origin is a fork, upstream is the real repo),
+// refs/pull/<n>/head does not exist on origin. If the URL fetch fails, origin is
+// tried as before. Private repositories need git credentials for the URL, which
+// `gh auth setup-git` provides; an auth failure says so.
 func (client *Client) fetchPRRefs(ctx context.Context, pr *review.PullRequest) error {
 	refs := []string{"pull/" + strconv.Itoa(pr.Number) + "/head"}
 	if pr.BaseRef != "" {
 		refs = append(refs, pr.BaseRef)
 	}
+
+	repoURL := baseRepoURL(*pr)
+	if repoURL == "" {
+		return client.fetchFromOrigin(ctx, pr.Number, refs)
+	}
+	// Never prompt for a password: the fallback to origin (or the error) is better than a hang
+	urlArgs := append([]string{"-c", "credential.interactive=false", "fetch", "--no-tags", repoURL}, refs...)
+	_, urlErr := client.git(ctx, client.repoDir(), urlArgs...)
+	if urlErr == nil {
+		return nil
+	}
+
+	originErr := client.fetchFromOrigin(ctx, pr.Number, refs)
+	if originErr == nil {
+		return nil
+	}
+	if isAuthFailure(urlErr) {
+		return fmt.Errorf("fetch PR #%d from %s: %w (%v); fetching from %s also failed: %v",
+			pr.Number, repoURL, ErrFetchAuth, urlErr, defaultRemote, originErr)
+	}
+	return fmt.Errorf("fetch PR #%d from %s: %v; fetching from %s also failed: %w", pr.Number, repoURL, urlErr, defaultRemote, originErr)
+}
+
+// fetchFromOrigin fetches refs from the default remote
+func (client *Client) fetchFromOrigin(ctx context.Context, number int, refs []string) error {
 	args := append([]string{"fetch", "--no-tags", defaultRemote}, refs...)
 	if _, err := client.git(ctx, client.repoDir(), args...); err != nil {
-		return fmt.Errorf("fetch PR #%d: %w", pr.Number, err)
+		return fmt.Errorf("fetch PR #%d: %w", number, err)
 	}
 	return nil
+}
+
+// baseRepoURL is the clone URL of the repository the PR targets. It comes from the
+// PR's own URL (https://<host>/<owner>/<repo>/pull/<n>, so GitHub Enterprise hosts
+// work), else from Owner/Repo on github.com; "" when neither is known.
+func baseRepoURL(pr review.PullRequest) string {
+	if parsed, err := url.Parse(pr.URL); err == nil && parsed.Scheme == "https" && parsed.Host != "" {
+		segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+		if len(segments) >= 4 && segments[2] == "pull" && segments[0] != "" && segments[1] != "" {
+			return fmt.Sprintf("https://%s/%s/%s.git", parsed.Host, segments[0], segments[1])
+		}
+	}
+	if pr.Owner != "" && pr.Repo != "" {
+		return fmt.Sprintf("https://github.com/%s/%s.git", pr.Owner, pr.Repo)
+	}
+	return ""
+}
+
+// isAuthFailure reports whether a git fetch failed for lack of credentials. GitHub
+// answers "Repository not found" for private repositories without them.
+func isAuthFailure(err error) bool {
+	lower := strings.ToLower(errorDetail(err))
+	for _, marker := range []string{
+		"authentication failed", "could not read username", "could not read password",
+		"terminal prompts disabled", "repository not found", "permission denied",
+		"http 401", "http 403", "the requested url returned error: 403",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // worktreeCleanup returns an idempotent function that removes the worktree
