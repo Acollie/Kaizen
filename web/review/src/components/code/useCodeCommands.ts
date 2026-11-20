@@ -87,7 +87,18 @@ export function useCodeCommands(deps: CodeCommandDeps): void {
     else if (callee.file && !callee.external) state.openLocation(callee.file, callee.line || 1);
   };
 
+  const commentOnCursorLine = () => {
+    const row = rows()[cursorIndex()];
+    const { api } = latest.current;
+    const path = api.currentPath();
+    if (!row || row.type !== 'line' || !path || api.model.plain) return;
+    const state = store.getState();
+    if (row.kind === 'removed') state.setBlockedComment(row.key);
+    else state.openComposer({ file: path, line: row.newLine });
+  };
+
   useCommands({
+    comment: commentOnCursorLine,
     nextHunk: (count) => moveTo(rows()[stepHunk(rows(), cursorIndex(), count)]?.key, 'start', true),
     prevHunk: (count) => moveTo(rows()[stepHunk(rows(), cursorIndex(), -count)]?.key, 'start', true),
     top: () => {

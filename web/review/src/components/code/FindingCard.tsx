@@ -6,6 +6,8 @@ import { formatLineRef, SEVERITY_LABEL } from '../../lib/findings';
 import { highlightLine } from '../../lib/highlight';
 import { AgentTag } from '../shared/bits';
 import { Markdown } from '../shared/Markdown';
+import type { TriageEntry } from '../../state/triage';
+import { DismissedLine, TriageActions, VerifyStep } from '../shared/Triage';
 import { useIsCursor } from './cursor';
 
 /** Cards that arrived this recently animate in */
@@ -15,13 +17,12 @@ export const findingKey = (id: string) => `f:${id}`;
 
 export interface FindingCardProps {
   finding: Finding;
-  included: boolean;
+  triage: TriageEntry | undefined;
   arrivedAt: number | undefined;
   language: string;
   /** Set when the finding's line is not shown; renders a "Show line N" control */
   onShowLine?: (finding: Finding) => void;
   onActivate: (key: string) => void;
-  onToggleIncluded: (id: string, included: boolean) => void;
 }
 
 function Suggestion({ text, language }: { text: string; language: string }) {
@@ -43,13 +44,10 @@ function Suggestion({ text, language }: { text: string; language: string }) {
   );
 }
 
-function CardFooter({ finding, included, onShowLine, onToggleIncluded }: Pick<FindingCardProps, 'finding' | 'included' | 'onShowLine' | 'onToggleIncluded'>) {
+function CardFooter({ finding, onShowLine }: Pick<FindingCardProps, 'finding' | 'onShowLine'>) {
   return (
     <div className="cv-card-foot">
-      <label className="cv-card-include" onClick={(event) => event.stopPropagation()}>
-        <input type="checkbox" checked={included} onChange={(event) => onToggleIncluded(finding.id, event.target.checked)} />
-        Include in post
-      </label>
+      <TriageActions finding={finding} surface="code" />
       {onShowLine && finding.line ? (
         <button type="button" className="btn btn-outline cv-card-show" onClick={(event) => { event.stopPropagation(); onShowLine(finding); }}>
           Show line {finding.line}
@@ -63,25 +61,42 @@ function CardFooter({ finding, included, onShowLine, onToggleIncluded }: Pick<Fi
 }
 
 export const FindingCard = memo(function FindingCard(props: FindingCardProps) {
-  const { finding, included, arrivedAt, language, onActivate } = props;
+  const { finding, triage, arrivedAt, language, onActivate } = props;
   const key = findingKey(finding.id);
   const isCursor = useIsCursor(key);
   const [arriving] = useState(() => arrivedAt !== undefined && Date.now() - arrivedAt < ARRIVAL_WINDOW_MS);
+  const [expanded, setExpanded] = useState(false);
+  const dismissed = triage?.state === 'dismissed';
   const className = [
     'cv-card', `cv-card-${finding.severity}`, isCursor ? 'cv-cursor' : '', arriving ? 'cv-card-arrive' : '',
-    !included && finding.severity !== 'praise' ? 'cv-card-excluded' : '',
+    dismissed ? 'cv-card-dismissed' : '', triage?.state === 'accepted' ? 'cv-card-accepted' : '',
   ].filter(Boolean).join(' ');
+
+  if (dismissed && !expanded) {
+    return (
+      <article className={className} data-key={key} onClick={() => onActivate(key)}>
+        <div className="cv-card-inner">
+          <DismissedLine finding={finding} entry={triage} onOpen={() => setExpanded(true)} />
+        </div>
+      </article>
+    );
+  }
   return (
     <article className={className} data-key={key} onClick={() => onActivate(key)}>
       <div className="cv-card-inner">
         <div className="cv-card-head">
+          {triage?.state === 'accepted' ? <span className="cv-card-check" title="Accepted">✓</span> : null}
           <span className={`cv-card-sev sev-${finding.severity}`}>{SEVERITY_LABEL[finding.severity] ?? finding.severity}</span>
           {finding.category ? <span className="cv-card-meta">{finding.category}</span> : null}
           <span className="cv-card-meta mono">{formatLineRef(finding)}</span>
+          {dismissed ? (
+            <button type="button" className="tr-link cv-card-collapse" onClick={(event) => { event.stopPropagation(); setExpanded(false); }}>Collapse</button>
+          ) : null}
         </div>
         <h4 className="cv-card-title">{finding.title || '(untitled finding)'}</h4>
         <Markdown source={finding.body} className="cv-card-body" />
         {finding.suggestion ? <Suggestion text={finding.suggestion} language={language} /> : null}
+        <VerifyStep text={finding.verify} />
         <CardFooter {...props} />
       </div>
     </article>

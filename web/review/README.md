@@ -77,6 +77,25 @@ The selection says what is selected (file, function, flow node, finding, line).
 so selecting the same thing again still scrolls. Navigation actions push onto `history`
 for `Ctrl-o`.
 
+### The human's review (no cognitive surrender)
+
+The AI proposes; the developer verifies and decides. Nothing the AI wrote is posted
+unless the developer accepted it.
+
+- **Triage** (`state/triage.ts`): `triage[findingId] = { state: 'accepted' | 'dismissed', reason?, note? }`;
+  absent means unreviewed. `a` accepts, `d` dismisses (reason picker, `1`-`4`, Esc cancels),
+  `x`/Space toggles accept. An accepted finding's note is appended to its comment as
+  `**Reviewer note:** …`. The Review panel filters Unreviewed / Accepted / Dismissed / All.
+- **Your comments** (`state/comments.ts`): the gutter "+" (or `c` on the cursor line;
+  shift-click or drag for a range) opens a composer; "Comment on file" in the file header.
+  They post first, as findings with `source: "you"`, `title: ""`, id `c-…`.
+- **Viewed** (`state/viewing.ts`, `code/useViewTracking.ts`): a function counts as viewed
+  after its code has been on screen for 2s while selected; a file after 2s open.
+- **Think first** (`T`): hides the AI's findings, verdict and counts until the reviewer reveals them.
+- **Persistence** (`state/persistence.ts`): triage, viewed, comments and reveal are saved in
+  `localStorage` under `kaizen-review:<owner>/<repo>#<number>@<head_sha>` (a new push starts
+  fresh); the Think first preference under `kaizen-review-think-first`.
+
 ### Keyboard: keymap and commands
 
 `keys/keymap.ts` holds every binding in `BINDINGS` (keys, action, group, description).

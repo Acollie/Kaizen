@@ -6,9 +6,18 @@ import { AgentTag } from '../shared/bits';
 import { engineLabel } from '../header/headerModel';
 import { countsSentence, verdictView } from './reviewModel';
 
-export function Headline({ findings }: { findings: readonly Finding[] }) {
+export function Headline({ findings, hidden = false }: { findings: readonly Finding[]; hidden?: boolean }) {
   const status = useReview((state) => state.status);
   const result = useReview((state) => state.result);
+
+  if (hidden && status.state !== 'error' && (result || status.state === 'done')) {
+    return (
+      <div className="rv-headline">
+        <div className="rv-verdict">AI review ready</div>
+        <div className="rv-counts rv-hidden-note">Verdict and findings hidden while you think first.</div>
+      </div>
+    );
+  }
 
   if (result) {
     const verdict = verdictView(result.verdict);
@@ -43,7 +52,7 @@ export function Headline({ findings }: { findings: readonly Finding[] }) {
   return (
     <div className="rv-headline rv-running" aria-live="polite">
       <div className="rv-verdict"><span className="spinner" aria-hidden="true" />Claude is reviewing</div>
-      <div className="rv-counts">{findings.length ? `${countsSentence(findings)} so far` : 'No findings yet'}</div>
+      <div className="rv-counts">{hidden ? 'Findings hidden while you think first' : findings.length ? `${countsSentence(findings)} so far` : 'No findings yet'}</div>
       <div className="rv-now" title={status.message}>
         {status.agent && <AgentTag agent={status.agent} />}
         <span className="rv-now-text mono">{status.message}</span>

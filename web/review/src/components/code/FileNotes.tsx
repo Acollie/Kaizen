@@ -3,25 +3,32 @@
 
 import type { Finding } from '../../types';
 import type { ActivateHandler } from './DiffRows';
-import { FindingSlot } from './CodeRows';
+import { ComposerSlot, FindingSlot } from './CodeRows';
+import { useReview } from '../../state/StoreProvider';
 import type { FindingPlacement } from './placement';
 
 export interface FileNotesProps {
   placement: FindingPlacement;
+  path: string | null;
   language: string;
   activate: ActivateHandler;
   onShowLine: (finding: Finding) => void;
 }
 
-export function FileNotes({ placement, language, activate, onShowLine }: FileNotesProps) {
+export function FileNotes({ placement, path, language, activate, onShowLine }: FileNotesProps) {
   const { fileLevel, outside } = placement;
-  if (!fileLevel.length && !outside.length) return null;
+  const composer = useReview((state) => {
+    const target = state.ui.composer;
+    return target && target.file === path && !target.line && !target.editingId ? target : null;
+  });
+  if (!fileLevel.length && !outside.length && !composer) return null;
   return (
     <section className="cv-notes cv-sticky">
-      {fileLevel.length ? (
+      {fileLevel.length || composer ? (
         <>
           <div className="label cv-notes-title">File</div>
-          <FindingSlot findings={fileLevel} language={language} activate={activate} />
+          {fileLevel.length ? <FindingSlot findings={fileLevel} language={language} activate={activate} /> : null}
+          {composer ? <ComposerSlot target={composer} /> : null}
         </>
       ) : null}
       {outside.length ? (

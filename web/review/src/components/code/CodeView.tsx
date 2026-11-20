@@ -3,7 +3,7 @@
 // diff (a caller's file) render as a read-only window with the call line highlighted.
 
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from 'react';
-import { useFindings, useReview, useReviewStore } from '../../state/StoreProvider';
+import { useCommentFindings, useFindings, useReview, useReviewStore } from '../../state/StoreProvider';
 import type { Finding } from '../../types';
 import { highlightLanguage } from '../../lib/highlight';
 import { createCursorStore, CursorContext } from './cursor';
@@ -16,6 +16,8 @@ import { hiddenLineCount } from './rows';
 import { useCodeCommands } from './useCodeCommands';
 import { useFileModel } from './useFileModel';
 import { useReveal } from './useReveal';
+import { useViewTracking } from './useViewTracking';
+import { isUserComment } from '../../state/comments';
 import './CodeView.css';
 
 /** Keeps --cv-viewport at the scroll container's visible width so cards stay in view */
@@ -29,9 +31,14 @@ function useViewportWidth(containerRef: RefObject<HTMLElement>) {
   }, [containerRef]);
 }
 
+/** AI findings (unless hidden by "Think first") and the reviewer's comments for the file */
 function useFileFindings(path: string | null): Finding[] {
   const findings = useFindings();
-  return useMemo(() => findings.filter((finding) => finding.file === path), [findings, path]);
+  const comments = useCommentFindings();
+  return useMemo(
+    () => [...comments, ...findings].filter((finding) => finding.file === path),
+    [comments, findings, path],
+  );
 }
 
 export function CodeView() {
@@ -45,11 +52,13 @@ export function CodeView() {
   const diff = useReview((state) => (model.path ? state.index.files.get(model.path) : undefined));
   const functions = useReview((state) => (model.path ? state.index.functionsByFile.get(model.path) : undefined));
   const fileFindings = useFileFindings(model.path);
+  const aiFileFindings = useMemo(() => fileFindings.filter((finding) => !isUserComment(finding)), [fileFindings]);
   const placement = useMemo(() => placeFindings(model.rows, fileFindings), [model.rows, fileFindings]);
   const rails = useMemo(() => functionRails(model.rows, functions ?? []), [model.rows, functions]);
   const language = highlightLanguage(model.path ?? '', diff?.language);
   const requestScroll = useReveal(containerRef, cursor, api);
   useViewportWidth(containerRef);
+  useViewTracking(containerRef, model.status === 'ready' && !model.plain ? model.path : null);
 
   const placementRef = useRef(placement);
   placementRef.current = placement;
@@ -82,13 +91,13 @@ export function CodeView() {
       <div className="cv" onMouseDown={onMouseDown}>
         {model.path ? (
           <FileHeader
-            path={model.path} diff={diff} plain={model.plain} findings={fileFindings}
+            path={model.path} diff={diff} plain={model.plain} findings={aiFileFindings}
             hiddenLines={hiddenLineCount(model.rows)} onExpandAll={() => void api.expandAll()}
           />
         ) : null}
         <div ref={containerRef} className={`cv-scroll${wrap ? ' cv-wrap' : ''}${model.plain ? ' cv-plain' : ''}`}>
           <CodeStatus model={model} binary={Boolean(diff?.binary)} />
-          <FileNotes placement={placement} language={language} activate={activate} onShowLine={showLine} />
+          <FileNotes placement={placement} path={model.path} language={language} activate={activate} onShowLine={showLine} />
           {model.status === 'ready' ? (
             <CodeRows
               model={model} language={language} placement={placement} rails={rails}

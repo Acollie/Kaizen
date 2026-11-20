@@ -13,6 +13,15 @@ import type {
 } from '../types';
 import { isUrgent, severityRank } from '../lib/findings';
 import { buildIndex, type ReviewIndex } from './indexing';
+import { cleanNote, type TriageEntry, type TriageMap } from './triage';
+import { EMPTY_VIEWED, withViewed, type ViewedState, type ViewKind } from './viewing';
+import {
+  commentToFinding, newCommentId, normalizeRange,
+  type CommentInput, type CommentMap, type CommentTarget, type ReviewComment,
+} from './comments';
+import {
+  loadReview, loadThinkFirst, reviewStorageKey, saveReview, saveThinkFirst, type KeyValueStorage,
+} from './persistence';
 
 export type TabName = 'review' | 'graph' | 'function' | 'activity';
 export const TABS: readonly TabName[] = ['review', 'graph', 'function', 'activity'];
@@ -53,7 +62,17 @@ export interface UIState {
   filter: string;
   helpOpen: boolean;
   postOpen: boolean;
+  /** "Think first": hide the AI's findings until the reviewer reveals them (T) */
+  thinkFirst: boolean;
+  /** Finding whose dismiss-reason picker is open, and where (code card or Review panel) */
+  dismissing: { id: string; surface: DismissSurface } | null;
+  /** Open comment composer (new comment at a line/file, or editing one) */
+  composer: CommentTarget | null;
+  /** Line where `c` was pressed on a removed line: shows why it can't take a comment */
+  blockedCommentKey: string | null;
 }
+
+export type DismissSurface = 'code' | 'panel';
 
 export interface ReviewState {
   context: ReviewContext;
@@ -64,8 +83,14 @@ export interface ReviewState {
   findingOrder: string[];
   /** Finding ID -> Date.now() when it first arrived (for arrival animations) */
   arrivedAt: Record<string, number>;
-  /** Findings selected for posting to GitHub */
-  included: Record<string, boolean>;
+  /** The reviewer's decision per finding; absent = unreviewed. Accepted findings are posted. */
+  triage: TriageMap;
+  /** Changed functions and files the reviewer has actually looked at */
+  viewed: ViewedState;
+  /** The reviewer's own comments (always posted; they wrote them) */
+  comments: CommentMap;
+  /** Findings revealed in "Think first" mode */
+  revealed: boolean;
   result: ReviewResult | null;
   status: EngineStatus;
   activity: ReviewEvent[];
@@ -77,7 +102,26 @@ export interface ReviewState {
   // ---- engine stream ----
   applyEvent(event: ReviewEvent): void;
   setStatus(status: Partial<EngineStatus>): void;
-  setIncluded(id: string, included: boolean): void;
+
+  // ---- the human's review ----
+  acceptFinding(id: string, note?: string): void;
+  dismissFinding(id: string, reason: string, note?: string): void;
+  /** Back to unreviewed */
+  undoTriage(id: string): void;
+  setTriageNote(id: string, note: string): void;
+  toggleAccept(id: string): void;
+  startDismiss(id: string, surface: DismissSurface): void;
+  cancelDismiss(): void;
+  markViewed(kind: ViewKind, id: string): void;
+  setThinkFirst(enabled: boolean): void;
+  toggleThinkFirst(): void;
+  revealFindings(): void;
+  openComposer(target: CommentTarget): void;
+  closeComposer(): void;
+  /** Saves a new comment (or the one being edited); returns its id */
+  saveComment(input: CommentInput, editingId?: string): string;
+  deleteComment(id: string): void;
+  setBlockedComment(rowKey: string | null): void;
 
   // ---- navigation ----
   selectFunction(id: string, options?: { record?: boolean }): void;
@@ -139,6 +183,13 @@ export function createReviewStore(rawContext: ReviewContext) {
       set((state) => ({ selection: { ...selection, reveal: state.selection.reveal + 1 } }));
     };
 
+    const setTriage = (id: string, entry: TriageEntry) => {
+      const clean: TriageEntry = { state: entry.state };
+      if (entry.reason) clean.reason = entry.reason;
+      if (entry.note) clean.note = entry.note;
+      set((state) => ({ triage: { ...state.triage, [id]: clean }, ui: closeDismissFor(state.ui, id) }));
+    };
+
     const addFinding = (finding: Finding) => {
       if (!finding || !finding.id) return;
       set((state) => {
@@ -147,7 +198,6 @@ export function createReviewStore(rawContext: ReviewContext) {
           findings: { ...state.findings, [finding.id]: finding },
           findingOrder: isNew ? [...state.findingOrder, finding.id] : state.findingOrder,
           arrivedAt: isNew ? { ...state.arrivedAt, [finding.id]: Date.now() } : state.arrivedAt,
-          included: isNew && finding.severity !== 'praise' ? { ...state.included, [finding.id]: true } : state.included,
         };
       });
     };
@@ -158,7 +208,10 @@ export function createReviewStore(rawContext: ReviewContext) {
       findings: {},
       findingOrder: [],
       arrivedAt: {},
-      included: {},
+      triage: {},
+      viewed: EMPTY_VIEWED,
+      comments: {},
+      revealed: false,
       result: null,
       status: { state: 'connecting', message: 'Connecting', agent: '' },
       activity: [],
@@ -174,6 +227,10 @@ export function createReviewStore(rawContext: ReviewContext) {
         filter: '',
         helpOpen: false,
         postOpen: false,
+        thinkFirst: false,
+        dismissing: null,
+        composer: null,
+        blockedCommentKey: null,
       },
 
       applyEvent(event) {
@@ -210,8 +267,76 @@ export function createReviewStore(rawContext: ReviewContext) {
         set((state) => ({ status: { ...state.status, ...status } }));
       },
 
-      setIncluded(id, included) {
-        set((state) => ({ included: { ...state.included, [id]: included } }));
+      acceptFinding(id, note) {
+        setTriage(id, { state: 'accepted', note: cleanNote(note ?? get().triage[id]?.note) });
+      },
+      dismissFinding(id, reason, note) {
+        setTriage(id, { state: 'dismissed', reason, note: cleanNote(note) });
+      },
+      undoTriage(id) {
+        set((state) => {
+          const { [id]: _removed, ...rest } = state.triage;
+          void _removed;
+          return { triage: rest, ui: closeDismissFor(state.ui, id) };
+        });
+      },
+      setTriageNote(id, note) {
+        const entry = get().triage[id];
+        if (entry) setTriage(id, { ...entry, note: cleanNote(note) });
+      },
+      toggleAccept(id) {
+        if (get().triage[id]?.state === 'accepted') get().undoTriage(id);
+        else get().acceptFinding(id);
+      },
+      startDismiss(id, surface) {
+        set((state) => ({ ui: { ...state.ui, dismissing: { id, surface } } }));
+      },
+      cancelDismiss() {
+        set((state) => ({ ui: { ...state.ui, dismissing: null } }));
+      },
+      markViewed(kind, id) {
+        set((state) => {
+          const viewed = withViewed(state.viewed, kind, id);
+          return viewed === state.viewed ? {} : { viewed };
+        });
+      },
+      setThinkFirst(enabled) {
+        // Turning it on hides the findings again until the next reveal
+        set((state) => ({ ui: { ...state.ui, thinkFirst: enabled }, revealed: enabled ? false : state.revealed }));
+      },
+      toggleThinkFirst() {
+        get().setThinkFirst(!get().ui.thinkFirst);
+      },
+      revealFindings() {
+        set({ revealed: true });
+      },
+      openComposer(target) {
+        set((state) => ({ ui: { ...state.ui, composer: target, blockedCommentKey: null } }));
+      },
+      closeComposer() {
+        set((state) => ({ ui: { ...state.ui, composer: null } }));
+      },
+      saveComment(input, editingId) {
+        const existing = editingId ? get().comments[editingId] : undefined;
+        const id = existing?.id ?? newCommentId(Date.now(), get().comments);
+        const comment: ReviewComment = {
+          id, file: input.file, ...normalizeRange(input.line, input.end_line), body: input.body.trim(),
+          severity: input.severity, category: input.category, createdAt: existing?.createdAt ?? Date.now(),
+        };
+        set((state) => ({ comments: { ...state.comments, [id]: comment }, ui: { ...state.ui, composer: null } }));
+        return id;
+      },
+      deleteComment(id) {
+        set((state) => {
+          const { [id]: _removed, ...rest } = state.comments;
+          void _removed;
+          const composer = state.ui.composer?.editingId === id ? null : state.ui.composer;
+          const selection = state.selection.findingId === id ? { ...state.selection, findingId: null } : state.selection;
+          return { comments: rest, selection, ui: { ...state.ui, composer } };
+        });
+      },
+      setBlockedComment(rowKey) {
+        set((state) => ({ ui: { ...state.ui, blockedCommentKey: rowKey } }));
       },
 
       selectFunction(id, { record = true } = {}) {
@@ -250,7 +375,8 @@ export function createReviewStore(rawContext: ReviewContext) {
       },
 
       openFinding(id, { record = true } = {}) {
-        const finding = get().findings[id];
+        const comment = get().comments[id];
+        const finding = get().findings[id] ?? (comment ? commentToFinding(comment) : undefined);
         if (!finding) return;
         const fn = (finding.function_id && index.functions.get(finding.function_id))
           || (finding.line ? functionAtLine(index, finding.file, finding.line) : null);
@@ -324,6 +450,35 @@ export function createReviewStore(rawContext: ReviewContext) {
 }
 
 export type ReviewStore = ReturnType<typeof createReviewStore>;
+
+function closeDismissFor(ui: UIState, id: string): UIState {
+  return ui.dismissing?.id === id ? { ...ui, dismissing: null } : ui;
+}
+
+/**
+ * Restore the reviewer's saved work for this PR + head SHA, then save every change.
+ * Returns the unsubscribe function.
+ */
+export function bindPersistence(store: ReviewStore, storage: KeyValueStorage | null): () => void {
+  const key = reviewStorageKey(store.getState().context.pr);
+  const saved = loadReview(storage, key);
+  const thinkFirst = loadThinkFirst(storage);
+  store.setState((state) => ({
+    ...(saved ?? {}),
+    ui: { ...state.ui, thinkFirst },
+  }));
+  return store.subscribe((state, previous) => {
+    if (state.ui.thinkFirst !== previous.ui.thinkFirst) saveThinkFirst(storage, state.ui.thinkFirst);
+    const changed = state.triage !== previous.triage || state.viewed !== previous.viewed
+      || state.comments !== previous.comments || state.revealed !== previous.revealed;
+    if (changed) saveReview(storage, key, { triage: state.triage, viewed: state.viewed, comments: state.comments, revealed: state.revealed });
+  });
+}
+
+/** True while "Think first" keeps the AI's findings out of sight */
+export function findingsHidden(state: Pick<ReviewState, 'ui' | 'revealed'>): boolean {
+  return state.ui.thinkFirst && !state.revealed;
+}
 
 // ---------- Derived data (pure; call with state from useReview) ----------
 

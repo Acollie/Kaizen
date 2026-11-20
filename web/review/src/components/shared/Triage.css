@@ -1,0 +1,63 @@
+/* Triage controls shared by code-view cards and Review panel items. Quiet: outline
+   buttons, text links, accent only for the accepted check. */
+
+.tr-actions { display: inline-flex; align-items: center; gap: var(--space-1); }
+.tr-btn { height: 22px; padding: 0 var(--space-2); font-size: var(--text-xs); gap: 4px; }
+
+.tr-link {
+  height: 20px; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-3); font: inherit; font-size: var(--text-xs); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.tr-link:hover { color: var(--text); background: var(--bg-active); }
+
+.tr-accepted { flex: 1 1 auto; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.tr-accepted-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); }
+.tr-check { color: var(--accent); font-weight: 700; }
+.tr-accepted-label { color: var(--text-2); font-weight: 500; }
+
+.tr-note { font-size: var(--text-sm); color: var(--text); line-height: 1.45; overflow-wrap: anywhere; }
+.tr-note-label {
+  margin-right: var(--space-2); font-size: var(--text-xs); color: var(--text-3);
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.tr-note-editor { display: flex; flex-direction: column; gap: var(--space-1); }
+.tr-note-buttons { display: flex; gap: var(--space-1); }
+
+.tr-input {
+  min-width: 0; height: 24px; padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0;
+  background: var(--bg-inset); color: var(--text); font: inherit; font-size: var(--text-sm);
+}
+.tr-input:focus { border-color: var(--accent-line); }
+.tr-textarea { height: auto; padding: var(--space-1) var(--space-2); resize: vertical; line-height: 1.45; font-family: var(--font-ui); }
+
+.tr-picker {
+  order: 10; flex-basis: 100%;
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2) 0 var(--space-1); border-top: 1px solid var(--line); margin-top: var(--space-1);
+}
+.tr-picker-label { font-size: var(--text-xs); color: var(--text-3); }
+.tr-reasons { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.tr-reason { height: 24px; padding: 0 var(--space-2); font-size: var(--text-xs); gap: 6px; }
+.tr-reason kbd { min-width: 14px; height: 14px; font-size: 10px; }
+.tr-picker-foot { display: flex; align-items: center; gap: var(--space-2); }
+.tr-picker-foot .tr-input { flex: 1; }
+
+/* How to verify: a quiet inset strip, set apart by a hairline rule rather than colour */
+.tr-verify {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-top: var(--space-2); padding: var(--space-1) 0 var(--space-1) var(--space-2);
+  border-left: 1px dashed var(--line-focus);
+}
+.tr-verify-label { font-size: var(--text-xs); color: var(--text-3); letter-spacing: 0.04em; text-transform: uppercase; }
+.tr-verify-text { font-size: var(--text-sm); color: var(--text); line-height: 1.45; overflow-wrap: anywhere; }
+
+.tr-dismissed {
+  display: flex; align-items: center; gap: var(--space-2); min-width: 0;
+  height: 26px; color: var(--text-3); font-size: var(--text-sm); cursor: pointer;
+}
+.tr-dismissed .sev-dot { opacity: 0.45; }
+.tr-dismissed-reason { flex: none; font-size: var(--text-xs); }
+.tr-dismissed-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-dismissed:hover .tr-dismissed-title { color: var(--text-2); }

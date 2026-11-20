@@ -1,7 +1,7 @@
 // Pure view-model helpers for the review panel: verdict wording, counts sentence,
 // severity sections of clustered findings, and finding excerpts.
 
-import type { Finding, FunctionRisk, FileDiff, Severity, Verdict } from '../../types';
+import type { Finding, Severity, Verdict } from '../../types';
 import { clusterFindings, SEVERITIES, SEVERITY_LABEL, severityCounts, type FindingCluster } from '../../lib/findings';
 import { splitPath } from '../../lib/format';
 
@@ -82,14 +82,4 @@ export function formatConfidence(confidence: number): string {
   return `${Math.round(percent)}%`;
 }
 
-/** Focus functions, riskiest first */
-export function focusFunctions(functions: readonly FunctionRisk[]): FunctionRisk[] {
-  return functions.filter((fn) => fn.focus).sort((left, right) => right.risk_score - left.risk_score);
-}
-
-/** Files Kaizen flags with reasons but no parsed functions (workflows, action.yml, scripts) */
-export function riskyFiles(files: readonly FileDiff[], functionsByFile: ReadonlyMap<string, readonly FunctionRisk[]>): FileDiff[] {
-  return files
-    .filter((file) => (file.risk_reasons ?? []).some(Boolean) && !(functionsByFile.get(file.path)?.length))
-    .sort((left, right) => right.risk_score - left.risk_score);
-}
+export { focusFunctions, riskyFiles } from '../../state/viewing';

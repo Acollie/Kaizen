@@ -46,6 +46,8 @@ function DiffFacts({ diff }: { diff: FileDiff }) {
 export function FileHeader({ path, diff, plain, findings, hiddenLines, onExpandAll }: FileHeaderProps) {
   const canGoBack = useReview((state) => state.history.length > 0);
   const goBack = useReview((state) => state.goBack);
+  const openComposer = useReview((state) => state.openComposer);
+  const viewed = useReview((state) => Boolean(state.viewed.files[path]));
   const { dir, base } = splitPath(path);
   return (
     <header className="cv-head">
@@ -54,8 +56,14 @@ export function FileHeader({ path, diff, plain, findings, hiddenLines, onExpandA
         <span className="cv-head-base">{base}</span>
       </span>
       {diff && !plain ? <DiffFacts diff={diff} /> : <span className="cv-head-note">Not changed in this PR · read-only</span>}
+      {viewed && !plain ? <span className="cv-head-viewed" title="You've had this file open">✓ viewed</span> : null}
       <span className="cv-head-counts"><SeverityCounts findings={findings} /></span>
       <span className="cv-head-spacer" />
+      {diff && !plain ? (
+        <button type="button" className="btn cv-head-btn" onClick={() => openComposer({ file: path, line: 0 })} title="Write a comment about the whole file">
+          Comment on file
+        </button>
+      ) : null}
       {hiddenLines > 0 ? (
         <button type="button" className="btn cv-head-btn" onClick={onExpandAll} title="Expand the whole file (zR)">
           Expand all

@@ -4,7 +4,7 @@
 
 export type Action =
   | 'nextFunction' | 'prevFunction' | 'nextFile' | 'prevFile' | 'nextHunk' | 'prevHunk'
-  | 'nextFinding' | 'prevFinding' | 'toggleInclude'
+  | 'nextFinding' | 'prevFinding' | 'toggleAccept' | 'accept' | 'dismiss' | 'toggleThinkFirst' | 'comment'
   | 'top' | 'bottom' | 'halfPageDown' | 'halfPageUp' | 'pageDown' | 'pageUp'
   | 'expandAbove' | 'expandBelow' | 'expandAll' | 'gotoDefinition' | 'gotoCallers' | 'back'
   | 'focusLeft' | 'focusRight' | 'focusFilter' | 'nextTab' | 'prevTab' | 'tab'
@@ -32,12 +32,16 @@ export const BINDINGS: readonly Binding[] = [
   { keys: ['K'], action: 'prevFile', group: 'Navigate', description: 'Previous file' },
   { keys: [']', 'c'], action: 'nextHunk', group: 'Navigate', description: 'Next hunk' },
   { keys: ['[', 'c'], action: 'prevHunk', group: 'Navigate', description: 'Previous hunk' },
-  { keys: [']', 'f'], action: 'nextFinding', group: 'Findings', description: 'Next finding (across files)' },
-  { keys: ['[', 'f'], action: 'prevFinding', group: 'Findings', description: 'Previous finding (across files)' },
-  { keys: ['n'], action: 'nextFinding', group: 'Findings', description: 'Next finding' },
-  { keys: ['N'], action: 'prevFinding', group: 'Findings', description: 'Previous finding' },
-  { keys: ['x'], action: 'toggleInclude', group: 'Findings', description: 'Toggle "include in post" on the current finding' },
-  { keys: ['Space'], action: 'toggleInclude', group: 'Findings', description: 'Toggle "include in post"' },
+  { keys: [']', 'f'], action: 'nextFinding', group: 'Findings', description: 'Next finding or comment (across files)' },
+  { keys: ['[', 'f'], action: 'prevFinding', group: 'Findings', description: 'Previous finding or comment (across files)' },
+  { keys: ['n'], action: 'nextFinding', group: 'Findings', description: 'Next finding or comment' },
+  { keys: ['N'], action: 'prevFinding', group: 'Findings', description: 'Previous finding or comment' },
+  { keys: ['a'], action: 'accept', group: 'Findings', description: 'Accept the current finding (it will be posted as yours)' },
+  { keys: ['d'], action: 'dismiss', group: 'Findings', description: 'Dismiss the current finding (pick a reason; Esc cancels)' },
+  { keys: ['x'], action: 'toggleAccept', group: 'Findings', description: 'Toggle accept on the current finding' },
+  { keys: ['Space'], action: 'toggleAccept', group: 'Findings', description: 'Toggle accept' },
+  { keys: ['c'], action: 'comment', group: 'Findings', description: 'Comment on the current line' },
+  { keys: ['T'], action: 'toggleThinkFirst', group: 'Findings', description: 'Think first: hide the AI findings until you reveal them' },
   { keys: ['g', 'g'], action: 'top', group: 'Scroll', description: 'Top of the current file' },
   { keys: ['G'], action: 'bottom', group: 'Scroll', description: 'Bottom of the current file' },
   { keys: ['C-d'], action: 'halfPageDown', group: 'Scroll', description: 'Half page down' },

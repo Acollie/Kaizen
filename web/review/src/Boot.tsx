@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { fetchContext, sessionToken } from './lib/api';
-import { createReviewStore, type ReviewStore } from './state/store';
+import { bindPersistence, createReviewStore, type ReviewStore } from './state/store';
+import { safeLocalStorage } from './state/persistence';
 import { StoreProvider } from './state/StoreProvider';
 import { App } from './App';
 
@@ -17,7 +18,11 @@ export function Boot() {
       return;
     }
     fetchContext()
-      .then((context) => setState({ kind: 'ready', store: createReviewStore(context) }))
+      .then((context) => {
+        const store = createReviewStore(context);
+        bindPersistence(store, safeLocalStorage());
+        setState({ kind: 'ready', store });
+      })
       .catch((error: Error) => setState({ kind: 'error', message: `Could not load the review: ${error.message}` }));
   }, []);
 
