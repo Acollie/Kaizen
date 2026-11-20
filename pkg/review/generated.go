@@ -7,14 +7,17 @@ import (
 
 // Minified-content thresholds. Hand-written files (e.g. prompts in raw strings)
 // can have a few long lines, so content detection requires that nearly every added
-// line is long, at least one is very long, and the file is either a bundle-type
-// file or tiny. Anything less stays a normal, reviewable file.
+// line is long and at least one is very long. Only bundle-type files qualify at
+// all; anything else stays a normal, reviewable file.
 const (
 	longLineLength        = 500  // a line this long counts towards the minified share
 	veryLongLineLength    = 2000 // at least one added line must be longer than this
 	minifiedLongLineShare = 0.8  // share of added lines (or of added characters) that must be long
-	smallFileAddedLineMax = 10   // files this small qualify regardless of extension
 )
+
+// generatedFileRisk is the file risk a withheld file gets at least, so it is not
+// ranked with untouched-looking files at 0 and still draws a reviewer's eye
+const generatedFileRisk = 15
 
 // Reasons shown in the UI for files whose diff is withheld
 const (
@@ -30,7 +33,10 @@ var generatedFileNames = map[string]bool{
 	"composer.lock": true, "npm-shrinkwrap.json": true,
 }
 
-// bundleExtensions are the file types build tools emit minified
+// bundleExtensions are the file types build tools emit minified. Only these are
+// ever withheld by name (.min.) or content: a source file (.go, .py, .ts, .sh, ...)
+// named auth.min.go or full of long lines is still code someone must review, and
+// withholding it would hide it from both the reviewer and the AI.
 var bundleExtensions = map[string]bool{
 	".js": true, ".css": true, ".mjs": true, ".cjs": true, ".map": true, ".json": true,
 }
@@ -51,29 +57,35 @@ func markGeneratedFiles(files []FileDiff) map[string]bool {
 		file.Generated = true
 		file.Hunks = nil
 		file.RiskReasons = append(file.RiskReasons, reason)
+		file.RiskScore = max(file.RiskScore, generatedFileRisk)
 	}
 	return generated
 }
 
+// generatedReason is the UI note for a file whose diff is withheld, or "" to keep it.
+// Lockfiles go by exact name; everything else must be a bundle-type file first.
 func generatedReason(file FileDiff) string {
 	base := strings.ToLower(filepath.Base(file.Path))
-	switch {
-	case generatedFileNames[base]:
+	if generatedFileNames[base] {
 		return generatedLockfileNote
-	case strings.Contains(base, ".min."):
+	}
+	if !bundleExtensions[filepath.Ext(base)] {
+		return ""
+	}
+	if strings.Contains(base, ".min.") {
 		return generatedMinNameNote
-	case isMinifiedContent(file, bundleExtensions[filepath.Ext(base)]):
+	}
+	if isMinifiedContent(file) {
 		return generatedMinifiedNote
 	}
 	return ""
 }
 
 // isMinifiedContent reports whether the added lines look like build output: at
-// least 80% of them are long, one is very long, and the file is a bundle type or
-// tiny. The 80% is met by line count or by characters, because bundlers keep short
-// license-comment lines (" * @license React") between their megabyte-long code
-// lines. The type-or-tiny gate is what keeps hand-written source reviewable.
-func isMinifiedContent(file FileDiff, bundleType bool) bool {
+// least 80% of them are long and one is very long. The 80% is met by line count or
+// by characters, because bundlers keep short license-comment lines
+// (" * @license React") between their megabyte-long code lines.
+func isMinifiedContent(file FileDiff) bool {
 	addedLines, longLines, addedChars, longChars, longest := 0, 0, 0, 0, 0
 	for _, hunk := range file.Hunks {
 		for _, line := range hunk.Lines {
@@ -95,5 +107,5 @@ func isMinifiedContent(file FileDiff, bundleType bool) bool {
 	}
 	mostlyLong := float64(longLines) >= minifiedLongLineShare*float64(addedLines) ||
 		float64(longChars) >= minifiedLongLineShare*float64(addedChars)
-	return mostlyLong && (bundleType || addedLines <= smallFileAddedLineMax)
+	return mostlyLong
 }

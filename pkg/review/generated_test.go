@@ -67,6 +67,42 @@ func TestMarkGeneratedFiles(t *testing.T) {
 	assert.Len(t, files[3].Hunks, 1)
 }
 
+// Withheld files keep a nonzero risk so they are not ranked as harmless
+func TestGeneratedFilesGetNonzeroRisk(t *testing.T) {
+	files := []FileDiff{
+		{Path: "yarn.lock", Hunks: addedHunk("x")},
+		{Path: "dist/app.js", Hunks: addedHunk(minifiedBundleLine()), RiskScore: 40},
+	}
+	markGeneratedFiles(files)
+	assert.Equal(t, float64(generatedFileRisk), files[0].RiskScore)
+	assert.Equal(t, 40.0, files[1].RiskScore, "an existing higher risk is kept")
+}
+
+// Source files are never withheld, whatever their name or line lengths: hiding
+// auth.min.go or a one-line Go file would hide real code from the reviewer and the AI
+func TestSourceFilesAreNeverWithheld(t *testing.T) {
+	veryLong := strings.Repeat("y", veryLongLineLength+1)
+	sourceExtensions := []string{".go", ".py", ".kt", ".kts", ".swift", ".ts", ".tsx", ".jsx",
+		".rs", ".java", ".rb", ".c", ".h", ".cpp", ".cs", ".php", ".sh"}
+	for _, extension := range sourceExtensions {
+		for _, path := range []string{"pkg/auth.min" + extension, "pkg/blob" + extension} {
+			file := FileDiff{Path: path, Hunks: addedHunk(minifiedBundleLine(), veryLong)}
+			assert.Empty(t, generatedReason(file), path)
+		}
+	}
+
+	files := []FileDiff{
+		{Path: "pkg/auth/auth.min.go", Hunks: addedHunk("func Allow() bool { return true }")},
+		{Path: "pkg/auth/token.go", Hunks: addedHunk(veryLong)},
+		{Path: "web/dist/app.js", Hunks: addedHunk(minifiedBundleLine())},
+		{Path: "go.sum", Hunks: addedHunk("example.com/mod v1.0.0 h1:abc=")},
+	}
+	generated := markGeneratedFiles(files)
+	assert.Equal(t, map[string]bool{"web/dist/app.js": true, "go.sum": true}, generated)
+	assert.NotEmpty(t, files[0].Hunks)
+	assert.NotEmpty(t, files[1].Hunks)
+}
+
 // A hand-written file with a few long lines (like the AI's own trust-boundary
 // prompt) must stay reviewable; hiding it would hide exactly the code that matters
 func TestPromptsLikeFileIsNotGenerated(t *testing.T) {
@@ -94,7 +130,8 @@ func TestMinifiedContentRules(t *testing.T) {
 	}{
 		{"bundle js with a very long line", "dist/app.js", []string{minifiedBundleLine()}, true},
 		{"source map", "dist/app.js.map", []string{veryLong, long, long, long, long}, true},
-		{"tiny go file of only long lines", "gen/blob.go", []string{veryLong, long}, true},
+		{"tiny go file of only long lines", "gen/blob.go", []string{veryLong, long}, false},
+		{"tiny minified js", "dist/chunk.js", []string{veryLong, long}, true},
 		{"large go file of only long lines", "gen/blob.go", repeatLine(long, 11, veryLong), false},
 		{"long but never very long", "dist/app.js", []string{long, long, long}, false},
 		{"under 80 percent long by lines and characters", "dist/app.js", append([]string{veryLong, long}, manyCodeLines...), false},
