@@ -12,7 +12,7 @@ import (
 const (
 	longLineLength        = 500  // a line this long counts towards the minified share
 	veryLongLineLength    = 2000 // at least one added line must be longer than this
-	minifiedLongLineShare = 0.8  // share of added lines that must be long
+	minifiedLongLineShare = 0.8  // share of added lines (or of added characters) that must be long
 	smallFileAddedLineMax = 10   // files this small qualify regardless of extension
 )
 
@@ -20,7 +20,7 @@ const (
 const (
 	generatedLockfileNote = "lockfile: diff not shown or sent to the AI; check dependency changes in the manifest"
 	generatedMinNameNote  = "minified file: diff not shown or sent to the AI"
-	generatedMinifiedNote = "minified content (nearly all added lines are very long): diff not shown or sent to the AI"
+	generatedMinifiedNote = "minified content (mostly very long lines): diff not shown or sent to the AI"
 )
 
 // generatedFileNames are lockfiles and similar machine-written files

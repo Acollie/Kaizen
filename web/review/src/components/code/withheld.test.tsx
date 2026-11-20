@@ -13,13 +13,13 @@ function generatedFile(reasons: string[]): FileDiff {
 }
 
 const LOCKFILE = 'lockfile: diff not shown or sent to the AI; check dependency changes in the manifest';
-const MINIFIED = 'minified content (nearly all added lines are very long): diff not shown or sent to the AI';
+const MINIFIED = 'minified content (mostly very long lines): diff not shown or sent to the AI';
 
 describe('withheldReason', () => {
   it('extracts the cause and the advice', () => {
     expect(withheldReason(generatedFile([LOCKFILE]))).toEqual({ reason: 'lockfile', hint: 'check dependency changes in the manifest' });
     expect(withheldReason(generatedFile(['CI workflow', MINIFIED]))).toEqual({
-      reason: 'minified content (nearly all added lines are very long)', hint: '',
+      reason: 'minified content (mostly very long lines)', hint: '',
     });
   });
 
