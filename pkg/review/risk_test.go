@@ -240,3 +240,21 @@ func TestAssignFocusGuaranteesTopFewModerateFunctions(t *testing.T) {
 	}
 	assert.Equal(t, map[string]bool{"high": true, "moderate": true, "lower": true, "fourth": false, "trivial": false}, focused)
 }
+
+func TestScoreFileRanksNonCodeFiles(t *testing.T) {
+	workflow, workflowReasons := ScoreFile(FileDiff{Path: ".github/workflows/ci.yml", Additions: 4}, false)
+	action, _ := ScoreFile(FileDiff{Path: "action.yml", Additions: 120, Deletions: 30}, false)
+	script, _ := ScoreFile(FileDiff{Path: "scripts/release.sh", Additions: 5}, false)
+	manifest, _ := ScoreFile(FileDiff{Path: "go.mod", Additions: 2}, false)
+	readme, readmeReasons := ScoreFile(FileDiff{Path: "README.md", Additions: 3}, false)
+	source, _ := ScoreFile(FileDiff{Path: "pkg/app/app.go", Additions: 400}, true)
+
+	assert.Equal(t, FileRiskWorkflow, workflow)
+	assert.Contains(t, workflowReasons[0], "CI workflow")
+	assert.Greater(t, action, FileRiskWorkflow, "large unanalysable change adds size risk")
+	assert.Equal(t, FileRiskScript, script)
+	assert.Equal(t, FileRiskDependencies, manifest)
+	assert.Zero(t, readme)
+	assert.Empty(t, readmeReasons)
+	assert.Zero(t, source, "source files with functions are scored through their functions")
+}

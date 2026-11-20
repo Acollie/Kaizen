@@ -25,7 +25,7 @@ export function createLayout({ workspaceEl, onTabChange }) {
   if (layout.sidebar) rootStyle.setProperty('--sidebar-w', `${layout.sidebar}px`);
   if (layout.context) rootStyle.setProperty('--context-w', `${layout.context}px`);
   let focusedPane = 'code';
-  let activeTab = 'graph';
+  let activeTab = 'review';
 
   for (const divider of workspaceEl.querySelectorAll('[data-divider]')) setupDivider(divider);
   for (const button of workspaceEl.querySelectorAll('[data-collapse]')) {
@@ -114,5 +114,20 @@ export function createLayout({ workspaceEl, onTabChange }) {
     showTab(tabs[(((index + delta) % tabs.length) + tabs.length) % tabs.length]);
   }
 
-  return { showTab, cycleTab, focusPane, moveFocus, activeTab: () => activeTab, focusedPane: () => focusedPane };
+  /** Full-width call flow: hides the sidebar and code so the diagram can run left to right */
+  function setFlowExpanded(isExpanded) {
+    workspaceEl.classList.toggle('flow-expanded', isExpanded);
+    if (isExpanded) showTab('graph');
+  }
+
+  return {
+    showTab,
+    cycleTab,
+    focusPane,
+    moveFocus,
+    setFlowExpanded,
+    isFlowExpanded: () => workspaceEl.classList.contains('flow-expanded'),
+    activeTab: () => activeTab,
+    focusedPane: () => focusedPane,
+  };
 }

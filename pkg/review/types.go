@@ -80,7 +80,11 @@ type FileDiff struct {
 	Binary    bool       `json:"binary"`
 	Hunks     []Hunk     `json:"hunks"`
 	LineCount int        `json:"line_count"` // total lines in the head version, for context expansion bounds
-	RiskScore float64    `json:"risk_score"` // max RiskScore of the functions changed in this file
+	RiskScore float64    `json:"risk_score"` // max of the file's own risk and its riskiest changed function
+
+	// RiskReasons explains file-level risk that is not captured by a function, e.g.
+	// "CI workflow: runs with repository secrets". Empty for ordinary source files.
+	RiskReasons []string `json:"risk_reasons,omitempty"`
 }
 
 // FunctionRef names a function that is related to a changed function (a caller or callee)

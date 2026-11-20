@@ -55,9 +55,11 @@ test('sequences time out after 800ms', () => {
 test('tabs use g-prefixed keys; digits after g are keys, not counts', () => {
   const parser = createKeyParser();
   parser.feed('g', 0);
-  const result = parser.feed('3', 100);
+  const result = parser.feed('4', 100);
   assert.equal(result.binding.action, 'tab');
   assert.equal(result.binding.argument, 'activity');
+  parser.feed('g', 150);
+  assert.equal(parser.feed('1', 160).binding.argument, 'review');
   parser.feed('g', 200);
   assert.equal(action(parser.feed('t', 300)), 'nextTabx1');
   parser.feed('g', 400);

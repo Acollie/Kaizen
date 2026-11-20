@@ -719,3 +719,53 @@ kbd {
 .tabs button { padding: 0 9px; }
 .row.call-site .text { background: var(--cursor-bg); }
 .row.call-site { background: none; }
+
+/* ---------- Structural: full-width flow, flow diagram, review panel (styled further by the theme) ---------- */
+.workspace.flow-expanded { grid-template-columns: 0 0 0 0 minmax(0, 1fr); }
+.workspace.flow-expanded .sidebar, .workspace.flow-expanded .code-pane,
+.workspace.flow-expanded [data-divider] { visibility: hidden; overflow: hidden; }
+
+.flow-group rect { fill: none; stroke: var(--border); stroke-dasharray: 3 4; }
+.flow-group-label { font: 600 10px var(--font-mono); fill: var(--muted); letter-spacing: 0.04em; }
+.flow-edge path { fill: none; stroke: var(--edge); stroke-opacity: 0.9; }
+.flow-edge.on-path path { stroke: var(--amber-dark); }
+.flow-edge.back-edge path { stroke-dasharray: 4 3; }
+.flow-edge-weight { font: 600 9px var(--font-mono); fill: var(--muted); text-anchor: middle; }
+.flow-arrowhead { fill: var(--edge); }
+.flow-node { cursor: pointer; }
+.flow-box { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1px; }
+.flow-node[data-kind="external"] .flow-box { stroke-dasharray: 3 3; fill: transparent; }
+.flow-node.changed .flow-box { stroke-width: 1.4px; }
+.flow-node.selected .flow-box { stroke: var(--focus-ring); stroke-width: 2.2px; }
+.flow-node.pulse .flow-box { stroke: var(--slate); stroke-width: 2.2px; }
+.flow-name { font: 600 12px var(--font-mono); fill: var(--text); }
+.flow-node:not(.changed) .flow-name { fill: var(--text-2); font-weight: 500; }
+.flow-sub { font: 10px var(--font-mono); fill: var(--muted); }
+.flow-badge text { font: 700 10px var(--font-ui); fill: #fff; pointer-events: none; }
+
+.review-panel { padding: 12px; display: flex; flex-direction: column; gap: 14px; }
+.review-headline { padding: 12px; border-radius: var(--radius); background: var(--surface-2); }
+.verdict-label { font-weight: 700; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+.verdict-counts { margin-top: 4px; color: var(--text-2); }
+.verdict-meta { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.review-group-title { display: flex; gap: 8px; align-items: baseline; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 6px; }
+.review-group.sev-critical .group-glyph { color: var(--sev-critical); }
+.review-group.sev-warning .group-glyph { color: var(--sev-warning); }
+.review-group.sev-suggestion .group-glyph { color: var(--sev-suggestion); }
+.group-count { color: var(--muted); font-weight: 500; }
+.group-hint { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.review-item { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; border-left: 3px solid transparent; background: none; color: inherit; font: inherit; cursor: pointer; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.review-item:hover, .review-item.current { background: var(--surface-2); }
+.review-item.sev-critical { border-left-color: var(--sev-critical); }
+.review-item.sev-warning { border-left-color: var(--sev-warning); }
+.review-item.sev-suggestion { border-left-color: var(--sev-suggestion); }
+.review-item.static { cursor: default; }
+.review-item-top { display: flex; gap: 8px; font: 11px var(--font-mono); color: var(--text-2); }
+.review-confidence { margin-left: auto; color: var(--muted); }
+.review-title { margin-top: 2px; font-weight: 600; }
+.review-reason { margin-top: 2px; font-size: 12px; color: var(--text-2); }
+.review-item-foot { margin-top: 4px; display: flex; gap: 6px; align-items: center; }
+.review-similar { font-size: 11px; color: var(--muted); }
+.review-summary summary { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); }
+.risk-group-title .group-name { font-weight: 700; }
+.risk-group-title.group-attention .group-name { color: var(--sev-critical); }

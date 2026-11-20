@@ -507,14 +507,20 @@ func sortFunctionsByRisk(functions []FunctionRisk) {
 	})
 }
 
-// applyFileRisk sets each file's RiskScore to the max over its functions and sorts files by it
+// applyFileRisk sets each file's RiskScore to the larger of its riskiest function and
+// the file's own risk (CI config, scripts, dependency manifests), then sorts files by it
 func applyFileRisk(files []FileDiff, functions []FunctionRisk) {
 	maxByFile := make(map[string]float64)
+	hasFunctions := make(map[string]bool)
 	for _, function := range functions {
 		maxByFile[function.File] = max(maxByFile[function.File], function.RiskScore)
+		hasFunctions[function.File] = true
 	}
 	for index := range files {
-		files[index].RiskScore = maxByFile[files[index].Path]
+		file := &files[index]
+		fileScore, reasons := ScoreFile(*file, hasFunctions[file.Path])
+		file.RiskScore = max(maxByFile[file.Path], fileScore)
+		file.RiskReasons = reasons
 	}
 	sort.SliceStable(files, func(left, right int) bool {
 		if files[left].RiskScore != files[right].RiskScore {

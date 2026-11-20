@@ -7,7 +7,8 @@ import { createStore } from './store.js';
 import { createSidebar } from './sidebar.js';
 import { createCodeView } from './codeview.js';
 import { createGraph } from './graph.js';
-import { createActivityFeed, renderFunctionPanel, renderSummaryPanel } from './panels.js';
+import { createActivityFeed, renderFunctionPanel } from './panels.js';
+import { renderReviewPanel } from './review.js';
 import { createPostModal } from './post.js';
 import { createLayout } from './layout.js';
 import { helpGroups, installKeymap } from './keys.js';
@@ -91,8 +92,8 @@ function createApp(store) {
   });
 
   byId('graph-fit').addEventListener('click', () => graph.fit());
-  byId('graph-reset').addEventListener('click', () => graph.clear());
   byId('graph-layered').addEventListener('click', () => graph.toggleLayered());
+  byId('graph-expand').addEventListener('click', () => toggleFlowExpanded());
   byId('post-button').addEventListener('click', () => post.open());
   byId('help-button').addEventListener('click', () => openHelp());
   byId('help-close').addEventListener('click', () => byId('help-modal').close());
@@ -109,7 +110,8 @@ function createApp(store) {
   function setSelection(selection) {
     store.selection = { functionId: null, nodeId: null, file: null, ...selection };
     sidebar.setActive({ file: store.selection.file, functionId: store.selection.functionId });
-    renderTab('function');
+    if (layout.activeTab() === 'function') renderTab('function');
+    if (layout.activeTab() === 'review') renderTab('review');
   }
 
   async function selectFunction(id, { record = true } = {}) {
@@ -168,7 +170,8 @@ function createApp(store) {
     if (!finding) return;
     if (record) rememberLocation();
     currentFindingId = id;
-    const fn = finding.function_id && store.functions.get(finding.function_id);
+    queueReviewRender();
+    const fn = finding.function_id && store.functions.get(finding.function_id) || store.functionAtLine(finding.file, finding.line);
     setSelection({ file: finding.file, functionId: fn ? fn.id : null, nodeId: fn ? fn.id : null });
     if (fn) graph.focus(fn.id);
     await code.showFinding(finding);
@@ -200,8 +203,15 @@ function createApp(store) {
       renderFunctionPanel(byId('panel-function'), {
         store, selection: store.selection, onOpenRef: openRef, onSelectFunction: (id) => selectFunction(id),
       });
-    } else if (tab === 'summary') {
-      renderSummaryPanel(byId('panel-summary'), { store, onOpenLocation: (path, line) => openLocation(path, line) });
+    } else if (tab === 'review') {
+      renderReviewPanel(byId('panel-review'), {
+        store,
+        currentFindingId,
+        onOpenFinding: (id) => openFinding(id),
+        onSelectFunction: (id) => selectFunction(id),
+      });
+    } else if (tab === 'graph') {
+      graph.fit();
     } else if (tab === 'activity') {
       byId('activity-badge').hidden = true;
       unseenActivity = 0;
@@ -233,25 +243,60 @@ function createApp(store) {
     );
   }
 
+  const SEVERITY_TITLES = { critical: 'must fix', warning: 'should fix', suggestion: 'consider', praise: 'good' };
+
   function renderSeverityCounts() {
-    const counts = new Map(severityCounts(store.findingsList()));
-    clear(byId('severity-counts')).append(...SEVERITIES.map((severity) => {
+    const findings = store.findingsList();
+    const counts = new Map(severityCounts(findings));
+    clear(byId('severity-counts')).append(...SEVERITIES.filter((severity) => severity !== 'praise').map((severity) => {
       const count = counts.get(severity) || 0;
-      return h('span', { class: `sev-chip${count ? '' : ' zero'}`, title: `${count} ${severity}` },
-        h('span', { class: `dot sev-${severity}` }), String(count));
+      return h('button', {
+        type: 'button',
+        class: `sev-chip sev-${severity}${count ? '' : ' zero'}`,
+        title: count ? `Jump to the first ${SEVERITY_TITLES[severity]} finding` : `No ${SEVERITY_TITLES[severity]} findings`,
+        disabled: count ? null : true,
+        onClick: () => openFirstFinding(severity),
+      }, h('span', { class: 'chip-count', text: String(count) }), ` ${SEVERITY_TITLES[severity]}`);
     }));
+    const badge = byId('review-badge');
+    const urgent = findings.filter((finding) => finding.severity === 'critical' || finding.severity === 'warning').length;
+    badge.textContent = String(urgent || findings.length);
+    badge.hidden = findings.length === 0;
+    badge.dataset.urgent = urgent ? 'true' : 'false';
+  }
+
+  function openFirstFinding(severity) {
+    const first = orderedFindings().find((finding) => finding.severity === severity);
+    if (first) openFinding(first.id);
+  }
+
+  function toggleFlowExpanded() {
+    const next = !layout.isFlowExpanded();
+    layout.setFlowExpanded(next);
+    graph.setExpanded(next);
+    byId('graph-expand').textContent = next ? 'Collapse' : 'Expand';
+  }
+
+  // Re-render the Review tab at most once per animation frame while findings stream in
+  let reviewRenderQueued = false;
+  function queueReviewRender() {
+    if (reviewRenderQueued || layout.activeTab() !== 'review') return;
+    reviewRenderQueued = true;
+    window.requestAnimationFrame(() => {
+      reviewRenderQueued = false;
+      renderTab('review');
+    });
   }
 
   store.on('finding', () => {
     renderSeverityCounts();
+    queueReviewRender();
     if (layout.activeTab() === 'function') renderTab('function');
   });
-  store.on('result', () => {
-    if (layout.activeTab() === 'summary') renderTab('summary');
-  });
+  store.on('result', () => queueReviewRender());
   store.on('status', (status) => {
     setStatus(status);
-    if (layout.activeTab() === 'summary') renderTab('summary');
+    queueReviewRender();
   });
 
   // ---------- Event stream ----------
@@ -405,12 +450,14 @@ function createApp(store) {
     prevTab: (count) => layout.cycleTab(-count),
     toggleWrap: () => code.toggleWrap(),
     fitGraph: () => { layout.showTab('graph'); graph.fit(); },
+    expandFlow: () => toggleFlowExpanded(),
     toggleLayered: () => { layout.showTab('graph'); graph.toggleLayered(); },
     post: () => post.open(),
     help: () => openHelp(),
     escape: () => {
       for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
-      graph.clear();
+      if (layout.isFlowExpanded()) toggleFlowExpanded();
+      else graph.clear();
     },
   };
 
@@ -429,6 +476,7 @@ function createApp(store) {
     const first = store.context.functions.find((fn) => fn.focus) || store.context.functions[0];
     if (first) selectFunction(first.id, { record: false });
     else if (store.context.files[0]) openFile(store.context.files[0].path, { record: false });
+    renderTab('review');
     connectEvents();
   }
 

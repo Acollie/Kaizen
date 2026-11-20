@@ -406,3 +406,61 @@ func addedLinesInRange(lines map[int]string, start, end int) []string {
 	}
 	return result
 }
+
+// File-level risk for changes that no function captures. Scores use the same 0-100 scale
+// as functions so files and functions can be ranked together.
+const (
+	// FileRiskWorkflow applies to CI definitions, which run with repository secrets and write tokens
+	FileRiskWorkflow = 35.0
+	// FileRiskScript applies to shell scripts, Makefiles and Dockerfiles, which execute commands
+	FileRiskScript = 22.0
+	// FileRiskDependencies applies to dependency manifests and lockfiles (supply chain)
+	FileRiskDependencies = 18.0
+	// WeightUnstructuredSize scales the size factor for files without analyzable functions:
+	// 0 at <=10 changed lines, full at >=200
+	WeightUnstructuredSize = 20.0
+)
+
+// ScoreFile returns the file's own risk and the reasons for it. hasFunctions reports
+// whether any changed function was found in the file; when none was (YAML, shell,
+// unsupported languages), the size of the change counts too, since nothing else will.
+func ScoreFile(file FileDiff, hasFunctions bool) (float64, []string) {
+	score, reasons := fileKindRisk(file.Path)
+	if !hasFunctions && file.Status != FileDeleted {
+		changed := file.Additions + file.Deletions
+		sizeScore := WeightUnstructuredSize * ramp(float64(changed), 10, 200)
+		if sizeScore > 0 {
+			score += sizeScore
+			if changed >= 50 {
+				reasons = append(reasons, fmt.Sprintf("%d lines changed with no function-level analysis", changed))
+			}
+		}
+	}
+	return math.Round(math.Min(100, score)*10) / 10, reasons
+}
+
+// fileKindRisk scores a file by what kind of file it is
+func fileKindRisk(path string) (float64, []string) {
+	slashed := filepath.ToSlash(path)
+	base := strings.ToLower(filepath.Base(slashed))
+	extension := filepath.Ext(base)
+	switch {
+	case strings.Contains(slashed, ".github/workflows/") && (extension == ".yml" || extension == ".yaml"):
+		return FileRiskWorkflow, []string{"CI workflow: runs with repository secrets and write tokens"}
+	case base == "action.yml" || base == "action.yaml":
+		return FileRiskWorkflow, []string{"GitHub Action definition: runs in other repositories' CI with their secrets"}
+	case extension == ".sh" || extension == ".bash" || base == "makefile" || strings.HasPrefix(base, "dockerfile"):
+		return FileRiskScript, []string{"script: executes shell commands"}
+	case dependencyManifests[base]:
+		return FileRiskDependencies, []string{"dependency manifest: supply-chain change"}
+	}
+	return 0, nil
+}
+
+// dependencyManifests are file names whose changes alter third-party code pulled into the build
+var dependencyManifests = map[string]bool{
+	"go.mod": true, "go.sum": true, "package.json": true, "package-lock.json": true, "yarn.lock": true,
+	"pnpm-lock.yaml": true, "requirements.txt": true, "pyproject.toml": true, "poetry.lock": true,
+	"cargo.toml": true, "cargo.lock": true, "gemfile": true, "gemfile.lock": true, "build.gradle": true,
+	"build.gradle.kts": true, "package.swift": true, "podfile": true, "podfile.lock": true,
+}

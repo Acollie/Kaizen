@@ -60,20 +60,21 @@
     <aside class="pane context-pane" id="pane-context" data-pane="context" aria-label="Context">
       <div class="pane-header tabs-header">
         <div class="tabs" role="tablist" id="tabs">
-          <button type="button" role="tab" data-tab="graph" aria-selected="true" title="Graph (g1)">Graph</button>
-          <button type="button" role="tab" data-tab="function" aria-selected="false" title="Function (g2)">Function</button>
-          <button type="button" role="tab" data-tab="activity" aria-selected="false" title="Activity (g3)">Activity<span class="tab-badge" id="activity-badge" hidden></span></button>
-          <button type="button" role="tab" data-tab="summary" aria-selected="false" title="Summary (g4)">Summary</button>
+          <button type="button" role="tab" data-tab="review" aria-selected="true" title="AI review (g1)">Review<span class="tab-badge tab-badge-findings" id="review-badge" hidden></span></button>
+          <button type="button" role="tab" data-tab="graph" aria-selected="false" title="Call flow (g2)">Flow</button>
+          <button type="button" role="tab" data-tab="function" aria-selected="false" title="Function (g3)">Function</button>
+          <button type="button" role="tab" data-tab="activity" aria-selected="false" title="Agent activity (g4)">Activity<span class="tab-badge" id="activity-badge" hidden></span></button>
         </div>
         <button type="button" class="collapse-button" data-collapse="context" title="Collapse context panel" aria-label="Collapse context panel">⟩</button>
       </div>
-      <div class="tab-panel" data-panel="graph" id="panel-graph">
+      <div class="tab-panel" data-panel="review" id="panel-review"></div>
+      <div class="tab-panel" data-panel="graph" id="panel-graph" hidden>
         <div class="graph-bar">
           <span class="graph-hint" id="graph-hint"></span>
           <div class="graph-toolbar">
-            <button type="button" class="small-button" id="graph-layered" aria-pressed="true" title="Layered layout: callers left, callees right (L)">Layered</button>
-            <button type="button" class="small-button" id="graph-fit" title="Fit graph (f)">Fit</button>
-            <button type="button" class="small-button" id="graph-reset" title="Clear selection">Clear</button>
+            <button type="button" class="small-button" id="graph-layered" title="Switch between the selected function's flow and the whole PR (L)">Whole PR</button>
+            <button type="button" class="small-button" id="graph-fit" title="Fit to view (f)">Fit</button>
+            <button type="button" class="small-button" id="graph-expand" title="Expand the flow to full width (F)">Expand</button>
           </div>
         </div>
         <div class="graph-canvas" id="graph-canvas"></div>
@@ -85,7 +86,6 @@
         <div class="activity-feed" id="activity-feed"></div>
         <button type="button" class="jump-latest" id="activity-latest" hidden>↓ New activity</button>
       </div>
-      <div class="tab-panel" data-panel="summary" id="panel-summary" hidden></div>
     </aside>
 
     <button type="button" class="restore-button restore-sidebar" data-restore="sidebar" hidden title="Show sidebar">Changes ⟩</button>

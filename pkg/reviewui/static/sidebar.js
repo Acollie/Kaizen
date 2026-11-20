@@ -1,13 +1,15 @@
-// "Changes" sidebar: files grouped by risk tier, each expanding to its changed
-// functions with risk bars, focus stars and finding badges.
+// "Changes" sidebar: files grouped by what needs a reviewer's attention (AI findings
+// that should be fixed first, then Kaizen's metrics-based focus, then the rest), each
+// expanding to its changed functions with risk bars, focus stars and finding badges.
 
-import { h, clear, makeRiskBar, riskChip, riskColor, riskTier, severityBadges, severityCounts, splitPath } from './dom.js';
+import { h, clear, makeRiskBar, riskChip, severityBadges, severityCounts, splitPath } from './dom.js';
 
-const TIERS = [
-  { tier: 'high', title: 'High risk', score: 80 },
-  { tier: 'medium', title: 'Medium risk', score: 45 },
-  { tier: 'low', title: 'Low risk', score: 10 },
+const GROUPS = [
+  { key: 'attention', title: 'Needs attention', hint: 'AI found issues to fix' },
+  { key: 'focus', title: 'Kaizen focus', hint: 'riskiest by metrics' },
+  { key: 'other', title: 'Other changes', hint: '' },
 ];
+const FOCUS_FILE_SCORE = 20;
 const AUTO_EXPAND_LIMIT = 24;
 
 export function truncateMiddle(text, limit) {
@@ -23,7 +25,7 @@ export function createSidebar({ store, listEl, filterEl, summaryEl, onSelectFunc
   let activeFile = null;
   let activeFunction = null;
 
-  const files = [...store.context.files].sort((left, right) => right.risk_score - left.risk_score || left.path.localeCompare(right.path));
+  const files = [...store.context.files];
   const functionsFor = (path) => (store.functionsByFile.get(path) || [])
     .slice().sort((left, right) => right.risk_score - left.risk_score || left.start_line - right.start_line);
 
@@ -57,13 +59,35 @@ export function createSidebar({ store, listEl, filterEl, summaryEl, onSelectFunc
     resizeTimer = window.setTimeout(render, 80);
   }).observe(listEl);
 
+  /** Which sidebar group a file belongs to */
+  function groupOf(file) {
+    const findings = store.findingsForFile(file.path);
+    if (findings.some((finding) => finding.severity === 'critical' || finding.severity === 'warning')) return 'attention';
+    const hasFocus = functionsFor(file.path).some((fn) => fn.focus);
+    if (hasFocus || file.risk_score >= FOCUS_FILE_SCORE) return 'focus';
+    return 'other';
+  }
+
+  /** Files ordered by AI severity first (criticals, then warnings), then by Kaizen risk */
+  function orderedFiles(list) {
+    const weight = (file) => {
+      const findings = store.findingsForFile(file.path);
+      const critical = findings.filter((finding) => finding.severity === 'critical').length;
+      const warning = findings.filter((finding) => finding.severity === 'warning').length;
+      return critical * 1000 + warning * 100 + file.risk_score;
+    };
+    return [...list].sort((left, right) => weight(right) - weight(left) || left.path.localeCompare(right.path));
+  }
+
   function matches(file, fn) {
     if (!filterText) return true;
     return file.path.toLowerCase().includes(filterText) || (fn && fn.name.toLowerCase().includes(filterText));
   }
 
   function visibleFiles() {
-    return files.filter((file) => matches(file) || functionsFor(file.path).some((fn) => matches(file, fn)));
+    const shown = files.filter((file) => matches(file) || functionsFor(file.path).some((fn) => matches(file, fn)));
+    const ordered = orderedFiles(shown);
+    return GROUPS.flatMap(({ key }) => ordered.filter((file) => groupOf(file) === key));
   }
 
   /** Changed functions in sidebar order (respecting the filter) */
@@ -80,12 +104,13 @@ export function createSidebar({ store, listEl, filterEl, summaryEl, onSelectFunc
       listEl.append(h('div', { class: 'list-empty', text: 'No files or functions match the filter.' }));
       return;
     }
-    for (const { tier, title, score } of TIERS) {
-      const group = shown.filter((file) => riskTier(file.risk_score) === tier);
+    for (const { key, title, hint } of GROUPS) {
+      const group = orderedFiles(shown).filter((file) => groupOf(file) === key);
       if (!group.length) continue;
-      const swatch = h('span', { class: 'swatch' });
-      swatch.style.background = riskColor(score);
-      listEl.append(h('div', { class: 'risk-group-title' }, swatch, `${title} · ${group.length}`));
+      listEl.append(h('div', { class: `risk-group-title group-${key}` },
+        h('span', { class: 'group-name', text: title }),
+        h('span', { class: 'group-count', text: String(group.length) }),
+        hint ? h('span', { class: 'group-hint', text: hint }) : null));
       for (const file of group) listEl.append(renderFile(file));
     }
     listEl.scrollTop = scrollTop;
@@ -99,7 +124,7 @@ export function createSidebar({ store, listEl, filterEl, summaryEl, onSelectFunc
       type: 'button',
       class: `file-row${file.path === activeFile ? ' active' : ''}`,
       'aria-expanded': String(isOpen),
-      title: file.path,
+      title: [file.path, ...(file.risk_reasons || [])].join('\n'),
       dataset: { path: file.path },
     },
     h('span', { class: 'chevron', text: '▶' }),

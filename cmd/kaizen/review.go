@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"regexp"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -54,6 +56,7 @@ type reviewFlags struct {
 	focus        int
 	keepWorktree bool
 	skipChurn    bool
+	rerun        bool
 	repoPath     string
 }
 
@@ -70,6 +73,7 @@ func init() {
 	flags.IntVar(&reviewOptions.focus, "focus", review.DefaultFocusCount, "number of highest-risk functions the review concentrates on")
 	flags.BoolVar(&reviewOptions.keepWorktree, "keep-worktree", false, "keep the PR checkout after exiting (its path is printed)")
 	flags.BoolVar(&reviewOptions.skipChurn, "skip-churn", false, "skip per-function git churn lookups (faster on large histories)")
+	flags.BoolVar(&reviewOptions.rerun, "rerun", false, "run a fresh AI review even if one is cached for this PR head commit")
 	flags.StringVar(&reviewOptions.repoPath, "repo", ".", "path to a local clone of the PR's repository")
 	rootCmd.AddCommand(reviewCmd)
 }
@@ -124,7 +128,14 @@ func runReview(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	go runReviewEngine(ctx, selectedEngine, reviewContext, events)
+	cachePath := review.ReviewCachePath(repoRoot(reviewOptions.repoPath), reviewContext.PR)
+	go runReviewEngine(ctx, reviewRun{
+		engine:    selectedEngine,
+		context:   reviewContext,
+		events:    events,
+		cachePath: cachePath,
+		useCache:  !reviewOptions.rerun,
+	})
 
 	<-ctx.Done()
 	fmt.Println("\nShutting down…")
@@ -232,21 +243,34 @@ func printRiskSummary(reviewContext *review.ReviewContext, elapsed time.Duration
 	}
 }
 
-// runReviewEngine runs the AI review and records its outcome in the event log.
-// With no engine (--no-ai) it just marks the stream finished.
-func runReviewEngine(ctx context.Context, selectedEngine review.Engine, reviewContext *review.ReviewContext, events *reviewui.EventLog) {
+// reviewRun is everything runReviewEngine needs
+type reviewRun struct {
+	engine    review.Engine // nil with --no-ai
+	context   *review.ReviewContext
+	events    *reviewui.EventLog
+	cachePath string
+	useCache  bool
+}
+
+// runReviewEngine runs the AI review (or replays a cached one for the same PR head)
+// and records its outcome in the event log. With no engine it just marks the stream done.
+func runReviewEngine(ctx context.Context, run reviewRun) {
+	events := run.events
 	defer events.Close()
 	defer events.Emit(review.NewEvent(review.EventDone, nil))
 
-	if selectedEngine == nil {
+	if run.engine == nil {
 		events.Emit(review.NewEvent(review.EventStatus, review.StatusData{Message: "AI review disabled (--no-ai): showing Kaizen risk analysis only"}))
 		return
 	}
+	if run.useCache && replayCachedReview(run) {
+		return
+	}
 
-	events.Emit(review.NewEvent(review.EventStatus, review.StatusData{Message: "Starting review with " + selectedEngine.Name(), Agent: "lead"}))
-	fmt.Printf("Reviewing with %s… (findings stream into the UI)\n", selectedEngine.Name())
+	events.Emit(review.NewEvent(review.EventStatus, review.StatusData{Message: "Starting review with " + run.engine.Name(), Agent: "lead"}))
+	fmt.Printf("Reviewing with %s… (findings stream into the UI)\n", run.engine.Name())
 
-	result, err := selectedEngine.Run(ctx, reviewContext, events.Emit)
+	result, err := run.engine.Run(ctx, run.context, events.Emit)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return
@@ -256,6 +280,41 @@ func runReviewEngine(ctx context.Context, selectedEngine review.Engine, reviewCo
 		return
 	}
 	fmt.Printf("✓ review complete: %s, %d findings\n", result.Verdict, len(result.Findings))
+	if saveErr := review.SaveReviewCache(run.cachePath, run.context.PR, run.engine.Name(), events.Since(0)); saveErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not cache the review: %v\n", saveErr)
+	} else {
+		fmt.Printf("  saved to %s (reopening this PR head replays it; --rerun for a fresh review)\n", run.cachePath)
+	}
+}
+
+// replayCachedReview emits a cached review for this PR head and reports whether it did
+func replayCachedReview(run reviewRun) bool {
+	cached, err := review.LoadReviewCache(run.cachePath, run.context.PR)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ignoring unreadable cached review: %v\n", err)
+		return false
+	}
+	if cached == nil {
+		return false
+	}
+	age := time.Since(cached.CreatedAt).Round(time.Minute)
+	fmt.Printf("Replaying cached %s review from %s ago (--rerun for a fresh review)\n", cached.Engine, age)
+	run.events.Emit(review.NewEvent(review.EventStatus, review.StatusData{
+		Message: fmt.Sprintf("Cached review from %s ago (run with --rerun to refresh)", age),
+	}))
+	for _, event := range cached.Events {
+		run.events.Emit(review.NewEvent(event.Type, event.Data))
+	}
+	return true
+}
+
+// repoRoot returns the top level of the git repository containing path, or path itself
+func repoRoot(path string) string {
+	output, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return path
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func shutdownServer(server *reviewui.Server) {
