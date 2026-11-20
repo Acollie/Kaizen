@@ -1,0 +1,3312 @@
+{
+  "pr": {
+    "number": 142,
+    "title": "Parallelise analysis and cache churn lookups with git retry",
+    "body": "This speeds up `kaizen analyze` on large repos:\n\n- analyze files with a worker pool (one worker per CPU)\n- cache file churn in a small LRU so repeated lookups skip git\n- retry `git log` on `index.lock` contention with exponential backoff\n- `churn_report.py` now reports p90 and changes per commit\n\nOn this repo `analyze` drops from 4.1s to 1.3s.",
+    "author": "mkowalski",
+    "url": "https://github.com/alexcollie/kaizen/pull/142",
+    "owner": "alexcollie",
+    "repo": "kaizen",
+    "base_ref": "main",
+    "head_ref": "perf/parallel-churn",
+    "base_sha": "9698ddc4f1b2a3c5d6e7f8091a2b3c4d5e6f7081",
+    "head_sha": "3e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f",
+    "merge_base": "9698ddc4f1b2a3c5d6e7f8091a2b3c4d5e6f7081",
+    "additions": 204,
+    "deletions": 32,
+    "file_count": 4
+  },
+  "files": [
+    {
+      "path": "pkg/churn/analyzer.go",
+      "old_path": "pkg/churn/analyzer.go",
+      "status": "modified",
+      "language": "Go",
+      "additions": 61,
+      "deletions": 8,
+      "binary": false,
+      "hunks": [
+        {
+          "old_start": 15,
+          "old_count": 10,
+          "new_start": 15,
+          "new_count": 15,
+          "header": "import (",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 15,
+              "new_line": 15,
+              "text": "\t\"github.com/alexcollie/kaizen/pkg/models\""
+            },
+            {
+              "kind": "context",
+              "old_line": 16,
+              "new_line": 16,
+              "text": ")"
+            },
+            {
+              "kind": "context",
+              "old_line": 17,
+              "new_line": 17,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 18,
+              "text": "// maxGitAttempts bounds how many times a git command is retried"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 19,
+              "text": "const maxGitAttempts = 4"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 20,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 18,
+              "new_line": 21,
+              "text": "// Analyzer reads churn metrics from a git repository"
+            },
+            {
+              "kind": "context",
+              "old_line": 19,
+              "new_line": 22,
+              "text": "type Analyzer struct {"
+            },
+            {
+              "kind": "context",
+              "old_line": 20,
+              "new_line": 23,
+              "text": "\trepoPath string"
+            },
+            {
+              "kind": "context",
+              "old_line": 21,
+              "new_line": 24,
+              "text": "\tsince    time.Time"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 25,
+              "text": "\tcache    *churnCache"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 26,
+              "text": "\tbackoff  time.Duration"
+            },
+            {
+              "kind": "context",
+              "old_line": 22,
+              "new_line": 27,
+              "text": "}"
+            },
+            {
+              "kind": "context",
+              "old_line": 23,
+              "new_line": 28,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 24,
+              "new_line": 29,
+              "text": "// NewAnalyzer creates a churn analyzer rooted at repoPath"
+            }
+          ]
+        },
+        {
+          "old_start": 26,
+          "old_count": 6,
+          "new_start": 31,
+          "new_count": 8,
+          "header": "func NewAnalyzer(repoPath string, since time.Time) *Analyzer {",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 26,
+              "new_line": 31,
+              "text": "\treturn &Analyzer{"
+            },
+            {
+              "kind": "context",
+              "old_line": 27,
+              "new_line": 32,
+              "text": "\t\trepoPath: repoPath,"
+            },
+            {
+              "kind": "context",
+              "old_line": 28,
+              "new_line": 33,
+              "text": "\t\tsince:    since,"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 34,
+              "text": "\t\tcache:    newChurnCache(512),"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 35,
+              "text": "\t\tbackoff:  200 * time.Millisecond,"
+            },
+            {
+              "kind": "context",
+              "old_line": 29,
+              "new_line": 36,
+              "text": "\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 30,
+              "new_line": 37,
+              "text": "}"
+            },
+            {
+              "kind": "context",
+              "old_line": 31,
+              "new_line": 38,
+              "text": ""
+            }
+          ]
+        },
+        {
+          "old_start": 35,
+          "old_count": 24,
+          "new_start": 42,
+          "new_count": 63,
+          "header": "func (analyzer *Analyzer) GetFileChurn(ctx context.Context, filePath string) (*m",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 35,
+              "new_line": 42,
+              "text": "\tif err != nil {"
+            },
+            {
+              "kind": "context",
+              "old_line": 36,
+              "new_line": 43,
+              "text": "\t\treturn nil, fmt.Errorf(\"resolve %s: %w\", filePath, err)"
+            },
+            {
+              "kind": "context",
+              "old_line": 37,
+              "new_line": 44,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 45,
+              "text": "\trelativePath = filepath.ToSlash(relativePath)"
+            },
+            {
+              "kind": "context",
+              "old_line": 38,
+              "new_line": 46,
+              "text": ""
+            },
+            {
+              "kind": "removed",
+              "old_line": 39,
+              "new_line": 0,
+              "text": "\tcommand := exec.CommandContext(ctx, \"git\", \"log\", \"--numstat\", \"--format=%H|%an|%at\","
+            },
+            {
+              "kind": "removed",
+              "old_line": 40,
+              "new_line": 0,
+              "text": "\t\t\"--since=\"+analyzer.since.Format(time.RFC3339), \"--\", relativePath)"
+            },
+            {
+              "kind": "removed",
+              "old_line": 41,
+              "new_line": 0,
+              "text": "\tcommand.Dir = analyzer.repoPath"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 47,
+              "text": "\tif cached, ok := analyzer.cache.Get(relativePath); ok {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 48,
+              "text": "\t\treturn cached, nil"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 49,
+              "text": "\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 42,
+              "new_line": 50,
+              "text": ""
+            },
+            {
+              "kind": "removed",
+              "old_line": 43,
+              "new_line": 0,
+              "text": "\toutput, err := command.Output()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 51,
+              "text": "\targs := []string{"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 52,
+              "text": "\t\t\"log\", \"--numstat\", \"--format=%H|%an|%at\","
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 53,
+              "text": "\t\t\"--since=\" + analyzer.since.Format(time.RFC3339),"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 54,
+              "text": "\t\t\"--\", relativePath,"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 55,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 56,
+              "text": "\toutput, err := analyzer.runGitWithRetry(ctx, args...)"
+            },
+            {
+              "kind": "context",
+              "old_line": 44,
+              "new_line": 57,
+              "text": "\tif err != nil {"
+            },
+            {
+              "kind": "removed",
+              "old_line": 45,
+              "new_line": 0,
+              "text": "\t\treturn nil, fmt.Errorf(\"git log for %s: %w\", relativePath, err)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 58,
+              "text": "\t\tif errors.Is(err, context.Canceled) {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 59,
+              "text": "\t\t\treturn nil, err"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 60,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 61,
+              "text": "\t\treturn &models.ChurnMetric{}, nil"
+            },
+            {
+              "kind": "context",
+              "old_line": 46,
+              "new_line": 62,
+              "text": "\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 47,
+              "new_line": 63,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 48,
+              "new_line": 64,
+              "text": "\tmetric, err := parseNumstat(output)"
+            },
+            {
+              "kind": "context",
+              "old_line": 49,
+              "new_line": 65,
+              "text": "\tif err != nil {"
+            },
+            {
+              "kind": "context",
+              "old_line": 50,
+              "new_line": 66,
+              "text": "\t\treturn nil, fmt.Errorf(\"parse churn for %s: %w\", relativePath, err)"
+            },
+            {
+              "kind": "context",
+              "old_line": 51,
+              "new_line": 67,
+              "text": "\t}"
+            },
+            {
+              "kind": "removed",
+              "old_line": 52,
+              "new_line": 0,
+              "text": "\tmetric.ChurnScore = normalizeChurnScore(metric.TotalChanges, metric.TotalCommits)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 68,
+              "text": "\tif metric.TotalCommits > 0 {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 69,
+              "text": "\t\tmetric.ChurnScore = normalizeChurnScore(metric.TotalChanges, metric.TotalCommits)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 70,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 71,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 72,
+              "text": "\tanalyzer.cache.Put(relativePath, metric)"
+            },
+            {
+              "kind": "context",
+              "old_line": 53,
+              "new_line": 73,
+              "text": "\treturn metric, nil"
+            },
+            {
+              "kind": "context",
+              "old_line": 54,
+              "new_line": 74,
+              "text": "}"
+            },
+            {
+              "kind": "context",
+              "old_line": 55,
+              "new_line": 75,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 76,
+              "text": "// runGitWithRetry runs a git command, retrying transient failures with exponential backoff"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 77,
+              "text": "func (analyzer *Analyzer) runGitWithRetry(ctx context.Context, args ...string) ([]byte, error) {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 78,
+              "text": "\tvar lastErr error"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 79,
+              "text": "\tdelay := analyzer.backoff"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 80,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 81,
+              "text": "\tfor attempt := 0; attempt < maxGitAttempts; attempt++ {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 82,
+              "text": "\t\tcommand := exec.CommandContext(ctx, \"git\", args...)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 83,
+              "text": "\t\tcommand.Dir = analyzer.repoPath"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 84,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 85,
+              "text": "\t\toutput, err := command.Output()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 86,
+              "text": "\t\tif err == nil {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 87,
+              "text": "\t\t\treturn output, nil"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 88,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 89,
+              "text": "\t\tlastErr = err"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 90,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 91,
+              "text": "\t\tif !isTransientGitError(err) {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 92,
+              "text": "\t\t\tbreak"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 93,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 94,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 95,
+              "text": "\t\ttime.Sleep(delay)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 96,
+              "text": "\t\tdelay *= 2"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 97,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 98,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 99,
+              "text": "\treturn nil, fmt.Errorf(\"git %s failed after retries: %w\", args[0], lastErr)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 100,
+              "text": "}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 101,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 56,
+              "new_line": 102,
+              "text": "// isTransientGitError reports whether a git failure is worth retrying (lock contention, I/O hiccups)"
+            },
+            {
+              "kind": "context",
+              "old_line": 57,
+              "new_line": 103,
+              "text": "func isTransientGitError(err error) bool {"
+            },
+            {
+              "kind": "context",
+              "old_line": 58,
+              "new_line": 104,
+              "text": "\tvar exitErr *exec.ExitError"
+            }
+          ]
+        },
+        {
+          "old_start": 69,
+          "old_count": 6,
+          "new_start": 115,
+          "new_count": 7,
+          "header": "func parseNumstat(output []byte) (*models.ChurnMetric, error) {",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 69,
+              "new_line": 115,
+              "text": "\tmetric := &models.ChurnMetric{}"
+            },
+            {
+              "kind": "context",
+              "old_line": 70,
+              "new_line": 116,
+              "text": "\tauthors := make(map[string]bool)"
+            },
+            {
+              "kind": "context",
+              "old_line": 71,
+              "new_line": 117,
+              "text": "\tscanner := bufio.NewScanner(strings.NewReader(string(output)))"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 118,
+              "text": "\tscanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)"
+            },
+            {
+              "kind": "context",
+              "old_line": 72,
+              "new_line": 119,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 73,
+              "new_line": 120,
+              "text": "\tfor scanner.Scan() {"
+            },
+            {
+              "kind": "context",
+              "old_line": 74,
+              "new_line": 121,
+              "text": "\t\tline := strings.TrimSpace(scanner.Text())"
+            }
+          ]
+        },
+        {
+          "old_start": 78,
+          "old_count": 11,
+          "new_start": 125,
+          "new_count": 17,
+          "header": "func parseNumstat(output []byte) (*models.ChurnMetric, error) {",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 78,
+              "new_line": 125,
+              "text": "\t\tif header := strings.Split(line, \"|\"); len(header) == 3 {"
+            },
+            {
+              "kind": "context",
+              "old_line": 79,
+              "new_line": 126,
+              "text": "\t\t\tmetric.TotalCommits++"
+            },
+            {
+              "kind": "context",
+              "old_line": 80,
+              "new_line": 127,
+              "text": "\t\t\tauthors[header[1]] = true"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 128,
+              "text": "\t\t\tif timestamp, err := strconv.ParseInt(header[2], 10, 64); err == nil {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 129,
+              "text": "\t\t\t\tcommitTime := time.Unix(timestamp, 0)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 130,
+              "text": "\t\t\t\tif commitTime.After(metric.LastModified) {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 131,
+              "text": "\t\t\t\t\tmetric.LastModified = commitTime"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 132,
+              "text": "\t\t\t\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 133,
+              "text": "\t\t\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 81,
+              "new_line": 134,
+              "text": "\t\t\tcontinue"
+            },
+            {
+              "kind": "context",
+              "old_line": 82,
+              "new_line": 135,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 83,
+              "new_line": 136,
+              "text": "\t\tfields := strings.Fields(line)"
+            },
+            {
+              "kind": "removed",
+              "old_line": 84,
+              "new_line": 0,
+              "text": "\t\tif len(fields) < 3 {"
+            },
+            {
+              "kind": "removed",
+              "old_line": 85,
+              "new_line": 0,
+              "text": "\t\t\tcontinue"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 137,
+              "text": "\t\tif len(fields) < 3 || fields[0] == \"-\" {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 138,
+              "text": "\t\t\tcontinue // binary files report \"-\" for both counts"
+            },
+            {
+              "kind": "context",
+              "old_line": 86,
+              "new_line": 139,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 87,
+              "new_line": 140,
+              "text": "\t\tadded, _ := strconv.Atoi(fields[0])"
+            },
+            {
+              "kind": "context",
+              "old_line": 88,
+              "new_line": 141,
+              "text": "\t\tdeleted, _ := strconv.Atoi(fields[1])"
+            }
+          ]
+        }
+      ],
+      "line_count": 188,
+      "risk_score": 86.5
+    },
+    {
+      "path": "pkg/analyzer/pipeline.go",
+      "old_path": "pkg/analyzer/pipeline.go",
+      "status": "modified",
+      "language": "Go",
+      "additions": 51,
+      "deletions": 19,
+      "binary": false,
+      "hunks": [
+        {
+          "old_start": 5,
+          "old_count": 6,
+          "new_start": 5,
+          "new_count": 8,
+          "header": "import (",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 5,
+              "new_line": 5,
+              "text": "\t\"context\""
+            },
+            {
+              "kind": "context",
+              "old_line": 6,
+              "new_line": 6,
+              "text": "\t\"io/fs\""
+            },
+            {
+              "kind": "context",
+              "old_line": 7,
+              "new_line": 7,
+              "text": "\t\"path/filepath\""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 8,
+              "text": "\t\"runtime\""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 9,
+              "text": "\t\"sync\""
+            },
+            {
+              "kind": "context",
+              "old_line": 8,
+              "new_line": 10,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 9,
+              "new_line": 11,
+              "text": "\t\"github.com/alexcollie/kaizen/internal/config\""
+            },
+            {
+              "kind": "context",
+              "old_line": 10,
+              "new_line": 12,
+              "text": "\t\"github.com/alexcollie/kaizen/pkg/churn\""
+            }
+          ]
+        },
+        {
+          "old_start": 19,
+          "old_count": 6,
+          "new_start": 21,
+          "new_count": 7,
+          "header": "type Pipeline struct {",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 19,
+              "new_line": 21,
+              "text": "\tignore        *config.IgnoreMatcher"
+            },
+            {
+              "kind": "context",
+              "old_line": 20,
+              "new_line": 22,
+              "text": "\tchurnAnalyzer *churn.Analyzer"
+            },
+            {
+              "kind": "context",
+              "old_line": 21,
+              "new_line": 23,
+              "text": "\taggregator    *Aggregator"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 24,
+              "text": "\tworkers       int"
+            },
+            {
+              "kind": "context",
+              "old_line": 22,
+              "new_line": 25,
+              "text": "}"
+            },
+            {
+              "kind": "context",
+              "old_line": 23,
+              "new_line": 26,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 24,
+              "new_line": 27,
+              "text": "// NewPipeline wires a pipeline with the default registry; churnAnalyzer may be nil to skip churn"
+            }
+          ]
+        },
+        {
+          "old_start": 29,
+          "old_count": 6,
+          "new_start": 32,
+          "new_count": 7,
+          "header": "func NewPipeline(rootPath string, ignore *config.IgnoreMatcher, churnAnalyzer *c",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 29,
+              "new_line": 32,
+              "text": "\t\tignore:        ignore,"
+            },
+            {
+              "kind": "context",
+              "old_line": 30,
+              "new_line": 33,
+              "text": "\t\tchurnAnalyzer: churnAnalyzer,"
+            },
+            {
+              "kind": "context",
+              "old_line": 31,
+              "new_line": 34,
+              "text": "\t\taggregator:    NewAggregator(),"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 35,
+              "text": "\t\tworkers:       runtime.NumCPU(),"
+            },
+            {
+              "kind": "context",
+              "old_line": 32,
+              "new_line": 36,
+              "text": "\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 33,
+              "new_line": 37,
+              "text": "}"
+            },
+            {
+              "kind": "context",
+              "old_line": 34,
+              "new_line": 38,
+              "text": ""
+            }
+          ]
+        },
+        {
+          "old_start": 37,
+          "old_count": 30,
+          "new_start": 41,
+          "new_count": 55,
+          "header": "func (pipeline *Pipeline) RootPath() string {",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 37,
+              "new_line": 41,
+              "text": "\treturn pipeline.rootPath"
+            },
+            {
+              "kind": "context",
+              "old_line": 38,
+              "new_line": 42,
+              "text": "}"
+            },
+            {
+              "kind": "context",
+              "old_line": 39,
+              "new_line": 43,
+              "text": ""
+            },
+            {
+              "kind": "removed",
+              "old_line": 40,
+              "new_line": 0,
+              "text": "// Analyze discovers source files, analyzes each one and aggregates folder metrics"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 44,
+              "text": "// Analyze discovers source files, analyzes them in parallel and aggregates folder metrics"
+            },
+            {
+              "kind": "context",
+              "old_line": 41,
+              "new_line": 45,
+              "text": "func (pipeline *Pipeline) Analyze(ctx context.Context) (*models.AnalysisResult, error) {"
+            },
+            {
+              "kind": "context",
+              "old_line": 42,
+              "new_line": 46,
+              "text": "\tfiles, err := pipeline.discoverFiles()"
+            },
+            {
+              "kind": "context",
+              "old_line": 43,
+              "new_line": 47,
+              "text": "\tif err != nil {"
+            },
+            {
+              "kind": "context",
+              "old_line": 44,
+              "new_line": 48,
+              "text": "\t\treturn nil, err"
+            },
+            {
+              "kind": "context",
+              "old_line": 45,
+              "new_line": 49,
+              "text": "\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 46,
+              "new_line": 50,
+              "text": ""
+            },
+            {
+              "kind": "removed",
+              "old_line": 47,
+              "new_line": 0,
+              "text": "\tvar analyzed []models.FileAnalysis"
+            },
+            {
+              "kind": "removed",
+              "old_line": 48,
+              "new_line": 0,
+              "text": "\tfor _, filePath := range files {"
+            },
+            {
+              "kind": "removed",
+              "old_line": 49,
+              "new_line": 0,
+              "text": "\t\tif err := ctx.Err(); err != nil {"
+            },
+            {
+              "kind": "removed",
+              "old_line": 50,
+              "new_line": 0,
+              "text": "\t\t\treturn nil, err"
+            },
+            {
+              "kind": "removed",
+              "old_line": 51,
+              "new_line": 0,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "removed",
+              "old_line": 52,
+              "new_line": 0,
+              "text": "\t\tfileAnalyzer := pipeline.registry.GetAnalyzerForFile(filePath)"
+            },
+            {
+              "kind": "removed",
+              "old_line": 53,
+              "new_line": 0,
+              "text": "\t\tif fileAnalyzer == nil || fileAnalyzer.IsStub() {"
+            },
+            {
+              "kind": "removed",
+              "old_line": 54,
+              "new_line": 0,
+              "text": "\t\t\tcontinue"
+            },
+            {
+              "kind": "removed",
+              "old_line": 55,
+              "new_line": 0,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "removed",
+              "old_line": 56,
+              "new_line": 0,
+              "text": "\t\tanalysis, err := fileAnalyzer.AnalyzeFile(filePath)"
+            },
+            {
+              "kind": "removed",
+              "old_line": 57,
+              "new_line": 0,
+              "text": "\t\tif err != nil {"
+            },
+            {
+              "kind": "removed",
+              "old_line": 58,
+              "new_line": 0,
+              "text": "\t\t\tcontinue"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 51,
+              "text": "\tresults := make([]*models.FileAnalysis, len(files))"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 52,
+              "text": "\tjobs := make(chan int)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 53,
+              "text": "\tvar waitGroup sync.WaitGroup"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 54,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 55,
+              "text": "\tfor worker := 0; worker < pipeline.workers; worker++ {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 56,
+              "text": "\t\twaitGroup.Add(1)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 57,
+              "text": "\t\tgo func() {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 58,
+              "text": "\t\t\tdefer waitGroup.Done()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 59,
+              "text": "\t\t\tfor index := range jobs {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 60,
+              "text": "\t\t\t\tfileAnalyzer := pipeline.registry.GetAnalyzerForFile(files[index])"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 61,
+              "text": "\t\t\t\tif fileAnalyzer == nil || fileAnalyzer.IsStub() {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 62,
+              "text": "\t\t\t\t\tcontinue"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 63,
+              "text": "\t\t\t\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 64,
+              "text": "\t\t\t\tanalysis, err := fileAnalyzer.AnalyzeFile(files[index])"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 65,
+              "text": "\t\t\t\tif err != nil {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 66,
+              "text": "\t\t\t\t\tcontinue"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 67,
+              "text": "\t\t\t\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 68,
+              "text": "\t\t\t\tif pipeline.churnAnalyzer != nil {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 69,
+              "text": "\t\t\t\t\tpipeline.analyzeChurn(ctx, analysis)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 70,
+              "text": "\t\t\t\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 71,
+              "text": "\t\t\t\tresults[index] = analysis"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 72,
+              "text": "\t\t\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 73,
+              "text": "\t\t}()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 74,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 75,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 76,
+              "text": "\tfor index := range files {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 77,
+              "text": "\t\tselect {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 78,
+              "text": "\t\tcase jobs <- index:"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 79,
+              "text": "\t\tcase <-ctx.Done():"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 80,
+              "text": "\t\t\tclose(jobs)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 81,
+              "text": "\t\t\twaitGroup.Wait()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 82,
+              "text": "\t\t\treturn nil, ctx.Err()"
+            },
+            {
+              "kind": "context",
+              "old_line": 59,
+              "new_line": 83,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "removed",
+              "old_line": 60,
+              "new_line": 0,
+              "text": "\t\tif pipeline.churnAnalyzer != nil {"
+            },
+            {
+              "kind": "removed",
+              "old_line": 61,
+              "new_line": 0,
+              "text": "\t\t\tpipeline.analyzeChurn(ctx, analysis)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 84,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 85,
+              "text": "\tclose(jobs)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 86,
+              "text": "\twaitGroup.Wait()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 87,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 88,
+              "text": "\tanalyzed := make([]models.FileAnalysis, 0, len(results))"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 89,
+              "text": "\tfor _, analysis := range results {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 90,
+              "text": "\t\tif analysis != nil {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 91,
+              "text": "\t\t\tanalyzed = append(analyzed, *analysis)"
+            },
+            {
+              "kind": "context",
+              "old_line": 62,
+              "new_line": 92,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "removed",
+              "old_line": 63,
+              "new_line": 0,
+              "text": "\t\tanalyzed = append(analyzed, *analysis)"
+            },
+            {
+              "kind": "context",
+              "old_line": 64,
+              "new_line": 93,
+              "text": "\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 65,
+              "new_line": 94,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 66,
+              "new_line": 95,
+              "text": "\treturn &models.AnalysisResult{"
+            }
+          ]
+        },
+        {
+          "old_start": 86,
+          "old_count": 10,
+          "new_start": 115,
+          "new_count": 13,
+          "header": "func (pipeline *Pipeline) discoverFiles() ([]string, error) {",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 86,
+              "new_line": 115,
+              "text": "\t\t\treturn walkErr"
+            },
+            {
+              "kind": "context",
+              "old_line": 87,
+              "new_line": 116,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 88,
+              "new_line": 117,
+              "text": "\t\trelativePath, _ := filepath.Rel(pipeline.rootPath, path)"
+            },
+            {
+              "kind": "removed",
+              "old_line": 89,
+              "new_line": 0,
+              "text": "\t\tif entry.IsDir() && pipeline.ignore.Match(relativePath, true) {"
+            },
+            {
+              "kind": "removed",
+              "old_line": 90,
+              "new_line": 0,
+              "text": "\t\t\treturn filepath.SkipDir"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 118,
+              "text": "\t\tif entry.IsDir() {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 119,
+              "text": "\t\t\tif entry.Name() == \".git\" || pipeline.ignore.Match(relativePath, true) {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 120,
+              "text": "\t\t\t\treturn filepath.SkipDir"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 121,
+              "text": "\t\t\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 122,
+              "text": "\t\t\treturn nil"
+            },
+            {
+              "kind": "context",
+              "old_line": 91,
+              "new_line": 123,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "removed",
+              "old_line": 92,
+              "new_line": 0,
+              "text": "\t\tif entry.IsDir() || pipeline.ignore.Match(relativePath, false) {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 124,
+              "text": "\t\tif pipeline.ignore.Match(relativePath, false) {"
+            },
+            {
+              "kind": "context",
+              "old_line": 93,
+              "new_line": 125,
+              "text": "\t\t\treturn nil"
+            },
+            {
+              "kind": "context",
+              "old_line": 94,
+              "new_line": 126,
+              "text": "\t\t}"
+            },
+            {
+              "kind": "context",
+              "old_line": 95,
+              "new_line": 127,
+              "text": "\t\tif pipeline.registry.GetAnalyzerForFile(path) != nil {"
+            }
+          ]
+        }
+      ],
+      "line_count": 144,
+      "risk_score": 81.2
+    },
+    {
+      "path": "pkg/churn/cache.go",
+      "old_path": "",
+      "status": "added",
+      "language": "Go",
+      "additions": 71,
+      "deletions": 0,
+      "binary": false,
+      "hunks": [
+        {
+          "old_start": 0,
+          "old_count": 0,
+          "new_start": 1,
+          "new_count": 71,
+          "header": "",
+          "lines": [
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 1,
+              "text": "package churn"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 2,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 3,
+              "text": "import ("
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 4,
+              "text": "\t\"container/list\""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 5,
+              "text": "\t\"sync\""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 6,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 7,
+              "text": "\t\"github.com/alexcollie/kaizen/pkg/models\""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 8,
+              "text": ")"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 9,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 10,
+              "text": "// churnCache is a small LRU of churn metrics keyed by repo-relative path"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 11,
+              "text": "type churnCache struct {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 12,
+              "text": "\tmutex    sync.RWMutex"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 13,
+              "text": "\tcapacity int"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 14,
+              "text": "\torder    *list.List"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 15,
+              "text": "\tentries  map[string]*list.Element"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 16,
+              "text": "}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 17,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 18,
+              "text": "type cacheEntry struct {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 19,
+              "text": "\tkey    string"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 20,
+              "text": "\tmetric *models.ChurnMetric"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 21,
+              "text": "}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 22,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 23,
+              "text": "// newChurnCache creates a cache holding at most capacity entries"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 24,
+              "text": "func newChurnCache(capacity int) *churnCache {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 25,
+              "text": "\treturn &churnCache{"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 26,
+              "text": "\t\tcapacity: capacity,"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 27,
+              "text": "\t\torder:    list.New(),"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 28,
+              "text": "\t\tentries:  make(map[string]*list.Element, capacity),"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 29,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 30,
+              "text": "}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 31,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 32,
+              "text": "// Get returns the cached metric for key and marks it recently used"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 33,
+              "text": "func (cache *churnCache) Get(key string) (*models.ChurnMetric, bool) {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 34,
+              "text": "\tcache.mutex.RLock()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 35,
+              "text": "\tdefer cache.mutex.RUnlock()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 36,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 37,
+              "text": "\telement, ok := cache.entries[key]"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 38,
+              "text": "\tif !ok {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 39,
+              "text": "\t\treturn nil, false"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 40,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 41,
+              "text": "\tcache.order.MoveToFront(element)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 42,
+              "text": "\treturn element.Value.(*cacheEntry).metric, true"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 43,
+              "text": "}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 44,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 45,
+              "text": "// Put stores metric under key, evicting the least recently used entry when full"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 46,
+              "text": "func (cache *churnCache) Put(key string, metric *models.ChurnMetric) {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 47,
+              "text": "\tcache.mutex.Lock()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 48,
+              "text": "\tdefer cache.mutex.Unlock()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 49,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 50,
+              "text": "\tif element, ok := cache.entries[key]; ok {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 51,
+              "text": "\t\telement.Value.(*cacheEntry).metric = metric"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 52,
+              "text": "\t\tcache.order.MoveToFront(element)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 53,
+              "text": "\t\treturn"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 54,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 55,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 56,
+              "text": "\telement := cache.order.PushFront(&cacheEntry{key: key, metric: metric})"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 57,
+              "text": "\tcache.entries[key] = element"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 58,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 59,
+              "text": "\tif cache.order.Len() > cache.capacity {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 60,
+              "text": "\t\toldest := cache.order.Back()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 61,
+              "text": "\t\tcache.order.Remove(oldest)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 62,
+              "text": "\t\tdelete(cache.entries, oldest.Value.(*cacheEntry).key)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 63,
+              "text": "\t}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 64,
+              "text": "}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 65,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 66,
+              "text": "// Len reports how many entries are cached"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 67,
+              "text": "func (cache *churnCache) Len() int {"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 68,
+              "text": "\tcache.mutex.RLock()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 69,
+              "text": "\tdefer cache.mutex.RUnlock()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 70,
+              "text": "\treturn cache.order.Len()"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 71,
+              "text": "}"
+            }
+          ]
+        }
+      ],
+      "line_count": 71,
+      "risk_score": 74.0
+    },
+    {
+      "path": "scripts/churn_report.py",
+      "old_path": "scripts/churn_report.py",
+      "status": "modified",
+      "language": "Python",
+      "additions": 21,
+      "deletions": 5,
+      "binary": false,
+      "hunks": [
+        {
+          "old_start": 26,
+          "old_count": 12,
+          "new_start": 26,
+          "new_count": 28,
+          "header": "def load_files(path):",
+          "lines": [
+            {
+              "kind": "context",
+              "old_line": 26,
+              "new_line": 26,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 27,
+              "new_line": 27,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 28,
+              "new_line": 28,
+              "text": "def summarize_churn(files, top=10):"
+            },
+            {
+              "kind": "removed",
+              "old_line": 29,
+              "new_line": 0,
+              "text": "    \"\"\"Return the median commit count and the most-churned paths.\"\"\""
+            },
+            {
+              "kind": "removed",
+              "old_line": 30,
+              "new_line": 0,
+              "text": "    commits = [f[\"churn\"][\"total_commits\"] for f in files if f.get(\"churn\")]"
+            },
+            {
+              "kind": "removed",
+              "old_line": 31,
+              "new_line": 0,
+              "text": "    ranked = sorted(files, key=lambda f: (f.get(\"churn\") or {}).get(\"total_commits\", 0), reverse=True)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 29,
+              "text": "    \"\"\"Return churn statistics and the files that change most often.\"\"\""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 30,
+              "text": "    churned = [f for f in files if f.get(\"churn\")]"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 31,
+              "text": "    commits = [f[\"churn\"][\"total_commits\"] for f in churned]"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 32,
+              "text": "    if not commits:"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 33,
+              "text": "        return {\"files\": 0, \"median\": 0, \"p90\": 0, \"top\": []}"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 34,
+              "text": ""
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 35,
+              "text": "    by_commits = sorted(churned, key=lambda f: f[\"churn\"][\"total_commits\"], reverse=True)"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 36,
+              "text": "    top_files = []"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 37,
+              "text": "    for entry in by_commits[:top]:"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 38,
+              "text": "        churn = entry[\"churn\"]"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 39,
+              "text": "        top_files.append({"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 40,
+              "text": "            \"path\": entry[\"path\"],"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 41,
+              "text": "            \"commits\": churn[\"total_commits\"],"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 42,
+              "text": "            \"authors\": churn.get(\"author_count\", 0),"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 43,
+              "text": "            \"changes_per_commit\": churn[\"total_changes\"] / churn[\"total_commits\"],"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 44,
+              "text": "        })"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 45,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 32,
+              "new_line": 46,
+              "text": "    return {"
+            },
+            {
+              "kind": "removed",
+              "old_line": 33,
+              "new_line": 0,
+              "text": "        \"median\": statistics.median(commits) if commits else 0,"
+            },
+            {
+              "kind": "removed",
+              "old_line": 34,
+              "new_line": 0,
+              "text": "        \"top\": [entry[\"path\"] for entry in ranked[:top]],"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 47,
+              "text": "        \"files\": len(churned),"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 48,
+              "text": "        \"median\": statistics.median(commits),"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 49,
+              "text": "        \"p90\": _percentile(commits, 0.9),"
+            },
+            {
+              "kind": "added",
+              "old_line": 0,
+              "new_line": 50,
+              "text": "        \"top\": top_files,"
+            },
+            {
+              "kind": "context",
+              "old_line": 35,
+              "new_line": 51,
+              "text": "    }"
+            },
+            {
+              "kind": "context",
+              "old_line": 36,
+              "new_line": 52,
+              "text": ""
+            },
+            {
+              "kind": "context",
+              "old_line": 37,
+              "new_line": 53,
+              "text": ""
+            }
+          ]
+        }
+      ],
+      "line_count": 67,
+      "risk_score": 33.9
+    }
+  ],
+  "functions": [
+    {
+      "id": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+      "name": "GetFileChurn",
+      "receiver_type": "*Analyzer",
+      "file": "pkg/churn/analyzer.go",
+      "language": "Go",
+      "start_line": 40,
+      "end_line": 74,
+      "lines_added": 19,
+      "lines_removed": 6,
+      "is_new": false,
+      "metrics": {
+        "name": "GetFileChurn",
+        "start_line": 40,
+        "end_line": 74,
+        "length": 35,
+        "logical_lines": 28,
+        "parameter_count": 2,
+        "local_variable_count": 9,
+        "return_count": 3,
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 12,
+        "nesting_depth": 3,
+        "halstead_volume": 1180.4,
+        "halstead_difficulty": 19.7,
+        "abc_score": 15.3,
+        "fan_in": 7,
+        "fan_out": 5,
+        "churn": {
+          "total_commits": 23,
+          "lines_added": 207,
+          "lines_deleted": 92,
+          "total_changes": 299,
+          "last_modified": "2026-11-18T16:42:00Z",
+          "contributors": [
+            "acollie",
+            "mkowalski",
+            "j-lindqvist"
+          ],
+          "churn_score": 71.3,
+          "author_count": 3,
+          "average_churn_by": 3.9
+        },
+        "maintainability_index": 48.2,
+        "is_hotspot": false
+      },
+      "fan_in": 7,
+      "fan_in_approximate": false,
+      "callers": [
+        {
+          "id": "github.com/alexcollie/kaizen/cmd/kaizen.runDiff",
+          "name": "runDiff",
+          "file": "cmd/kaizen/diff.go",
+          "line": 23,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).analyzeChurn",
+          "name": "analyzeChurn",
+          "file": "pkg/analyzer/pipeline.go",
+          "line": 103,
+          "external": false
+        }
+      ],
+      "callees": [
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.(*churnCache).Get",
+          "name": "Get",
+          "file": "pkg/churn/cache.go",
+          "line": 33,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.(*churnCache).Put",
+          "name": "Put",
+          "file": "pkg/churn/cache.go",
+          "line": 46,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).runGitWithRetry",
+          "name": "runGitWithRetry",
+          "file": "pkg/churn/analyzer.go",
+          "line": 77,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.parseNumstat",
+          "name": "parseNumstat",
+          "file": "pkg/churn/analyzer.go",
+          "line": 114,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.normalizeChurnScore",
+          "name": "normalizeChurnScore",
+          "file": "pkg/churn/analyzer.go",
+          "line": 155,
+          "external": false
+        }
+      ],
+      "risk_score": 86.5,
+      "risk_reasons": [
+        "fan-in 7: called from analysis, diff and check paths",
+        "churn 23 commits in 90 days (hotspot)",
+        "error handling changed: git failures now return an empty metric",
+        "cyclomatic complexity 9, up from 4"
+      ],
+      "focus": true
+    },
+    {
+      "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+      "name": "Analyze",
+      "receiver_type": "*Pipeline",
+      "file": "pkg/analyzer/pipeline.go",
+      "language": "Go",
+      "start_line": 45,
+      "end_line": 99,
+      "lines_added": 40,
+      "lines_removed": 15,
+      "is_new": false,
+      "metrics": {
+        "name": "Analyze",
+        "start_line": 45,
+        "end_line": 99,
+        "length": 55,
+        "logical_lines": 44,
+        "parameter_count": 2,
+        "local_variable_count": 11,
+        "return_count": 3,
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 19,
+        "nesting_depth": 5,
+        "halstead_volume": 1612.9,
+        "halstead_difficulty": 26.9,
+        "abc_score": 18.7,
+        "fan_in": 2,
+        "fan_out": 5,
+        "churn": {
+          "total_commits": 31,
+          "lines_added": 279,
+          "lines_deleted": 124,
+          "total_changes": 403,
+          "last_modified": "2026-11-18T16:42:00Z",
+          "contributors": [
+            "acollie",
+            "mkowalski"
+          ],
+          "churn_score": 96.10000000000001,
+          "author_count": 2,
+          "average_churn_by": 2.9
+        },
+        "maintainability_index": 41.7,
+        "is_hotspot": true
+      },
+      "fan_in": 2,
+      "fan_in_approximate": false,
+      "callers": [
+        {
+          "id": "github.com/alexcollie/kaizen/cmd/kaizen.runAnalyze",
+          "name": "runAnalyze",
+          "file": "cmd/kaizen/main.go",
+          "line": 37,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/cmd/kaizen.runCheck",
+          "name": "runCheck",
+          "file": "cmd/kaizen/check.go",
+          "line": 23,
+          "external": false
+        }
+      ],
+      "callees": [
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).discoverFiles",
+          "name": "discoverFiles",
+          "file": "pkg/analyzer/pipeline.go",
+          "line": 111,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).analyzeChurn",
+          "name": "analyzeChurn",
+          "file": "pkg/analyzer/pipeline.go",
+          "line": 102,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/languages.(*Registry).GetAnalyzerForFile",
+          "name": "GetAnalyzerForFile",
+          "file": "pkg/languages/registry.go",
+          "line": 30,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Aggregator).AggregateByFolder",
+          "name": "AggregateByFolder",
+          "file": "pkg/analyzer/aggregator.go",
+          "line": 18,
+          "external": false
+        },
+        {
+          "id": "sync.(*WaitGroup).Wait",
+          "name": "WaitGroup.Wait",
+          "file": "",
+          "line": 0,
+          "external": true
+        }
+      ],
+      "risk_score": 81.2,
+      "risk_reasons": [
+        "cyclomatic complexity 11 (high)",
+        "nesting depth 5 (high)",
+        "introduces goroutines and channel fan-out",
+        "churn 31 commits in 90 days (hotspot)"
+      ],
+      "focus": true
+    },
+    {
+      "id": "github.com/alexcollie/kaizen/pkg/churn.(*churnCache).Get",
+      "name": "Get",
+      "receiver_type": "*churnCache",
+      "file": "pkg/churn/cache.go",
+      "language": "Go",
+      "start_line": 33,
+      "end_line": 43,
+      "lines_added": 11,
+      "lines_removed": 0,
+      "is_new": true,
+      "metrics": {
+        "name": "Get",
+        "start_line": 33,
+        "end_line": 43,
+        "length": 11,
+        "logical_lines": 8,
+        "parameter_count": 2,
+        "local_variable_count": 2,
+        "return_count": 1,
+        "cyclomatic_complexity": 2,
+        "cognitive_complexity": 1,
+        "nesting_depth": 1,
+        "halstead_volume": 210.5,
+        "halstead_difficulty": 3.5,
+        "abc_score": 3.4,
+        "fan_in": 1,
+        "fan_out": 0,
+        "churn": {
+          "total_commits": 1,
+          "lines_added": 9,
+          "lines_deleted": 4,
+          "total_changes": 13,
+          "last_modified": "2026-11-18T16:42:00Z",
+          "contributors": [
+            "acollie",
+            "mkowalski"
+          ],
+          "churn_score": 3.1,
+          "author_count": 2,
+          "average_churn_by": 90.0
+        },
+        "maintainability_index": 71.0,
+        "is_hotspot": false
+      },
+      "fan_in": 1,
+      "fan_in_approximate": false,
+      "callers": [
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+          "name": "GetFileChurn",
+          "file": "pkg/churn/analyzer.go",
+          "line": 47,
+          "external": false
+        }
+      ],
+      "callees": [],
+      "risk_score": 74.0,
+      "risk_reasons": [
+        "new code on a concurrent path: called from Pipeline.Analyze worker goroutines",
+        "mutates shared state under a read lock"
+      ],
+      "focus": true
+    },
+    {
+      "id": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).runGitWithRetry",
+      "name": "runGitWithRetry",
+      "receiver_type": "*Analyzer",
+      "file": "pkg/churn/analyzer.go",
+      "language": "Go",
+      "start_line": 77,
+      "end_line": 100,
+      "lines_added": 24,
+      "lines_removed": 0,
+      "is_new": true,
+      "metrics": {
+        "name": "runGitWithRetry",
+        "start_line": 77,
+        "end_line": 100,
+        "length": 24,
+        "logical_lines": 19,
+        "parameter_count": 2,
+        "local_variable_count": 4,
+        "return_count": 1,
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 5,
+        "nesting_depth": 2,
+        "halstead_volume": 455.0,
+        "halstead_difficulty": 7.6,
+        "abc_score": 6.8,
+        "fan_in": 1,
+        "fan_out": 3,
+        "churn": {
+          "total_commits": 1,
+          "lines_added": 9,
+          "lines_deleted": 4,
+          "total_changes": 13,
+          "last_modified": "2026-11-18T16:42:00Z",
+          "contributors": [
+            "acollie",
+            "mkowalski"
+          ],
+          "churn_score": 3.1,
+          "author_count": 2,
+          "average_churn_by": 90.0
+        },
+        "maintainability_index": 62.3,
+        "is_hotspot": false
+      },
+      "fan_in": 1,
+      "fan_in_approximate": false,
+      "callers": [
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+          "name": "GetFileChurn",
+          "file": "pkg/churn/analyzer.go",
+          "line": 56,
+          "external": false
+        }
+      ],
+      "callees": [
+        {
+          "id": "os/exec.CommandContext",
+          "name": "exec.CommandContext",
+          "file": "",
+          "line": 0,
+          "external": true
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.isTransientGitError",
+          "name": "isTransientGitError",
+          "file": "pkg/churn/analyzer.go",
+          "line": 103,
+          "external": false
+        },
+        {
+          "id": "time.Sleep",
+          "name": "time.Sleep",
+          "file": "",
+          "line": 0,
+          "external": true
+        }
+      ],
+      "risk_score": 58.4,
+      "risk_reasons": [
+        "new function with retry and sleep logic",
+        "shells out to git"
+      ],
+      "focus": false
+    },
+    {
+      "id": "github.com/alexcollie/kaizen/pkg/churn.parseNumstat",
+      "name": "parseNumstat",
+      "receiver_type": "",
+      "file": "pkg/churn/analyzer.go",
+      "language": "Go",
+      "start_line": 114,
+      "end_line": 152,
+      "lines_added": 9,
+      "lines_removed": 2,
+      "is_new": false,
+      "metrics": {
+        "name": "parseNumstat",
+        "start_line": 114,
+        "end_line": 152,
+        "length": 39,
+        "logical_lines": 31,
+        "parameter_count": 1,
+        "local_variable_count": 10,
+        "return_count": 3,
+        "cyclomatic_complexity": 10,
+        "cognitive_complexity": 14,
+        "nesting_depth": 4,
+        "halstead_volume": 1320.2,
+        "halstead_difficulty": 22.0,
+        "abc_score": 17.0,
+        "fan_in": 1,
+        "fan_out": 2,
+        "churn": {
+          "total_commits": 9,
+          "lines_added": 81,
+          "lines_deleted": 36,
+          "total_changes": 117,
+          "last_modified": "2026-11-18T16:42:00Z",
+          "contributors": [
+            "acollie"
+          ],
+          "churn_score": 27.900000000000002,
+          "author_count": 1,
+          "average_churn_by": 10.0
+        },
+        "maintainability_index": 46.9,
+        "is_hotspot": false
+      },
+      "fan_in": 1,
+      "fan_in_approximate": false,
+      "callers": [
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+          "name": "GetFileChurn",
+          "file": "pkg/churn/analyzer.go",
+          "line": 64,
+          "external": false
+        }
+      ],
+      "callees": [
+        {
+          "id": "bufio.NewScanner",
+          "name": "bufio.NewScanner",
+          "file": "",
+          "line": 0,
+          "external": true
+        },
+        {
+          "id": "strconv.Atoi",
+          "name": "strconv.Atoi",
+          "file": "",
+          "line": 0,
+          "external": true
+        }
+      ],
+      "risk_score": 52.7,
+      "risk_reasons": [
+        "cyclomatic complexity 10 (moderate)",
+        "nesting depth 4",
+        "parses untrusted git output"
+      ],
+      "focus": false
+    },
+    {
+      "id": "github.com/alexcollie/kaizen/pkg/churn.(*churnCache).Put",
+      "name": "Put",
+      "receiver_type": "*churnCache",
+      "file": "pkg/churn/cache.go",
+      "language": "Go",
+      "start_line": 46,
+      "end_line": 64,
+      "lines_added": 19,
+      "lines_removed": 0,
+      "is_new": true,
+      "metrics": {
+        "name": "Put",
+        "start_line": 46,
+        "end_line": 64,
+        "length": 19,
+        "logical_lines": 15,
+        "parameter_count": 2,
+        "local_variable_count": 3,
+        "return_count": 1,
+        "cyclomatic_complexity": 3,
+        "cognitive_complexity": 3,
+        "nesting_depth": 1,
+        "halstead_volume": 388.1,
+        "halstead_difficulty": 6.5,
+        "abc_score": 5.1,
+        "fan_in": 1,
+        "fan_out": 0,
+        "churn": {
+          "total_commits": 1,
+          "lines_added": 9,
+          "lines_deleted": 4,
+          "total_changes": 13,
+          "last_modified": "2026-11-18T16:42:00Z",
+          "contributors": [
+            "acollie",
+            "mkowalski"
+          ],
+          "churn_score": 3.1,
+          "author_count": 2,
+          "average_churn_by": 90.0
+        },
+        "maintainability_index": 66.8,
+        "is_hotspot": false
+      },
+      "fan_in": 1,
+      "fan_in_approximate": false,
+      "callers": [
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+          "name": "GetFileChurn",
+          "file": "pkg/churn/analyzer.go",
+          "line": 72,
+          "external": false
+        }
+      ],
+      "callees": [],
+      "risk_score": 41.3,
+      "risk_reasons": [
+        "new code holding a lock while evicting"
+      ],
+      "focus": false
+    },
+    {
+      "id": "scripts/churn_report.py:summarize_churn",
+      "name": "summarize_churn",
+      "receiver_type": "",
+      "file": "scripts/churn_report.py",
+      "language": "Python",
+      "start_line": 28,
+      "end_line": 51,
+      "lines_added": 21,
+      "lines_removed": 5,
+      "is_new": false,
+      "metrics": {
+        "name": "summarize_churn",
+        "start_line": 28,
+        "end_line": 51,
+        "length": 24,
+        "logical_lines": 19,
+        "parameter_count": 1,
+        "local_variable_count": 5,
+        "return_count": 1,
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 6,
+        "nesting_depth": 2,
+        "halstead_volume": 702.6,
+        "halstead_difficulty": 11.7,
+        "abc_score": 8.5,
+        "fan_in": 1,
+        "fan_out": 2,
+        "churn": {
+          "total_commits": 4,
+          "lines_added": 36,
+          "lines_deleted": 16,
+          "total_changes": 52,
+          "last_modified": "2026-11-18T16:42:00Z",
+          "contributors": [
+            "acollie",
+            "mkowalski"
+          ],
+          "churn_score": 12.4,
+          "author_count": 2,
+          "average_churn_by": 22.5
+        },
+        "maintainability_index": 58.0,
+        "is_hotspot": false
+      },
+      "fan_in": 1,
+      "fan_in_approximate": true,
+      "callers": [
+        {
+          "id": "scripts/churn_report.py:main",
+          "name": "main",
+          "file": "scripts/churn_report.py",
+          "line": 60,
+          "external": false
+        }
+      ],
+      "callees": [
+        {
+          "id": "statistics.median",
+          "name": "statistics.median",
+          "file": "",
+          "line": 0,
+          "external": true
+        },
+        {
+          "id": "scripts/churn_report.py:_percentile",
+          "name": "_percentile",
+          "file": "scripts/churn_report.py",
+          "line": 13,
+          "external": false
+        }
+      ],
+      "risk_score": 33.9,
+      "risk_reasons": [
+        "output shape changed (new keys)",
+        "division by total_commits"
+      ],
+      "focus": false
+    },
+    {
+      "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).discoverFiles",
+      "name": "discoverFiles",
+      "receiver_type": "*Pipeline",
+      "file": "pkg/analyzer/pipeline.go",
+      "language": "Go",
+      "start_line": 111,
+      "end_line": 133,
+      "lines_added": 6,
+      "lines_removed": 3,
+      "is_new": false,
+      "metrics": {
+        "name": "discoverFiles",
+        "start_line": 111,
+        "end_line": 133,
+        "length": 23,
+        "logical_lines": 18,
+        "parameter_count": 2,
+        "local_variable_count": 7,
+        "return_count": 2,
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 9,
+        "nesting_depth": 3,
+        "halstead_volume": 640.0,
+        "halstead_difficulty": 10.7,
+        "abc_score": 11.9,
+        "fan_in": 1,
+        "fan_out": 3,
+        "churn": {
+          "total_commits": 12,
+          "lines_added": 108,
+          "lines_deleted": 48,
+          "total_changes": 156,
+          "last_modified": "2026-11-18T16:42:00Z",
+          "contributors": [
+            "acollie"
+          ],
+          "churn_score": 37.2,
+          "author_count": 1,
+          "average_churn_by": 7.5
+        },
+        "maintainability_index": 55.4,
+        "is_hotspot": false
+      },
+      "fan_in": 1,
+      "fan_in_approximate": false,
+      "callers": [
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+          "name": "Analyze",
+          "file": "pkg/analyzer/pipeline.go",
+          "line": 46,
+          "external": false
+        }
+      ],
+      "callees": [
+        {
+          "id": "path/filepath.WalkDir",
+          "name": "filepath.WalkDir",
+          "file": "",
+          "line": 0,
+          "external": true
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/internal/config.(*IgnoreMatcher).Match",
+          "name": "Match",
+          "file": "internal/config/config.go",
+          "line": 22,
+          "external": false
+        },
+        {
+          "id": "github.com/alexcollie/kaizen/pkg/languages.(*Registry).GetAnalyzerForFile",
+          "name": "GetAnalyzerForFile",
+          "file": "pkg/languages/registry.go",
+          "line": 30,
+          "external": false
+        }
+      ],
+      "risk_score": 22.6,
+      "risk_reasons": [
+        "small change to directory skipping"
+      ],
+      "focus": false
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+        "name": "GetFileChurn",
+        "file": "pkg/churn/analyzer.go",
+        "line": 40,
+        "kind": "changed",
+        "risk_score": 86.5,
+        "focus": true,
+        "fan_in": 7,
+        "complexity": 9
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+        "name": "Analyze",
+        "file": "pkg/analyzer/pipeline.go",
+        "line": 45,
+        "kind": "changed",
+        "risk_score": 81.2,
+        "focus": true,
+        "fan_in": 2,
+        "complexity": 11
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/churn.(*churnCache).Get",
+        "name": "Get",
+        "file": "pkg/churn/cache.go",
+        "line": 33,
+        "kind": "changed",
+        "risk_score": 74.0,
+        "focus": true,
+        "fan_in": 1,
+        "complexity": 2
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).runGitWithRetry",
+        "name": "runGitWithRetry",
+        "file": "pkg/churn/analyzer.go",
+        "line": 77,
+        "kind": "changed",
+        "risk_score": 58.4,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 4
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/churn.parseNumstat",
+        "name": "parseNumstat",
+        "file": "pkg/churn/analyzer.go",
+        "line": 114,
+        "kind": "changed",
+        "risk_score": 52.7,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 10
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/churn.(*churnCache).Put",
+        "name": "Put",
+        "file": "pkg/churn/cache.go",
+        "line": 46,
+        "kind": "changed",
+        "risk_score": 41.3,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 3
+      },
+      {
+        "id": "scripts/churn_report.py:summarize_churn",
+        "name": "summarize_churn",
+        "file": "scripts/churn_report.py",
+        "line": 28,
+        "kind": "changed",
+        "risk_score": 33.9,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 5
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).discoverFiles",
+        "name": "discoverFiles",
+        "file": "pkg/analyzer/pipeline.go",
+        "line": 111,
+        "kind": "changed",
+        "risk_score": 22.6,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 7
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/cmd/kaizen.runAnalyze",
+        "name": "runAnalyze",
+        "file": "cmd/kaizen/main.go",
+        "line": 21,
+        "kind": "caller",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 8
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/cmd/kaizen.runCheck",
+        "name": "runCheck",
+        "file": "cmd/kaizen/check.go",
+        "line": 16,
+        "kind": "caller",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 5
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/cmd/kaizen.runDiff",
+        "name": "runDiff",
+        "file": "cmd/kaizen/diff.go",
+        "line": 15,
+        "kind": "caller",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 5
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).analyzeChurn",
+        "name": "analyzeChurn",
+        "file": "pkg/analyzer/pipeline.go",
+        "line": 102,
+        "kind": "caller",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 2
+      },
+      {
+        "id": "scripts/churn_report.py:main",
+        "name": "main",
+        "file": "scripts/churn_report.py",
+        "line": 54,
+        "kind": "caller",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 0,
+        "complexity": 1
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/churn.normalizeChurnScore",
+        "name": "normalizeChurnScore",
+        "file": "pkg/churn/analyzer.go",
+        "line": 155,
+        "kind": "callee",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 2
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/churn.isTransientGitError",
+        "name": "isTransientGitError",
+        "file": "pkg/churn/analyzer.go",
+        "line": 103,
+        "kind": "callee",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 2,
+        "complexity": 3
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/languages.(*Registry).GetAnalyzerForFile",
+        "name": "GetAnalyzerForFile",
+        "file": "pkg/languages/registry.go",
+        "line": 30,
+        "kind": "callee",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 9,
+        "complexity": 3
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/pkg/analyzer.(*Aggregator).AggregateByFolder",
+        "name": "AggregateByFolder",
+        "file": "pkg/analyzer/aggregator.go",
+        "line": 18,
+        "kind": "callee",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 4,
+        "complexity": 5
+      },
+      {
+        "id": "github.com/alexcollie/kaizen/internal/config.(*IgnoreMatcher).Match",
+        "name": "Match",
+        "file": "internal/config/config.go",
+        "line": 22,
+        "kind": "callee",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 5,
+        "complexity": 6
+      },
+      {
+        "id": "scripts/churn_report.py:_percentile",
+        "name": "_percentile",
+        "file": "scripts/churn_report.py",
+        "line": 13,
+        "kind": "callee",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 1,
+        "complexity": 2
+      },
+      {
+        "id": "os/exec.CommandContext",
+        "name": "exec.CommandContext",
+        "file": "",
+        "line": 0,
+        "kind": "external",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 14,
+        "complexity": 0
+      },
+      {
+        "id": "time.Sleep",
+        "name": "time.Sleep",
+        "file": "",
+        "line": 0,
+        "kind": "external",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 6,
+        "complexity": 0
+      },
+      {
+        "id": "strconv.Atoi",
+        "name": "strconv.Atoi",
+        "file": "",
+        "line": 0,
+        "kind": "external",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 11,
+        "complexity": 0
+      },
+      {
+        "id": "bufio.NewScanner",
+        "name": "bufio.NewScanner",
+        "file": "",
+        "line": 0,
+        "kind": "external",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 5,
+        "complexity": 0
+      },
+      {
+        "id": "path/filepath.WalkDir",
+        "name": "filepath.WalkDir",
+        "file": "",
+        "line": 0,
+        "kind": "external",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 3,
+        "complexity": 0
+      },
+      {
+        "id": "sync.(*WaitGroup).Wait",
+        "name": "WaitGroup.Wait",
+        "file": "",
+        "line": 0,
+        "kind": "external",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 8,
+        "complexity": 0
+      },
+      {
+        "id": "statistics.median",
+        "name": "statistics.median",
+        "file": "",
+        "line": 0,
+        "kind": "external",
+        "risk_score": 0,
+        "focus": false,
+        "fan_in": 2,
+        "complexity": 0
+      }
+    ],
+    "edges": [
+      {
+        "from": "github.com/alexcollie/kaizen/cmd/kaizen.runAnalyze",
+        "to": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/cmd/kaizen.runCheck",
+        "to": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/cmd/kaizen.runDiff",
+        "to": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).analyzeChurn",
+        "to": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+        "to": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).discoverFiles",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+        "to": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).analyzeChurn",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+        "to": "github.com/alexcollie/kaizen/pkg/languages.(*Registry).GetAnalyzerForFile",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+        "to": "github.com/alexcollie/kaizen/pkg/analyzer.(*Aggregator).AggregateByFolder",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).Analyze",
+        "to": "sync.(*WaitGroup).Wait",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+        "to": "github.com/alexcollie/kaizen/pkg/churn.(*churnCache).Get",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+        "to": "github.com/alexcollie/kaizen/pkg/churn.(*churnCache).Put",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+        "to": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).runGitWithRetry",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+        "to": "github.com/alexcollie/kaizen/pkg/churn.parseNumstat",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).GetFileChurn",
+        "to": "github.com/alexcollie/kaizen/pkg/churn.normalizeChurnScore",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).runGitWithRetry",
+        "to": "os/exec.CommandContext",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).runGitWithRetry",
+        "to": "github.com/alexcollie/kaizen/pkg/churn.isTransientGitError",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.(*Analyzer).runGitWithRetry",
+        "to": "time.Sleep",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.parseNumstat",
+        "to": "bufio.NewScanner",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/churn.parseNumstat",
+        "to": "strconv.Atoi",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).discoverFiles",
+        "to": "path/filepath.WalkDir",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).discoverFiles",
+        "to": "github.com/alexcollie/kaizen/internal/config.(*IgnoreMatcher).Match",
+        "weight": 1
+      },
+      {
+        "from": "github.com/alexcollie/kaizen/pkg/analyzer.(*Pipeline).discoverFiles",
+        "to": "github.com/alexcollie/kaizen/pkg/languages.(*Registry).GetAnalyzerForFile",
+        "weight": 1
+      },
+      {
+        "from": "scripts/churn_report.py:main",
+        "to": "scripts/churn_report.py:summarize_churn",
+        "weight": 1
+      },
+      {
+        "from": "scripts/churn_report.py:summarize_churn",
+        "to": "statistics.median",
+        "weight": 1
+      },
+      {
+        "from": "scripts/churn_report.py:summarize_churn",
+        "to": "scripts/churn_report.py:_percentile",
+        "weight": 1
+      }
+    ]
+  },
+  "concerns": [
+    {
+      "type": "blast_radius",
+      "severity": "warning",
+      "title": "Wide blast radius: GetFileChurn",
+      "description": "GetFileChurn is reached from 3 commands (analyze, diff, check). A behaviour change here affects every churn number Kaizen reports.",
+      "affected_items": [
+        {
+          "file_path": "pkg/churn/analyzer.go",
+          "function_name": "GetFileChurn",
+          "line": 40,
+          "metrics": {
+            "fan_in": 7,
+            "callers": 3
+          }
+        }
+      ]
+    },
+    {
+      "type": "hotspot",
+      "severity": "critical",
+      "title": "Hotspot modified: Pipeline.Analyze",
+      "description": "Analyze has cyclomatic complexity 11 and 31 commits in the last 90 days, and this PR adds concurrency to it.",
+      "affected_items": [
+        {
+          "file_path": "pkg/analyzer/pipeline.go",
+          "function_name": "Analyze",
+          "line": 45,
+          "metrics": {
+            "cyclomatic_complexity": 11,
+            "churn": 31
+          }
+        }
+      ]
+    },
+    {
+      "type": "missing_tests",
+      "severity": "info",
+      "title": "New file without tests",
+      "description": "pkg/churn/cache.go adds an LRU cache with locking but no cache_test.go was added.",
+      "affected_items": [
+        {
+          "file_path": "pkg/churn/cache.go",
+          "metrics": {
+            "functions": 4
+          }
+        }
+      ]
+    }
+  ],
+  "worktree_path": "",
+  "generated_at": "2026-11-19T21:15:00Z"
+}
