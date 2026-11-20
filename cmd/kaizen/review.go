@@ -57,6 +57,7 @@ type reviewFlags struct {
 	keepWorktree bool
 	skipChurn    bool
 	rerun        bool
+	maxBudget    float64
 	repoPath     string
 }
 
@@ -73,6 +74,7 @@ func init() {
 	flags.IntVar(&reviewOptions.focus, "focus", review.DefaultFocusCount, "number of highest-risk functions the review concentrates on")
 	flags.BoolVar(&reviewOptions.keepWorktree, "keep-worktree", false, "keep the PR checkout after exiting (its path is printed)")
 	flags.BoolVar(&reviewOptions.skipChurn, "skip-churn", false, "skip per-function git churn lookups (faster on large histories)")
+	flags.Float64Var(&reviewOptions.maxBudget, "max-budget", engine.DefaultMaxBudgetUSD, "maximum estimated USD one CLI-engine review may spend before it is stopped")
 	flags.BoolVar(&reviewOptions.rerun, "rerun", false, "run a fresh AI review even if one is cached for this PR head commit")
 	flags.StringVar(&reviewOptions.repoPath, "repo", ".", "path to a local clone of the PR's repository")
 	rootCmd.AddCommand(reviewCmd)
@@ -177,7 +179,7 @@ func parsePRReference(reference string) (int, error) {
 // selectReviewEngine resolves --engine/--model/--effort into an engine
 func selectReviewEngine(options reviewFlags) (review.Engine, error) {
 	selectOptions := engine.SelectOptions{
-		CLI: engine.CLIEngine{Model: options.model, Effort: options.effort},
+		CLI: engine.CLIEngine{Model: options.model, Effort: options.effort, MaxBudgetUSD: options.maxBudget},
 		API: engine.APIEngine{Model: options.model},
 	}
 	return engine.Select(options.engineName, selectOptions)
