@@ -119,3 +119,18 @@ func TestSameSourceFile(t *testing.T) {
 		})
 	}
 }
+
+// Directory-qualified keys (two packages named main) still match by file
+func TestMatchCallGraphNameWithDirectoryQualifiedKeys(t *testing.T) {
+	repoPath := "/repo"
+	graph := models.NewCallGraph()
+	graph.AddNode(&models.CallNode{Name: "main", FullName: "cmd/app:main.main", File: "/repo/cmd/app/main.go", Line: 5})
+	graph.AddNode(&models.CallNode{Name: "main", FullName: "demo/sample:main.main", File: "/repo/demo/sample/main.go", Line: 5})
+	graph.AddNode(&models.CallNode{Name: "Run", FullName: "demo/sample:main.Server.Run", File: "/repo/demo/sample/main.go", Line: 9})
+
+	match := func(changed ChangedFunction) string { return MatchCallGraphName(changed, graph, repoPath) }
+	assert.Equal(t, "cmd/app:main.main", match(ChangedFunction{FilePath: "cmd/app/main.go", Name: "main", StartLine: 5}))
+	assert.Equal(t, "demo/sample:main.main", match(ChangedFunction{FilePath: "demo/sample/main.go", Name: "main", StartLine: 5}))
+	assert.Equal(t, "demo/sample:main.Server.Run",
+		match(ChangedFunction{FilePath: "demo/sample/main.go", Name: "Run", HasReceiver: true, ReceiverType: "Server", StartLine: 9}))
+}

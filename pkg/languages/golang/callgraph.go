@@ -21,21 +21,33 @@ import (
 // are declared exactly once in the analyzed code. That last guess is skipped for
 // common interface method names (String, Close, ...) and calls rooted in an import,
 // and the edges it produces are marked Inferred.
+//
+// Node keys are pkg.Func and pkg.Type.Method, using the bare package name. When
+// two directories declare the same package name (two `main` packages, say), the
+// keys of both are qualified with their directory relative to the analyzed root,
+// e.g. cmd/kaizen:main.main, so neither overwrites the other.
 type CallGraphAnalyzer struct {
 	graph       *models.CallGraph
 	currentFile string
 	packageName string
+	keyPrefix   string // packageName, or dir:packageName when the name is ambiguous
 	fileSet     *token.FileSet
 
 	// methodsByName maps a method name to the full names of every method declaring it
 	methodsByName map[string][]string
+
+	// packageDirs maps a package name to the directories (relative to the root,
+	// slash-separated) declaring it
+	packageDirs map[string]map[string]bool
 }
 
 // parsedGoFile is a file parsed in the first pass and resolved in the second
 type parsedGoFile struct {
-	path    string
-	syntax  *ast.File
-	imports map[string]string // local import name -> package name used in node keys
+	path        string
+	dir         string // directory relative to the analyzed root, slash-separated
+	syntax      *ast.File
+	importPaths map[string]string // local import name -> import path
+	imports     map[string]string // local import name -> key prefix used in node keys
 }
 
 // NewCallGraphAnalyzer creates a new call graph analyzer
@@ -44,6 +56,7 @@ func NewCallGraphAnalyzer() *CallGraphAnalyzer {
 		graph:         models.NewCallGraph(),
 		fileSet:       token.NewFileSet(),
 		methodsByName: make(map[string][]string),
+		packageDirs:   make(map[string]map[string]bool),
 	}
 }
 
@@ -54,6 +67,7 @@ func (analyzer *CallGraphAnalyzer) AnalyzeDirectory(rootPath string) (*models.Ca
 		return nil, err
 	}
 
+	analyzer.indexPackageDirs(files, rootPath)
 	for _, file := range files {
 		analyzer.registerDeclarations(file)
 	}
@@ -119,32 +133,96 @@ func (analyzer *CallGraphAnalyzer) parseFile(filePath string) (*parsedGoFile, er
 		return nil, fmt.Errorf("failed to parse file: %w", err)
 	}
 
-	return &parsedGoFile{path: filePath, syntax: syntax, imports: importNames(syntax)}, nil
+	return &parsedGoFile{path: filePath, syntax: syntax, importPaths: importPaths(syntax)}, nil
 }
 
-// importNames maps each import's local name to the package name used in node keys.
-// Without type information the package name is assumed to be the last path element.
-func importNames(syntax *ast.File) map[string]string {
-	names := make(map[string]string)
+// importPaths maps each import's local name to its import path. Without type
+// information the package name is assumed to be the last path element.
+func importPaths(syntax *ast.File) map[string]string {
+	paths := make(map[string]string)
 	for _, spec := range syntax.Imports {
 		importPath := strings.Trim(spec.Path.Value, `"`)
-		packageName := importPath[strings.LastIndex(importPath, "/")+1:]
-		localName := packageName
+		localName := lastPathElement(importPath)
 		if spec.Name != nil {
 			localName = spec.Name.Name
 		}
 		if localName == "_" || localName == "." {
 			continue
 		}
-		names[localName] = packageName
+		paths[localName] = importPath
 	}
-	return names
+	return paths
+}
+
+func lastPathElement(importPath string) string {
+	return importPath[strings.LastIndex(importPath, "/")+1:]
+}
+
+// indexPackageDirs records which directories declare each package name, then
+// resolves every file's imports to the key prefixes used in node keys
+func (analyzer *CallGraphAnalyzer) indexPackageDirs(files []*parsedGoFile, rootPath string) {
+	for _, file := range files {
+		file.dir = relativeDir(rootPath, file.path)
+		packageName := file.syntax.Name.Name
+		if analyzer.packageDirs[packageName] == nil {
+			analyzer.packageDirs[packageName] = make(map[string]bool)
+		}
+		analyzer.packageDirs[packageName][file.dir] = true
+	}
+	for _, file := range files {
+		file.imports = make(map[string]string, len(file.importPaths))
+		for localName, importPath := range file.importPaths {
+			file.imports[localName] = analyzer.importKeyPrefix(importPath)
+		}
+	}
+}
+
+// relativeDir is filePath's directory relative to rootPath, slash-separated
+func relativeDir(rootPath, filePath string) string {
+	dir := filepath.Dir(filePath)
+	if relative, err := filepath.Rel(rootPath, dir); err == nil {
+		dir = relative
+	}
+	return filepath.ToSlash(dir)
+}
+
+// keyPrefixFor is the node-key prefix for a package declared in dir: the bare
+// package name, or dir:name when several directories declare that name
+func (analyzer *CallGraphAnalyzer) keyPrefixFor(packageName, dir string) string {
+	if len(analyzer.packageDirs[packageName]) <= 1 {
+		return packageName
+	}
+	return dir + ":" + packageName
+}
+
+// importKeyPrefix maps an import path to a node-key prefix. For an ambiguous
+// package name it picks the declaring directory the import path ends with
+// (the longest such match); with no match the bare name is kept, as for any
+// external package.
+func (analyzer *CallGraphAnalyzer) importKeyPrefix(importPath string) string {
+	packageName := lastPathElement(importPath)
+	dirs := analyzer.packageDirs[packageName]
+	if len(dirs) <= 1 {
+		return packageName
+	}
+	bestDir := ""
+	for dir := range dirs {
+		matches := dir != "." && (importPath == dir || strings.HasSuffix(importPath, "/"+dir))
+		if matches && len(dir) > len(bestDir) {
+			bestDir = dir
+		}
+	}
+	if bestDir == "" {
+		return packageName
+	}
+	return bestDir + ":" + packageName
 }
 
 // enterFile sets the per-file state used while building names
 func (analyzer *CallGraphAnalyzer) enterFile(file *parsedGoFile) {
 	analyzer.currentFile = file.path
 	analyzer.packageName = file.syntax.Name.Name
+	analyzer.keyPrefix = analyzer.keyPrefixFor(analyzer.packageName, file.dir)
 }
 
 // registerDeclarations adds a node for every function and method in the file (first pass)
@@ -266,7 +344,7 @@ func (analyzer *CallGraphAnalyzer) resolveCallee(callExpr *ast.CallExpr, scope c
 
 // resolveIdentCall resolves foo() to a same-package function, skipping builtins
 func (analyzer *CallGraphAnalyzer) resolveIdentCall(name string) string {
-	fullName := analyzer.packageName + "." + name
+	fullName := analyzer.keyPrefix + "." + name
 	if _, exists := analyzer.graph.Nodes[fullName]; exists {
 		return fullName
 	}
@@ -288,7 +366,7 @@ func (analyzer *CallGraphAnalyzer) resolveSelectorCall(selector *ast.SelectorExp
 			return packageName + "." + methodName, false
 		}
 		if scope.receiverName != "" && ident.Name == scope.receiverName {
-			candidate := analyzer.packageName + "." + scope.receiverType + "." + methodName
+			candidate := analyzer.keyPrefix + "." + scope.receiverType + "." + methodName
 			if _, exists := analyzer.graph.Nodes[candidate]; exists {
 				return candidate, false
 			}
@@ -403,11 +481,11 @@ func (analyzer *CallGraphAnalyzer) getFunctionFullName(funcDecl *ast.FuncDecl) s
 	if funcDecl.Recv != nil && len(funcDecl.Recv.List) > 0 {
 		// Method: extract receiver type
 		recvType := analyzer.extractReceiverType(funcDecl.Recv.List[0].Type)
-		return fmt.Sprintf("%s.%s.%s", analyzer.packageName, recvType, funcDecl.Name.Name)
+		return fmt.Sprintf("%s.%s.%s", analyzer.keyPrefix, recvType, funcDecl.Name.Name)
 	}
 
 	// Regular function
-	return fmt.Sprintf("%s.%s", analyzer.packageName, funcDecl.Name.Name)
+	return fmt.Sprintf("%s.%s", analyzer.keyPrefix, funcDecl.Name.Name)
 }
 
 // extractReceiverType extracts the receiver type name

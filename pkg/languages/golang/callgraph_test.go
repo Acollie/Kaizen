@@ -169,3 +169,50 @@ func TestCallGraphSkipsHiddenVendorAndTestdataDirectories(t *testing.T) {
 	assert.Contains(t, graph.Nodes, "feature.Feature")
 	assert.Len(t, graph.Nodes, 2)
 }
+
+// Two directories declaring the same package name must not overwrite each other's
+// nodes: both are qualified with their directory, and callers stay per-package
+func TestCallGraphQualifiesPackageNamesDeclaredInSeveralDirectories(t *testing.T) {
+	root := writeGoFiles(t, map[string]string{
+		"go.mod":                "module example.com/app\n",
+		"cmd/app/main.go":       "package main\n\nimport \"example.com/app/internal/util\"\n\nfunc main() { run(); util.Help() }\nfunc run() {}\n",
+		"demo/sample/main.go":   "package main\n\nimport \"example.com/app/demo/util\"\n\nfunc main() { start(); start(); util.Help() }\nfunc start() {}\n",
+		"internal/util/util.go": "package util\n\nfunc Help() {}\n",
+		"demo/util/util.go":     "package util\n\nfunc Help() {}\n",
+		"internal/shop/shop.go": "package shop\n\nfunc Total() int { return add() }\nfunc add() int { return 1 }\n",
+		"internal/shop/cart.go": "package shop\n\ntype Cart struct{}\n\nfunc (cart *Cart) Sum() int { return Total() }\n",
+	})
+
+	graph, err := NewCallGraphAnalyzer().AnalyzeDirectory(root)
+	require.NoError(t, err)
+
+	appMain := graph.Nodes["cmd/app:main.main"]
+	demoMain := graph.Nodes["demo/sample:main.main"]
+	require.NotNil(t, appMain)
+	require.NotNil(t, demoMain)
+	assert.Equal(t, filepath.Join(root, "cmd/app/main.go"), appMain.File)
+	assert.Equal(t, filepath.Join(root, "demo/sample/main.go"), demoMain.File)
+	assert.Equal(t, "main", appMain.Package)
+	assert.NotContains(t, graph.Nodes, "main.main", "ambiguous names are never left unqualified")
+
+	runCallers := graph.Callers("cmd/app:main.run")
+	require.Len(t, runCallers, 1)
+	assert.Equal(t, "cmd/app:main.main", runCallers[0].From)
+	startCallers := graph.Callers("demo/sample:main.start")
+	require.Len(t, startCallers, 1)
+	assert.Equal(t, "demo/sample:main.main", startCallers[0].From)
+	assert.Equal(t, 2, startCallers[0].Weight)
+
+	// Imports of an ambiguous package name resolve to the directory the path ends with
+	internalHelp := graph.Callers("internal/util:util.Help")
+	require.Len(t, internalHelp, 1)
+	assert.Equal(t, "cmd/app:main.main", internalHelp[0].From)
+	demoHelp := graph.Callers("demo/util:util.Help")
+	require.Len(t, demoHelp, 1)
+	assert.Equal(t, "demo/sample:main.main", demoHelp[0].From)
+
+	// Unambiguous packages keep the plain format
+	assert.Len(t, graph.Callers("shop.Total"), 1)
+	assert.Equal(t, "shop.Cart.Sum", graph.Callers("shop.Total")[0].From)
+	assert.Len(t, graph.Callers("shop.add"), 1)
+}
