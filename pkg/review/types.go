@@ -202,6 +202,7 @@ type Finding struct {
 	Title      string   `json:"title"`
 	Body       string   `json:"body"`                 // markdown
 	Suggestion string   `json:"suggestion,omitempty"` // optional replacement code for the line range
+	Verify     string   `json:"verify,omitempty"`     // one concrete step a developer can take to confirm it themselves
 	Confidence float64  `json:"confidence"`           // 0-1
 	Source     string   `json:"source,omitempty"`     // which agent produced it, e.g. "hotspot-reviewer"
 }
