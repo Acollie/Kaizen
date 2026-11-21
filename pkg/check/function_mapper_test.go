@@ -161,11 +161,11 @@ fun secondFunction() {
 
 func TestFunctionOverlapsRanges(t *testing.T) {
 	tests := []struct {
-		name     string
+		name      string
 		funcStart int
-		funcEnd  int
-		ranges   []LineRange
-		expected bool
+		funcEnd   int
+		ranges    []LineRange
+		expected  bool
 	}{
 		{
 			name:      "exact overlap",

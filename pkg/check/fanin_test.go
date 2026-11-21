@@ -175,3 +175,25 @@ func TestComputeFanInEmpty(t *testing.T) {
 		t.Fatalf("expected nil for empty input, got %v", results)
 	}
 }
+
+// One function whose full name cannot be built must not skip the functions after it
+func TestComputeGoFanInContinuesAfterNameFailure(t *testing.T) {
+	repo := t.TempDir()
+	goCode := "package demo\n\nfunc Used() {}\n\nfunc Caller() {\n\tUsed()\n}\n"
+	filePath := filepath.Join(repo, "demo.go")
+	if err := os.WriteFile(filePath, []byte(goCode), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	functions := []ChangedFunction{
+		{FilePath: filepath.Join(repo, "missing.go"), Name: "Gone", Language: "Go", StartLine: 1, EndLine: 2},
+		{FilePath: filePath, Name: "Used", Language: "Go", StartLine: 3, EndLine: 3},
+	}
+	results, err := computeGoFanIn(functions, repo)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 || results[0].Function.Name != "Used" {
+		t.Fatalf("expected only Used in results, got %+v", results)
+	}
+}

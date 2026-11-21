@@ -117,8 +117,9 @@ func runReview(cmd *cobra.Command, args []string) error {
 		Poster:  client,
 		Addr:    fmt.Sprintf("127.0.0.1:%d", reviewOptions.port),
 		// The reviewer's triage, notes and viewed state, next to the review cache, so
-		// they survive a restart on a new port (localStorage is per-origin)
-		StatePath: reviewui.StatePathFor(review.ReviewCachePath(repoRoot(reviewOptions.repoPath), reviewContext.PR)),
+		// they survive a restart on a new port (localStorage is per-origin). Keyed by PR
+		// head only, so changing --model or --effort keeps the reviewer's notes.
+		StatePath: reviewui.StatePathFor(review.ReviewCachePath(repoRoot(reviewOptions.repoPath), reviewContext.PR, "")),
 	})
 	if err != nil {
 		return err
@@ -136,8 +137,8 @@ func runReview(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	cachePath := review.ReviewCachePath(repoRoot(reviewOptions.repoPath), reviewContext.PR)
 	cacheKey := reviewCacheKey(selectedEngine, reviewOptions)
+	cachePath := review.ReviewCachePath(repoRoot(reviewOptions.repoPath), reviewContext.PR, cacheKey)
 	engineDone := make(chan struct{})
 	go func() {
 		defer close(engineDone)

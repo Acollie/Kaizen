@@ -1,11 +1,14 @@
 package review
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 )
 
@@ -23,14 +26,41 @@ type CachedReview struct {
 	Events    []Event   `json:"events"`
 }
 
-// ReviewCachePath is where the review of a PR at its current head commit is cached:
-// <repoRoot>/.kaizen/reviews/pr-<number>-<head sha prefix>.json
-func ReviewCachePath(repoRoot string, pr PullRequest) string {
+// ReviewCachePath is where the review of a PR at its current head commit, made with
+// the settings identified by cacheKey (engine, model, effort, focus), is cached:
+// <repoRoot>/.kaizen/reviews/pr-<number>-<head sha prefix>-<key hash>.json. Different
+// settings get different files, so they never overwrite each other. An empty
+// cacheKey gives the settings-free name pr-<number>-<head sha prefix>.json, which
+// older versions used for every review.
+func ReviewCachePath(repoRoot string, pr PullRequest, cacheKey string) string {
 	head := pr.HeadSHA
 	if len(head) > 12 {
 		head = head[:12]
 	}
-	return filepath.Join(repoRoot, ".kaizen", "reviews", fmt.Sprintf("pr-%d-%s.json", pr.Number, head))
+	name := fmt.Sprintf("pr-%d-%s", pr.Number, head)
+	if cacheKey != "" {
+		name += "-" + cacheKeyHash(cacheKey)
+	}
+	return filepath.Join(repoRoot, ".kaizen", "reviews", name+".json")
+}
+
+// cacheKeyHash is a short, stable hash of a cache key for file names
+func cacheKeyHash(cacheKey string) string {
+	sum := sha256.Sum256([]byte(cacheKey))
+	return hex.EncodeToString(sum[:])[:8]
+}
+
+// keyedCacheName matches a keyed cache file name, capturing its settings-free prefix
+var keyedCacheName = regexp.MustCompile(`^(pr-\d+-[^-]*)-[0-9a-f]{8}\.json$`)
+
+// legacyCachePath is the settings-free name older versions saved a keyed path's
+// review under, or "" when path is not a keyed cache path
+func legacyCachePath(path string) string {
+	match := keyedCacheName.FindStringSubmatch(filepath.Base(path))
+	if match == nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(path), match[1]+".json")
 }
 
 // SaveReviewCache writes a finished review. EventDone is dropped: the replayer emits its own.
@@ -86,6 +116,16 @@ func ensureCacheDir(reviewsDir string) error {
 // an error only for a cache that exists but cannot be used.
 func LoadReviewCache(path string, pr PullRequest, engine string) (*CachedReview, error) {
 	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		// Older versions saved every review under the settings-free name; the engine
+		// check below still only replays it for the settings that produced it
+		legacy := legacyCachePath(path)
+		if legacy == "" {
+			return nil, nil
+		}
+		path = legacy
+		data, err = os.ReadFile(path)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

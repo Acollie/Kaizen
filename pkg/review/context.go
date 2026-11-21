@@ -498,12 +498,16 @@ func uniquifyIDs(entries []*changedEntry) {
 	}
 }
 
-// attachChurn looks up function-level git churn for Go functions; failures leave churn unset
+// attachChurn looks up function-level git churn for Go functions by their head-side
+// line range (`git log -L start,end:file`), so methods and functions whose name
+// prefixes another are tracked exactly. A failure leaves churn nil (unknown), never 0.
 func attachChurn(ctx context.Context, entries []*changedEntry, root string, since time.Time) error {
 	if since.IsZero() {
 		since = time.Now().Add(-defaultChurnWindow)
 	}
 	churnAnalyzer := churn.NewGitChurnAnalyzer(root)
+	failures := 0
+	var firstErr error
 
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
@@ -512,11 +516,19 @@ func attachChurn(ctx context.Context, entries []*changedEntry, root string, sinc
 		if entry.risk.Language != "Go" || entry.risk.Metrics == nil {
 			continue
 		}
-		metric, err := churnAnalyzer.GetFunctionChurn(entry.absPath, entry.risk.Name, since)
-		if err != nil || metric == nil {
+		metric, err := churnAnalyzer.GetFunctionChurnInRange(entry.absPath, entry.risk.StartLine, entry.risk.EndLine, since)
+		if err != nil {
+			if failures == 0 {
+				firstErr = err
+			}
+			failures++
+			entry.risk.Metrics.Churn = nil
 			continue
 		}
 		entry.risk.Metrics.Churn = metric
+	}
+	if failures > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: churn unknown for %d function(s): %v\n", failures, firstErr)
 	}
 	return nil
 }

@@ -29,6 +29,9 @@ func (client *Client) Checkout(ctx context.Context, pr *review.PullRequest) (str
 	if pr == nil || pr.HeadSHA == "" || pr.BaseSHA == "" {
 		return "", nil, fmt.Errorf("checkout: pull request is missing head or base SHA")
 	}
+	if err := validateCheckoutArgs(*pr); err != nil {
+		return "", nil, err
+	}
 	if err := client.fetchPRRefs(ctx, pr); err != nil {
 		return "", nil, err
 	}
@@ -38,13 +41,13 @@ func (client *Client) Checkout(ctx context.Context, pr *review.PullRequest) (str
 		return "", nil, fmt.Errorf("create worktree directory: %w", err)
 	}
 
-	if _, err := client.git(ctx, client.repoDir(), "worktree", "add", "--detach", worktreePath, pr.HeadSHA); err != nil {
+	if _, err := client.checkoutGit(ctx, client.repoDir(), "worktree", "add", "--detach", "--", worktreePath, pr.HeadSHA); err != nil {
 		_ = os.RemoveAll(worktreePath)
 		return "", nil, fmt.Errorf("create worktree for PR #%d: %w", pr.Number, err)
 	}
 	cleanup := client.worktreeCleanup(worktreePath)
 
-	mergeBase, err := client.git(ctx, client.repoDir(), "merge-base", pr.BaseSHA, pr.HeadSHA)
+	mergeBase, err := client.checkoutGit(ctx, client.repoDir(), "merge-base", pr.BaseSHA, pr.HeadSHA)
 	if err != nil {
 		_ = cleanup()
 		return "", nil, fmt.Errorf("compute merge base: %w", err)
@@ -70,9 +73,7 @@ func (client *Client) fetchPRRefs(ctx context.Context, pr *review.PullRequest) e
 	if repoURL == "" {
 		return client.fetchFromOrigin(ctx, pr.Number, refs)
 	}
-	// Never prompt for a password: the fallback to origin (or the error) is better than a hang
-	urlArgs := append([]string{"-c", "credential.interactive=false", "fetch", "--no-tags", repoURL}, refs...)
-	_, urlErr := client.git(ctx, client.repoDir(), urlArgs...)
+	_, urlErr := client.fetchRefs(ctx, repoURL, refs)
 	if urlErr == nil {
 		return nil
 	}
@@ -90,9 +91,29 @@ func (client *Client) fetchPRRefs(ctx context.Context, pr *review.PullRequest) e
 
 // fetchFromOrigin fetches refs from the default remote
 func (client *Client) fetchFromOrigin(ctx context.Context, number int, refs []string) error {
-	args := append([]string{"fetch", "--no-tags", defaultRemote}, refs...)
-	if _, err := client.git(ctx, client.repoDir(), args...); err != nil {
+	if _, err := client.fetchRefs(ctx, defaultRemote, refs); err != nil {
 		return fmt.Errorf("fetch PR #%d: %w", number, err)
+	}
+	return nil
+}
+
+// fetchRefs fetches refs from a remote name or URL. It never prompts for a password
+// (credential.interactive=false, plus GIT_TERMINAL_PROMPT=0 for older gits): the
+// fallback to origin, or the error, is better than a hang. "--" ends the options so
+// no remote or ref can be read as one.
+func (client *Client) fetchRefs(ctx context.Context, remote string, refs []string) ([]byte, error) {
+	args := append([]string{"-c", "credential.interactive=false", "fetch", "--no-tags", "--", remote}, refs...)
+	return client.checkoutGit(ctx, client.repoDir(), args...)
+}
+
+// validateCheckoutArgs rejects refs and SHAs that git would parse as options
+func validateCheckoutArgs(pr review.PullRequest) error {
+	for _, check := range []struct{ kind, value string }{
+		{"base ref", pr.BaseRef}, {"base SHA", pr.BaseSHA}, {"head SHA", pr.HeadSHA},
+	} {
+		if err := validateGitArg(check.kind, check.value); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -135,7 +156,7 @@ func (client *Client) worktreeCleanup(worktreePath string) func() error {
 	var cleanupErr error
 	return func() error {
 		once.Do(func() {
-			_, err := client.git(context.Background(), client.repoDir(), "worktree", "remove", "--force", worktreePath)
+			_, err := client.checkoutGit(context.Background(), client.repoDir(), "worktree", "remove", "--force", "--", worktreePath)
 			if removeErr := os.RemoveAll(worktreePath); err == nil && removeErr != nil {
 				err = removeErr
 			}
@@ -160,10 +181,16 @@ var diffFlags = []string{
 // changes by adding e.g. "*.go -diff" to .gitattributes. Gits older than 2.40 lack
 // --attr-source; for them the diff is retried without it.
 func (client *Client) Diff(ctx context.Context, worktree, mergeBase, headSHA string, unified int) (string, error) {
+	if err := validateGitArg("merge base", mergeBase); err != nil {
+		return "", err
+	}
+	if err := validateGitArg("head SHA", headSHA); err != nil {
+		return "", err
+	}
 	diffArgs := append([]string{"diff", mergeBase, headSHA, "--unified=" + strconv.Itoa(unified)}, diffFlags...)
-	output, err := client.git(ctx, worktree, append([]string{"--attr-source=" + mergeBase}, diffArgs...)...)
+	output, err := client.checkoutGit(ctx, worktree, append([]string{"--attr-source=" + mergeBase}, diffArgs...)...)
 	if err != nil && isUnknownOptionError(err) {
-		output, err = client.git(ctx, worktree, diffArgs...)
+		output, err = client.checkoutGit(ctx, worktree, diffArgs...)
 	}
 	if err != nil {
 		return "", fmt.Errorf("git diff: %w", err)

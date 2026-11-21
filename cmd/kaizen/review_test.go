@@ -22,7 +22,7 @@ func (engine namedEngine) Run(context.Context, *review.ReviewContext, review.Emi
 
 func TestReplayCachedReviewOnlyForSameEngine(t *testing.T) {
 	pr := review.PullRequest{Number: 5, HeadSHA: "abcdef1234567890"}
-	cachePath := review.ReviewCachePath(t.TempDir(), pr)
+	cachePath := review.ReviewCachePath(t.TempDir(), pr, reviewCacheKey(namedEngine{name: "claude-cli"}, reviewFlags{effort: "high", focus: 5}))
 	settings := reviewFlags{effort: "high", focus: 5}
 	require.NoError(t, review.SaveReviewCache(cachePath, pr, reviewCacheKey(namedEngine{name: "claude-cli"}, settings), []review.Event{
 		review.NewEvent(review.EventResult, review.ReviewResult{Verdict: review.VerdictComment}),

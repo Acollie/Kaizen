@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ import (
 )
 
 func TestCheckoutCommandsAndIdempotentCleanup(t *testing.T) {
-	runner := (&fakeRunner{}).respond("git merge-base", "mb999\n", nil)
+	runner := (&fakeRunner{}).respond(hardenedGit+" merge-base", "mb999\n", nil)
 	client := &Client{Runner: runner, RepoDir: "/repo"}
 	pr := &review.PullRequest{Number: 42, BaseRef: "main", BaseSHA: "base000", HeadSHA: "head111"}
 
@@ -30,10 +31,10 @@ func TestCheckoutCommandsAndIdempotentCleanup(t *testing.T) {
 	require.NoError(t, cleanup())
 
 	assert.Equal(t, []string{
-		"git fetch --no-tags origin pull/42/head main",
-		"git worktree add --detach " + worktree + " head111",
-		"git merge-base base000 head111",
-		"git worktree remove --force " + worktree,
+		hardenedGit + " -c credential.interactive=false fetch --no-tags -- origin pull/42/head main",
+		hardenedGit + " worktree add --detach -- " + worktree + " head111",
+		hardenedGit + " merge-base base000 head111",
+		hardenedGit + " worktree remove --force -- " + worktree,
 	}, runner.commandLines(), "cleanup runs git worktree remove exactly once")
 
 	_, statErr := os.Stat(worktree)
@@ -43,7 +44,7 @@ func TestCheckoutCommandsAndIdempotentCleanup(t *testing.T) {
 func TestCheckoutFailures(t *testing.T) {
 	failure := &CommandError{Name: "git", Stderr: "fatal: couldn't find remote ref pull/42/head", Err: errors.New("exit status 128")}
 
-	runner := (&fakeRunner{}).respond("git fetch", "", failure)
+	runner := (&fakeRunner{}).respond(hardenedGit+" -c credential.interactive=false fetch", "", failure)
 	client := &Client{Runner: runner}
 	_, _, err := client.Checkout(context.Background(), &review.PullRequest{Number: 42, BaseSHA: "b", HeadSHA: "h"})
 	assert.ErrorContains(t, err, "couldn't find remote ref")
@@ -52,35 +53,35 @@ func TestCheckoutFailures(t *testing.T) {
 	assert.ErrorContains(t, err, "missing head or base SHA")
 
 	// A failed merge-base removes the worktree it just created
-	runner = (&fakeRunner{}).respond("git merge-base", "", failure)
+	runner = (&fakeRunner{}).respond(hardenedGit+" merge-base", "", failure)
 	client = &Client{Runner: runner}
 	_, _, err = client.Checkout(context.Background(), &review.PullRequest{Number: 7, BaseSHA: "b", HeadSHA: "h"})
 	require.Error(t, err)
-	assert.True(t, strings.HasPrefix(runner.lastCall().commandLine(), "git worktree remove --force"))
+	assert.True(t, strings.HasPrefix(runner.lastCall().commandLine(), hardenedGit+" worktree remove --force"))
 }
 
 func TestDiffCommand(t *testing.T) {
-	runner := (&fakeRunner{}).respond("git --attr-source=mb diff", "diff --git a/x b/x\n", nil)
+	runner := (&fakeRunner{}).respond(hardenedGit+" --attr-source=mb diff", "diff --git a/x b/x\n", nil)
 	client := &Client{Runner: runner}
 
 	diff, err := client.Diff(context.Background(), "/tmp/wt", "mb", "head", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "diff --git a/x b/x\n", diff)
-	assert.Equal(t, "git --attr-source=mb diff mb head --unified=0 --no-ext-diff --no-color --no-textconv "+
+	assert.Equal(t, hardenedGit+" --attr-source=mb diff mb head --unified=0 --no-ext-diff --no-color --no-textconv "+
 		"--src-prefix=a/ --dst-prefix=b/ --diff-algorithm=myers -M --inter-hunk-context=0", runner.lastCall().commandLine())
 	assert.Equal(t, "/tmp/wt", runner.lastCall().Dir)
 }
 
 func TestDiffFallsBackWithoutAttrSourceOnOldGit(t *testing.T) {
 	runner := (&fakeRunner{}).
-		respond("git --attr-source=mb diff", "", errors.New("unknown option: --attr-source=mb")).
-		respond("git diff", "diff --git a/x b/x\n", nil)
+		respond(hardenedGit+" --attr-source=mb diff", "", errors.New("unknown option: --attr-source=mb")).
+		respond(hardenedGit+" diff", "diff --git a/x b/x\n", nil)
 	client := &Client{Runner: runner}
 
 	diff, err := client.Diff(context.Background(), "/tmp/wt", "mb", "head", 3)
 	require.NoError(t, err)
 	assert.Equal(t, "diff --git a/x b/x\n", diff)
-	assert.True(t, strings.HasPrefix(runner.lastCall().commandLine(), "git diff mb head --unified=3"))
+	assert.True(t, strings.HasPrefix(runner.lastCall().commandLine(), hardenedGit+" diff mb head --unified=3"))
 }
 
 // TestCheckoutWithRealGit exercises fetch, worktree add, merge-base and cleanup
@@ -203,16 +204,19 @@ func numberedLines(count int, changed ...int) string {
 
 const upstreamURL = "https://github.com/acme/widgets.git"
 
+// hardenedGit is how every checkout-related git command starts
+var hardenedGit = "git -c core.hooksPath=" + disabledHooksPath()
+
 func TestCheckoutFetchesFromBaseRepositoryURL(t *testing.T) {
-	runner := (&fakeRunner{}).respond("git merge-base", "mb999\n", nil)
+	runner := (&fakeRunner{}).respond(hardenedGit+" merge-base", "mb999\n", nil)
 	client := &Client{Runner: runner, RepoDir: "/repo"}
 	pr := &review.PullRequest{Number: 42, Owner: "acme", Repo: "widgets", BaseRef: "main", BaseSHA: "base000", HeadSHA: "head111"}
 
 	_, cleanup, err := client.Checkout(context.Background(), pr)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cleanup() })
-	assert.Equal(t, "git -c credential.interactive=false fetch --no-tags "+upstreamURL+" pull/42/head main", runner.commandLines()[0])
-	assert.NotContains(t, strings.Join(runner.commandLines(), "\n"), "fetch --no-tags origin", "origin is only a fallback")
+	assert.Equal(t, hardenedGit+" -c credential.interactive=false fetch --no-tags -- "+upstreamURL+" pull/42/head main", runner.commandLines()[0])
+	assert.NotContains(t, strings.Join(runner.commandLines(), "\n"), "fetch --no-tags -- origin", "origin is only a fallback")
 }
 
 func TestBaseRepoURL(t *testing.T) {
@@ -227,23 +231,23 @@ func TestBaseRepoURL(t *testing.T) {
 func TestCheckoutFallsBackToOrigin(t *testing.T) {
 	failure := &CommandError{Name: "git", Stderr: "fatal: unable to access 'https://github.com/acme/widgets.git/': Could not resolve host", Err: errors.New("exit status 128")}
 	runner := (&fakeRunner{}).
-		respond("git -c credential.interactive=false fetch", "", failure).
-		respond("git merge-base", "mb\n", nil)
+		respond(hardenedGit+" -c credential.interactive=false fetch --no-tags -- https:", "", failure).
+		respond(hardenedGit+" merge-base", "mb\n", nil)
 	client := &Client{Runner: runner}
 	pr := &review.PullRequest{Number: 42, Owner: "acme", Repo: "widgets", BaseRef: "main", BaseSHA: "b", HeadSHA: "h"}
 
 	_, cleanup, err := client.Checkout(context.Background(), pr)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cleanup() })
-	assert.Equal(t, "git fetch --no-tags origin pull/42/head main", runner.commandLines()[1])
+	assert.Equal(t, hardenedGit+" -c credential.interactive=false fetch --no-tags -- origin pull/42/head main", runner.commandLines()[1])
 }
 
 func TestCheckoutAuthFailureMentionsSetupGit(t *testing.T) {
 	authFailure := &CommandError{Name: "git", Stderr: "remote: Repository not found.\nfatal: repository 'https://github.com/acme/widgets.git/' not found", Err: errors.New("exit status 128")}
 	originFailure := &CommandError{Name: "git", Stderr: "fatal: couldn't find remote ref pull/42/head", Err: errors.New("exit status 128")}
 	runner := (&fakeRunner{}).
-		respond("git -c credential.interactive=false fetch", "", authFailure).
-		respond("git fetch --no-tags origin", "", originFailure)
+		respond(hardenedGit+" -c credential.interactive=false fetch --no-tags -- https:", "", authFailure).
+		respond(hardenedGit+" -c credential.interactive=false fetch --no-tags -- origin", "", originFailure)
 	client := &Client{Runner: runner}
 	pr := &review.PullRequest{Number: 42, Owner: "acme", Repo: "widgets", BaseSHA: "b", HeadSHA: "h"}
 
@@ -309,4 +313,93 @@ func TestCheckoutFromUpstreamWhenOriginIsAFork(t *testing.T) {
 	// Before the fix, origin was the only source and the fetch failed
 	_, originErr := client.git(ctx, clone, "fetch", "--no-tags", "origin", "pull/9/head")
 	assert.Error(t, originErr, "the fork really has no PR ref")
+}
+
+// The user's git hooks (core.hooksPath=.husky and the like) must not run while the
+// untrusted PR is fetched and checked out: a post-checkout hook would run with the
+// PR's files as its working directory
+func TestCheckoutDoesNotRunUserHooks(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("shell hooks")
+	}
+	ctx := context.Background()
+	origin := t.TempDir()
+	gitRun(t, origin, "init", "-q", "-b", "main")
+	writeFile(t, origin, "a.txt", "one\n")
+	gitRun(t, origin, "add", ".")
+	gitRun(t, origin, "commit", "-q", "-m", "base")
+	baseSHA := strings.TrimSpace(gitRun(t, origin, "rev-parse", "HEAD"))
+	writeFile(t, origin, "a.txt", "one\ntwo\n")
+	gitRun(t, origin, "commit", "-q", "-am", "head")
+	headSHA := strings.TrimSpace(gitRun(t, origin, "rev-parse", "HEAD"))
+	gitRun(t, origin, "update-ref", "refs/pull/3/head", headSHA)
+	gitRun(t, origin, "reset", "-q", "--hard", baseSHA)
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	gitRun(t, filepath.Dir(clone), "clone", "-q", origin, clone)
+	markers := t.TempDir()
+	hooksDir := filepath.Join(clone, ".husky")
+	require.NoError(t, os.MkdirAll(hooksDir, 0o755))
+	for _, hook := range []string{"post-checkout", "reference-transaction"} {
+		script := "#!/bin/sh\npwd > '" + filepath.Join(markers, hook) + "'\n"
+		require.NoError(t, os.WriteFile(filepath.Join(hooksDir, hook), []byte(script), 0o755))
+	}
+	gitRun(t, clone, "config", "core.hooksPath", ".husky")
+
+	// Sanity check: without the hardening, the hook really runs
+	probe := filepath.Join(t.TempDir(), "probe")
+	gitRun(t, clone, "worktree", "add", "-q", "--detach", probe, baseSHA)
+	require.FileExists(t, filepath.Join(markers, "post-checkout"))
+	gitRun(t, clone, "worktree", "remove", "--force", probe)
+	require.NoError(t, os.RemoveAll(markers))
+	require.NoError(t, os.MkdirAll(markers, 0o755))
+
+	client := NewClient(clone)
+	pr := &review.PullRequest{Number: 3, BaseRef: "main", BaseSHA: baseSHA, HeadSHA: headSHA}
+	worktree, cleanup, err := client.Checkout(ctx, pr)
+	require.NoError(t, err)
+	_, err = client.Diff(ctx, worktree, pr.MergeBase, pr.HeadSHA, 3)
+	require.NoError(t, err)
+	require.NoError(t, cleanup())
+
+	entries, err := os.ReadDir(markers)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "no user hook may run during checkout")
+}
+
+func TestCheckoutCommandsAreHardened(t *testing.T) {
+	runner := (&fakeRunner{}).respond(hardenedGit+" merge-base", "mb\n", nil)
+	client := &Client{Runner: runner}
+	pr := &review.PullRequest{Number: 1, BaseRef: "main", BaseSHA: "b", HeadSHA: "h"}
+	_, cleanup, err := client.Checkout(context.Background(), pr)
+	require.NoError(t, err)
+	require.NoError(t, cleanup())
+	_, err = client.Diff(context.Background(), "/wt", "mb", "h", 0)
+	require.NoError(t, err)
+
+	for _, call := range runner.calls {
+		assert.True(t, strings.HasPrefix(call.commandLine(), hardenedGit+" "), call.commandLine())
+		assert.Contains(t, call.Env, "GIT_LFS_SKIP_SMUDGE=1", call.commandLine())
+		assert.Contains(t, call.Env, "GIT_TERMINAL_PROMPT=0", call.commandLine())
+	}
+}
+
+func TestCheckoutRejectsOptionLikeRefs(t *testing.T) {
+	for _, pr := range []review.PullRequest{
+		{Number: 1, BaseRef: "--upload-pack=touch /tmp/x", BaseSHA: "b", HeadSHA: "h"},
+		{Number: 1, BaseRef: "main", BaseSHA: "-b", HeadSHA: "h"},
+		{Number: 1, BaseRef: "main", BaseSHA: "b", HeadSHA: "--output=/tmp/x"},
+	} {
+		runner := &fakeRunner{}
+		_, _, err := (&Client{Runner: runner}).Checkout(context.Background(), &pr)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "starts with '-'")
+		assert.Empty(t, runner.commandLines(), "nothing runs")
+	}
+
+	_, err := (&Client{Runner: &fakeRunner{}}).Diff(context.Background(), "/wt", "--output=x", "h", 0)
+	assert.Error(t, err)
 }
