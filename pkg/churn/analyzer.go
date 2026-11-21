@@ -166,4 +166,3 @@ func (analyzer *GitChurnAnalyzer) parseNumstatOutput(output string) (*models.Chu
 
 	return metric, nil
 }
-

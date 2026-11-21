@@ -17,23 +17,23 @@ func TestParseDiffOutputSpecialPaths(t *testing.T) {
 		expected []DiffHunk
 	}{
 		{
-			name: "spaces",
-			diff: "diff --git a/dir/x y.go b/dir/x y.go\nindex 1..2 100644\n--- a/dir/x y.go\t\n+++ b/dir/x y.go\t\n@@ -1 +1,2 @@\n+a\n",
+			name:     "spaces",
+			diff:     "diff --git a/dir/x y.go b/dir/x y.go\nindex 1..2 100644\n--- a/dir/x y.go\t\n+++ b/dir/x y.go\t\n@@ -1 +1,2 @@\n+a\n",
 			expected: []DiffHunk{{FilePath: "dir/x y.go", NewStart: 1, NewCount: 2}},
 		},
 		{
-			name: "quoted",
-			diff: "diff --git \"a/q\\\"x.go\" \"b/q\\\"x.go\"\n--- \"a/q\\\"x.go\"\n+++ \"b/q\\\"x.go\"\n@@ -0,0 +1 @@\n+a\n",
+			name:     "quoted",
+			diff:     "diff --git \"a/q\\\"x.go\" \"b/q\\\"x.go\"\n--- \"a/q\\\"x.go\"\n+++ \"b/q\\\"x.go\"\n@@ -0,0 +1 @@\n+a\n",
 			expected: []DiffHunk{{FilePath: `q"x.go`, NewStart: 1, NewCount: 1}},
 		},
 		{
-			name: "unicode octal escapes",
-			diff: "diff --git \"a/caf\\303\\251.go\" \"b/caf\\303\\251.go\"\n--- \"a/caf\\303\\251.go\"\n+++ \"b/caf\\303\\251.go\"\n@@ -3 +3 @@\n+a\n",
+			name:     "unicode octal escapes",
+			diff:     "diff --git \"a/caf\\303\\251.go\" \"b/caf\\303\\251.go\"\n--- \"a/caf\\303\\251.go\"\n+++ \"b/caf\\303\\251.go\"\n@@ -3 +3 @@\n+a\n",
 			expected: []DiffHunk{{FilePath: "café.go", NewStart: 3, NewCount: 1}},
 		},
 		{
-			name: "renamed with spaces",
-			diff: "diff --git a/old name.go b/new name.go\nsimilarity index 90%\nrename from old name.go\nrename to new name.go\n--- a/old name.go\t\n+++ b/new name.go\t\n@@ -4 +4 @@\n+a\n",
+			name:     "renamed with spaces",
+			diff:     "diff --git a/old name.go b/new name.go\nsimilarity index 90%\nrename from old name.go\nrename to new name.go\n--- a/old name.go\t\n+++ b/new name.go\t\n@@ -4 +4 @@\n+a\n",
 			expected: []DiffHunk{{FilePath: "new name.go", NewStart: 4, NewCount: 1}},
 		},
 		{
