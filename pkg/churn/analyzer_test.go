@@ -104,14 +104,14 @@ func TestParseFunctionLogOutput(t *testing.T) {
 	}{
 		{
 			name:            "single function commit",
-			output:          "abc123|John Doe|john@example.com|2024-01-15 10:30:00 +0000\n+added line\n-removed line\n",
+			output:          functionLogCommitMarker + "abc123|John Doe|john@example.com|2024-01-15 10:30:00 +0000\n@@ -1 +1 @@\n+added line\n-removed line\n",
 			expectedCommits: 1,
 			expectedAuthors: 1,
 		},
 		{
 			name: "multiple function commits",
-			output: "abc123|John Doe|john@example.com|2024-01-15 10:30:00 +0000\n+added line\n" +
-				"def456|Jane Smith|jane@example.com|2024-01-16 11:00:00 +0000\n-removed line\n",
+			output: functionLogCommitMarker + "abc123|John Doe|john@example.com|2024-01-15 10:30:00 +0000\n@@ -1 +1 @@\n+added line\n" +
+				functionLogCommitMarker + "def456|Jane Smith|jane@example.com|2024-01-16 11:00:00 +0000\n@@ -1 +1 @@\n-removed line\n",
 			expectedCommits: 2,
 			expectedAuthors: 2,
 		},
@@ -308,12 +308,22 @@ func TestGetFunctionChurnInGitRepo(t *testing.T) {
 
 func TestParseFunctionLogOutputWithDiffLines(t *testing.T) {
 	// Test with actual diff-like output from git log -L
-	output := "abc123|John Doe|john@example.com|2024-01-15 10:30:00 +0000\n" +
+	output := functionLogCommitMarker + "abc123|John Doe|john@example.com|2024-01-15 10:30:00 +0000\n" +
+		"\n" +
+		"diff --git a/x.go b/x.go\n" +
+		"--- a/x.go\n" +
+		"+++ b/x.go\n" +
+		"@@ -1,2 +1,2 @@\n" +
 		"+func TestFunc() {\n" +
-		"+    return nil\n" +
+		"+    return a || b | c\n" +
 		"-func TestFunc() {\n" +
-		"-    panic(\"old\")\n" +
-		"def456|Jane Smith|jane@example.com|2024-01-16 11:00:00 +0000\n" +
+		"-    panic(\"x|y|z|w\")\n" +
+		functionLogCommitMarker + "def456|Jane Smith|jane@example.com|2024-01-16 11:00:00 +0000\n" +
+		"\n" +
+		"diff --git a/x.go b/x.go\n" +
+		"--- /dev/null\n" +
+		"+++ b/x.go\n" +
+		"@@ -0,0 +1,1 @@\n" +
 		"+    fix applied\n"
 
 	analyzer := NewGitChurnAnalyzer(".")
@@ -321,11 +331,11 @@ func TestParseFunctionLogOutputWithDiffLines(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, metric)
-	assert.Equal(t, 2, metric.TotalCommits)
+	assert.Equal(t, 2, metric.TotalCommits, "code containing | is not a commit line")
 	assert.Equal(t, 2, metric.AuthorCount)
-	// Should count added/deleted lines from diff
-	assert.GreaterOrEqual(t, metric.LinesAdded, 2)
-	assert.GreaterOrEqual(t, metric.LinesDeleted, 2)
+	assert.Equal(t, 3, metric.LinesAdded, "+++ headers are not counted")
+	assert.Equal(t, 2, metric.LinesDeleted, "--- headers are not counted")
+	assert.Equal(t, time.Date(2024, 1, 16, 11, 0, 0, 0, time.UTC), metric.LastModified.UTC())
 }
 
 func TestParseNumstatOutputAverageChurn(t *testing.T) {

@@ -39,7 +39,7 @@ func (analyzer *GitChurnAnalyzer) GetFileChurn(filePath string, since time.Time)
 	}
 
 	// Make path relative to repo root
-	relPath, err := analyzer.getRelativePath(filePath)
+	gitRoot, relPath, err := analyzer.getRelativePath(filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (analyzer *GitChurnAnalyzer) GetFileChurn(filePath string, since time.Time)
 		"--format=%H|%an|%ae|%ad",
 		"--date=iso",
 		"--", relPath)
-	command.Dir = analyzer.repoPath
+	command.Dir = gitRoot
 
 	output, err := command.Output()
 	if err != nil {
@@ -64,55 +64,36 @@ func (analyzer *GitChurnAnalyzer) GetFileChurn(filePath string, since time.Time)
 	return analyzer.parseNumstatOutput(string(output))
 }
 
-// GetFunctionChurn analyzes churn for a specific function
-// Uses git log -L to track function changes
-func (analyzer *GitChurnAnalyzer) GetFunctionChurn(filePath string, functionName string, since time.Time) (*models.ChurnMetric, error) {
-	if !analyzer.IsGitRepository(analyzer.repoPath) {
-		return nil, fmt.Errorf("not a git repository: %s", analyzer.repoPath)
-	}
-
-	relPath, err := analyzer.getRelativePath(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	sinceStr := since.Format("2006-01-02")
-
-	// git log -L :<funcname>:<file>
-	// This tracks a function by name through history
-	command := exec.Command("git", "log",
-		fmt.Sprintf("-L:^func %s:,%s", functionName, relPath),
-		fmt.Sprintf("--since=%s", sinceStr),
-		"--format=%H|%an|%ae|%ad",
-		"--date=iso")
-	command.Dir = analyzer.repoPath
-
-	output, err := command.Output()
-	if err != nil {
-		// Function might not exist or git can't find it
-		return &models.ChurnMetric{}, nil
-	}
-
-	return analyzer.parseFunctionLogOutput(string(output))
-}
-
-// getRelativePath converts an absolute path to a path relative to the repo root
-func (analyzer *GitChurnAnalyzer) getRelativePath(filePath string) (string, error) {
-	// Get git root
+// getRelativePath returns the git root and filePath relative to it. git commands
+// must run in that root: git resolves paths against its working directory, so a
+// root-relative path run from a subdirectory (kaizen analyze --path=pkg/x) misses.
+func (analyzer *GitChurnAnalyzer) getRelativePath(filePath string) (string, string, error) {
 	command := exec.Command("git", "rev-parse", "--show-toplevel")
 	command.Dir = analyzer.repoPath
 	output, err := command.Output()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	gitRoot := strings.TrimSpace(string(output))
-	relPath, err := filepath.Rel(gitRoot, filePath)
+	gitRoot := resolvePath(strings.TrimSpace(string(output)))
+	relPath, err := filepath.Rel(gitRoot, resolvePath(filePath))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return relPath, nil
+	return gitRoot, filepath.ToSlash(relPath), nil
+}
+
+// resolvePath makes a path absolute and symlink-free where possible, so a file
+// under /var/... and a git root reported as /private/var/... (macOS) still relate
+func resolvePath(path string) string {
+	if absolute, err := filepath.Abs(path); err == nil {
+		path = absolute
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
 }
 
 // parseNumstatOutput parses the output of git log --numstat
@@ -186,59 +167,3 @@ func (analyzer *GitChurnAnalyzer) parseNumstatOutput(output string) (*models.Chu
 	return metric, nil
 }
 
-// parseFunctionLogOutput parses the output of git log -L (function tracking)
-func (analyzer *GitChurnAnalyzer) parseFunctionLogOutput(output string) (*models.ChurnMetric, error) {
-	lines := strings.Split(output, "\n")
-
-	metric := &models.ChurnMetric{
-		Contributors: []string{},
-	}
-
-	authorSet := make(map[string]bool)
-	var lastModified time.Time
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		// Check if this is a commit line
-		if strings.Contains(line, "|") {
-			parts := strings.Split(line, "|")
-			if len(parts) >= 4 {
-				authorName := parts[1]
-				commitDate := parts[3]
-
-				metric.TotalCommits++
-
-				// Track unique contributors
-				if !authorSet[authorName] {
-					authorSet[authorName] = true
-					metric.Contributors = append(metric.Contributors, authorName)
-				}
-
-				// Track last modified
-				parsedDate, err := time.Parse("2006-01-02 15:04:05 -0700", commitDate)
-				if err == nil {
-					if lastModified.IsZero() || parsedDate.After(lastModified) {
-						lastModified = parsedDate
-					}
-				}
-			}
-		}
-
-		// Count added/deleted lines (rough approximation from diff)
-		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
-			metric.LinesAdded++
-		} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
-			metric.LinesDeleted++
-		}
-	}
-
-	metric.TotalChanges = metric.LinesAdded + metric.LinesDeleted
-	metric.LastModified = lastModified
-	metric.AuthorCount = len(metric.Contributors)
-
-	return metric, nil
-}

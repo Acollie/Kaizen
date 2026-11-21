@@ -145,6 +145,25 @@ func buildFixtureContext(t *testing.T) (*ReviewContext, gitFixture) {
 	return reviewContext, fixture
 }
 
+// Function churn comes from real git history by line range: Compute existed in the
+// base commit and changed in head (2 commits); normalize is new in head (1 commit)
+func TestBuildContextFunctionChurn(t *testing.T) {
+	fixture := newGitFixture(t)
+	pr := PullRequest{Number: 7, BaseSHA: fixture.baseSHA, HeadSHA: fixture.headSHA, MergeBase: fixture.baseSHA}
+	reviewContext, err := BuildContext(context.Background(), pr, fixture.dir,
+		fixture.diff(t, "3"), fixture.diff(t, "0"), BuildOptions{})
+	require.NoError(t, err)
+
+	compute := findFunction(t, reviewContext.Functions, "app.Compute")
+	require.NotNil(t, compute.Metrics)
+	require.NotNil(t, compute.Metrics.Churn, "churn must be found, not left unknown")
+	assert.Equal(t, 2, compute.Metrics.Churn.TotalCommits)
+
+	normalize := findFunction(t, reviewContext.Functions, "app.normalize")
+	require.NotNil(t, normalize.Metrics.Churn)
+	assert.Equal(t, 1, normalize.Metrics.Churn.TotalCommits)
+}
+
 func TestBuildContextChangedFunctions(t *testing.T) {
 	reviewContext, fixture := buildFixtureContext(t)
 
