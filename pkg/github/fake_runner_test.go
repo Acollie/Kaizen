@@ -12,6 +12,7 @@ type recordedCall struct {
 	Name  string
 	Args  []string
 	Input []byte
+	Env   []string
 }
 
 // commandLine renders "name arg1 arg2"
@@ -44,10 +45,17 @@ func (runner *fakeRunner) Run(ctx context.Context, dir string, name string, args
 }
 
 func (runner *fakeRunner) RunWithInput(_ context.Context, dir string, input []byte, name string, args ...string) ([]byte, error) {
+	return runner.record(recordedCall{Dir: dir, Name: name, Args: args, Input: input})
+}
+
+func (runner *fakeRunner) RunWithEnv(_ context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
+	return runner.record(recordedCall{Dir: dir, Name: name, Args: args, Env: env})
+}
+
+func (runner *fakeRunner) record(call recordedCall) ([]byte, error) {
 	runner.mutex.Lock()
 	defer runner.mutex.Unlock()
 
-	call := recordedCall{Dir: dir, Name: name, Args: args, Input: input}
 	runner.calls = append(runner.calls, call)
 	for _, response := range runner.responses {
 		if strings.HasPrefix(call.commandLine(), response.prefix) {
