@@ -1,6 +1,8 @@
 // Hover card for a package: its riskiest changed functions and coverage at a glance.
 
 import type { PackageInfo } from '../../lib/packageMap';
+import { useReview } from '../../state/StoreProvider';
+import { findingsHidden } from '../../state/store';
 import { percent } from '../../lib/packageMap';
 import { qualifiedName } from '../../lib/format';
 import { riskColor } from '../../lib/risk';
@@ -17,6 +19,7 @@ export function placePackageTooltip(pointerX: number, pointerY: number, width: n
 }
 
 export function PackageTooltip({ pkg, left, top }: { pkg: PackageInfo; left: number; top: number }) {
+  const aiHidden = useReview(findingsHidden);
   const top5 = pkg.functions.slice(0, TOP_FUNCTIONS);
   const riskyFiles = pkg.functions.length ? [] : [...pkg.files].sort((a, b) => b.risk_score - a.risk_score).slice(0, 3);
   return (
@@ -44,7 +47,7 @@ export function PackageTooltip({ pkg, left, top }: { pkg: PackageInfo; left: num
         <div className="fl-tt-findings"><SeverityCounts findings={pkg.findings} skipPraise={false} /> <span>AI findings</span></div>
       )}
       <div className="ov-tt-heading">
-        You reviewed {percent(pkg.you.share ?? 0)} · AI looked at {pkg.ai.share === null ? 'unknown' : percent(pkg.ai.share)} (not verified)
+        You reviewed {percent(pkg.you.share ?? 0)}{aiHidden ? '' : ` · AI looked at ${pkg.ai.share === null ? 'unknown' : percent(pkg.ai.share)} (not verified)`}
       </div>
     </div>
   );

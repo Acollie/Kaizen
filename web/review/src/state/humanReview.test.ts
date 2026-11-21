@@ -124,7 +124,7 @@ describe('viewed tracking', () => {
   });
 
   it('flags functions the finished AI review never opened', () => {
-    const coverage = { examinedFunctions: new Set(['A']), examinedFiles: new Set<string>(), complete: true, known: true };
+    const coverage = { examinedFunctions: new Set(['A']), examinedFiles: new Set<string>(), complete: true, known: true, hidden: false };
     expect(aiSkippedFunction(coverage, 'A')).toBe(false);
     expect(aiSkippedFunction(coverage, 'B')).toBe(true);
     expect(aiSkippedFunction({ ...coverage, complete: false }, 'B')).toBe(false);

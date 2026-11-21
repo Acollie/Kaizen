@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { useReview } from '../../state/StoreProvider';
 import { findingsHidden } from '../../state/store';
+import type { ReviewEvent } from '../../types';
 import { AgentTag } from '../shared/bits';
 import { activityAgents, groupRuns, type AgentRun } from './activityModel';
 import { ActivityItem } from './ActivityItem';
@@ -13,9 +14,11 @@ import './ActivityPanel.css';
 export function ActivityPanel() {
   const allActivity = useReview((state) => state.activity);
   const hidden = useReview(findingsHidden);
-  // "Think first" hides the AI's conclusions here too; its tool calls stay visible
+  // "Think first" hides the AI's work here too: only progress lines (agent started,
+  // finished, errors) stay, never findings, reasoning, or tool calls (which show what
+  // the AI is examining and can carry a finding's title)
   const activity = useMemo(
-    () => (hidden ? allActivity.filter((event) => event.type !== 'finding' && event.type !== 'result' && event.type !== 'thinking') : allActivity),
+    () => (hidden ? allActivity.filter(isProgressOnly) : allActivity),
     [allActivity, hidden],
   );
   const busy = useReview((state) => state.status.state !== 'done' && state.status.state !== 'error');
@@ -61,4 +64,10 @@ function AgentFilter({ agents, active, onChange }: { agents: string[]; active: s
       ))}
     </div>
   );
+}
+
+/** Events safe to show during "Think first": progress only, nothing that names a finding */
+function isProgressOnly(event: ReviewEvent): boolean {
+  if (event.type === 'error' || event.type === 'done') return true;
+  return event.type === 'status' && !/withdrew|finding/i.test(event.data.message);
 }

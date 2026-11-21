@@ -31,7 +31,7 @@ function setup() {
 describe('blindSpotsView', () => {
   it('sorts skipped functions by risk, flags focus and puts file-level risk first', () => {
     const ctx = context();
-    const coverage = { examinedFunctions: new Set(['pkg.Seen']), examinedFiles: new Set(['pkg/b.go']), complete: true, known: true };
+    const coverage = { examinedFunctions: new Set(['pkg.Seen']), examinedFiles: new Set(['pkg/b.go']), complete: true, known: true, hidden: false };
     const view = blindSpotsView(coverage, ctx.functions!, ctx.files!);
     expect(view.skippedFunctions.map((fn) => fn.id)).toEqual(['pkg.Hot', 'pkg.Mid', 'pkg.Low']);
     expect(view.skippedFocus.map((fn) => fn.id)).toEqual(['pkg.Hot']);

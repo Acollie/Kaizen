@@ -168,6 +168,8 @@ export interface PackageEdge {
 export interface PackageMap {
   packages: PackageInfo[];
   edges: PackageEdge[];
+  /** "Think first" is hiding the AI's work */
+  aiHidden: boolean;
 }
 
 export interface CoverageSource {
@@ -178,6 +180,8 @@ export interface CoverageSource {
   aiFunctions: ReadonlySet<string>;
   aiFiles: ReadonlySet<string>;
   aiKnown: boolean;
+  /** "Think first" is hiding the AI's work: say nothing about it */
+  aiHidden?: boolean;
 }
 
 export interface PackageMapInput extends CoverageSource {
@@ -221,7 +225,7 @@ export function buildPackageMap(input: PackageMapInput): PackageMap {
     findingsByPackage.get(unit.key) ?? [],
     input,
   ));
-  return { packages, edges: packageEdges(input.graph, units, packageOfFile) };
+  return { packages, edges: packageEdges(input.graph, units, packageOfFile), aiHidden: input.aiHidden ?? false };
 }
 
 function summarise(unit: Unit, files: FileDiff[], functions: FunctionRisk[], findings: Finding[], coverage: CoverageSource): PackageInfo {
@@ -307,6 +311,7 @@ export interface OverviewSummary {
   /** Null when the AI's coverage is unknown */
   aiShare: number | null;
   aiComplete: boolean;
+  aiHidden: boolean;
 }
 
 export function overviewSummary(map: PackageMap, input: CoverageSource & { functions: readonly FunctionRisk[]; aiComplete: boolean }): OverviewSummary {
@@ -323,6 +328,7 @@ export function overviewSummary(map: PackageMap, input: CoverageSource & { funct
     youBasis: focus.length ? 'focus' : 'changed',
     aiShare: input.aiKnown && input.functions.length ? examined / input.functions.length : (input.aiKnown ? 0 : null),
     aiComplete: input.aiComplete,
+    aiHidden: input.aiHidden ?? false,
   };
 }
 
@@ -342,7 +348,8 @@ export function summaryParts(summary: OverviewSummary): string[] {
   const ai = summary.aiShare === null
     ? 'AI coverage unknown'
     : `AI looked at ${percent(summary.aiShare)} of changed functions${summary.aiComplete ? '' : ' so far'}`;
-  return [plural(summary.packages, 'package'), plural(summary.files, 'file'), plural(summary.functions, 'function'), you, ai];
+  const parts = [plural(summary.packages, 'package'), plural(summary.files, 'file'), plural(summary.functions, 'function'), you];
+  return summary.aiHidden ? parts : [...parts, ai];
 }
 
 // ---------- Where to look ----------
@@ -387,7 +394,7 @@ function worthLooking(pkg: PackageInfo): boolean {
 export function whereToLook(map: PackageMap, limit = 5): LookTarget[] {
   return map.packages
     .filter(worthLooking)
-    .map((pkg) => ({ pkg, score: packageImportance(pkg) * youGap(pkg), reasons: lookReasons(pkg) }))
+    .map((pkg) => ({ pkg, score: packageImportance(pkg) * youGap(pkg), reasons: lookReasons(pkg, map.aiHidden) }))
     .filter((target) => target.score >= 4)
     .sort((left, right) => Number(humanUnviewed(right.pkg)) - Number(humanUnviewed(left.pkg))
       || right.score - left.score || left.pkg.key.localeCompare(right.pkg.key))
@@ -440,7 +447,8 @@ function aiClause(pkg: PackageInfo): string {
  * reviewer's last ("AI looked at 41 of 112 functions; you haven't opened it"), so the
  * sentence ends on what still needs a human rather than implying the AI's look is enough.
  */
-export function lookReasons(pkg: PackageInfo): string[] {
-  return [riskClause(pkg), findingClause(pkg), `${aiClause(pkg)}; ${youClause(pkg)}`]
+export function lookReasons(pkg: PackageInfo, aiHidden = false): string[] {
+  const coverage = aiHidden ? youClause(pkg) : `${aiClause(pkg)}; ${youClause(pkg)}`;
+  return [riskClause(pkg), findingClause(pkg), coverage]
     .filter((part): part is string => Boolean(part));
 }

@@ -3,6 +3,8 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useCommands } from '../../state/commands';
+import { useReview } from '../../state/StoreProvider';
+import { findingsHidden } from '../../state/store';
 import type { PackageMap } from '../../lib/packageMap';
 import { AI_LOOKED_HINT, YOU_REVIEWED_HINT } from '../../lib/coverageCopy';
 import { ArrowMarkers, FlowEdges } from '../flow/FlowEdges';
@@ -104,6 +106,7 @@ export function canvasHeightFor(bounds: { width: number; height: number }, width
 }
 
 function MapLegend() {
+  const aiHidden = useReview(findingsHidden);
   return (
     <div className="fl-legend ov-legend" aria-label="Legend">
       <span className="fl-legend-item">
@@ -118,10 +121,10 @@ function MapLegend() {
         <svg width="22" height="6" aria-hidden="true"><rect y="1.5" width="22" height="3" rx="1.5" fill="var(--line-strong)" /><rect y="1.5" width="12" height="3" rx="1.5" fill="var(--accent)" /></svg>
         you reviewed (verified)
       </span>
-      <span className="fl-legend-item" title={AI_LOOKED_HINT}>
+      {!aiHidden && <span className="fl-legend-item" title={AI_LOOKED_HINT}>
         <svg width="22" height="6" aria-hidden="true"><rect y="1.5" width="22" height="3" rx="1.5" fill="var(--line-strong)" /><rect y="1.5" width="8" height="3" rx="1.5" fill="var(--text-2)" /></svg>
         AI looked at (not verified)
-      </span>
+      </span>}
       <span className="fl-legend-item"><span className="ov-legend-dim">pkg</span> mostly tests</span>
     </div>
   );

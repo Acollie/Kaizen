@@ -3,6 +3,8 @@
 // never lowers a package's rank: the AI looking at code is not a review.
 
 import type { LookTarget } from '../../lib/packageMap';
+import { useReview } from '../../state/StoreProvider';
+import { findingsHidden } from '../../state/store';
 import { AI_LOOKED_HINT } from '../../lib/coverageCopy';
 import { riskColor } from '../../lib/risk';
 
@@ -13,11 +15,12 @@ interface WhereToLookProps {
 }
 
 export function WhereToLook({ targets, aiKnown, onOpen }: WhereToLookProps) {
+  const aiHidden = useReview(findingsHidden);
   return (
     <section className="ov-look">
       <div className="ov-aside-head">
         <span className="label">Where to look</span>
-        <span className="ov-aside-hint">risky or flagged, not yet reviewed by you{aiKnown ? '' : ' (AI coverage unknown)'}</span>
+        <span className="ov-aside-hint">risky or flagged, not yet reviewed by you{aiKnown || aiHidden ? '' : ' (AI coverage unknown)'}</span>
       </div>
       {targets.length === 0
         ? <div className="ov-look-empty">You've viewed every risky or flagged package. Kaizen ranks by metrics; it can still miss things.</div>
@@ -40,7 +43,7 @@ export function WhereToLook({ targets, aiKnown, onOpen }: WhereToLookProps) {
             ))}
           </ol>
         )}
-      <p className="ov-look-note"><strong>AI looked at:</strong> {AI_LOOKED_HINT}</p>
+      {!aiHidden && <p className="ov-look-note"><strong>AI looked at:</strong> {AI_LOOKED_HINT}</p>}
     </section>
   );
 }

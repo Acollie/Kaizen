@@ -4,6 +4,8 @@
 
 import { memo, type MouseEvent } from 'react';
 import type { PackageInfo } from '../../lib/packageMap';
+import { useReview } from '../../state/StoreProvider';
+import { findingsHidden } from '../../state/store';
 import { percent } from '../../lib/packageMap';
 import { riskColor } from '../../lib/risk';
 import { AI_LOOKED_HINT, YOU_REVIEWED_HINT } from '../../lib/coverageCopy';
@@ -48,6 +50,7 @@ interface PackageNodeProps {
 }
 
 export const PackageNode = memo(function PackageNode({ node, selected, scale, onSelect, onHover }: PackageNodeProps) {
+  const aiHidden = useReview(findingsHidden);
   const { pkg, width, height } = node;
   const inner = width - TEXT_X - RIGHT_PAD;
   const title = titleParts(pkg.label, Math.floor(inner / TITLE_CHAR_WIDTH));
@@ -80,8 +83,8 @@ export const PackageNode = memo(function PackageNode({ node, selected, scale, on
       <FocusAndFindings pkg={pkg} y={70} right={width - RIGHT_PAD} />
       <Meter label="you" share={pkg.you.share} x={TEXT_X} y={84} width={inner} tone="you"
         hint={`You reviewed ${pkg.you.share === null ? 'unknown' : percent(pkg.you.share)} (verified). ${YOU_REVIEWED_HINT}`} />
-      <Meter label="AI" share={pkg.ai.share} x={TEXT_X} y={99} width={inner} tone="ai"
-        hint={`AI looked at ${pkg.ai.share === null ? 'an unknown share' : percent(pkg.ai.share)} (not verified). ${AI_LOOKED_HINT}`} />
+      {!aiHidden && <Meter label="AI" share={pkg.ai.share} x={TEXT_X} y={99} width={inner} tone="ai"
+        hint={`AI looked at ${pkg.ai.share === null ? 'an unknown share' : percent(pkg.ai.share)} (not verified). ${AI_LOOKED_HINT}`} />}
     </g>
   );
 });

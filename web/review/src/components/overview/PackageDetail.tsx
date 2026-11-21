@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { useReview } from '../../state/StoreProvider';
+import { findingsHidden } from '../../state/store';
 import type { PackageInfo, PackageCoverage } from '../../lib/packageMap';
 import { lookReasons } from '../../lib/packageMap';
 import { qualifiedName, splitPath } from '../../lib/format';
@@ -29,6 +30,7 @@ export function coverageText(coverage: PackageCoverage, aiKnown: boolean, who: '
 }
 
 export function PackageDetail({ pkg, aiKnown, onClose }: PackageDetailProps) {
+  const aiHidden = useReview(findingsHidden);
   const viewed = useReview((state) => state.viewed);
   const selectFunction = useReview((state) => state.selectFunction);
   const openFile = useReview((state) => state.openFile);
@@ -48,9 +50,9 @@ export function PackageDetail({ pkg, aiKnown, onClose }: PackageDetailProps) {
       </div>
       <div className="ov-detail-meta">
         <span className="ov-cov-you" title={YOU_REVIEWED_HINT}>{coverageText(pkg.you, true, 'You')}</span>
-        <span className={aiKnown ? '' : 'ov-unknown'} title={AI_LOOKED_HINT}>{coverageText(pkg.ai, aiKnown, 'AI')}</span>
+        {!aiHidden && <span className={aiKnown ? '' : 'ov-unknown'} title={AI_LOOKED_HINT}>{coverageText(pkg.ai, aiKnown, 'AI')}</span>}
       </div>
-      <div className="ov-detail-reason">{lookReasons(pkg).slice(0, 2).join(' · ')}</div>
+      <div className="ov-detail-reason">{lookReasons(pkg, aiHidden).slice(0, 2).join(' · ')}</div>
 
       {pkg.functions.length > 0 && (
         <>

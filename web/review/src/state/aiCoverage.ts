@@ -7,7 +7,7 @@
 
 import { useMemo } from 'react';
 import { useReview } from './StoreProvider';
-import type { EngineState } from './store';
+import { findingsHidden, type EngineState } from './store';
 import type { FileDiff, FunctionRisk, ReviewEvent, ToolCallData } from '../types';
 
 export interface AiCoverage {
@@ -19,6 +19,11 @@ export interface AiCoverage {
   complete: boolean;
   /** False when the engine reported no tool targets at all (e.g. an old cached review) */
   known: boolean;
+  /**
+   * True while "Think first" hides the AI's work: nothing about what the AI looked at
+   * may be shown, so the reviewer's own pass is not anchored by it
+   */
+  hidden: boolean;
 }
 
 export interface CoverageInput {
@@ -90,19 +95,24 @@ export function deriveAiCoverage({ activity, functions, files, statusState, hasR
     if (examinedFunctions.has(fn.id) && prFiles.has(fn.file)) examinedFiles.add(fn.file);
   }
   const complete = isFinished(statusState, hasResult);
-  return { examinedFunctions, examinedFiles, complete, known };
+  return { examinedFunctions, examinedFiles, complete, known, hidden: false };
 }
 
+const HIDDEN_COVERAGE: AiCoverage = {
+  examinedFunctions: new Set(), examinedFiles: new Set(), complete: false, known: false, hidden: true,
+};
+
 export function useAiCoverage(): AiCoverage {
+  const hidden = useReview(findingsHidden);
   const activity = useReview((state) => state.activity);
   const functions = useReview((state) => state.context.functions);
   const files = useReview((state) => state.context.files);
   // Select only "finished" so running <-> thinking transitions do not recompute
   const finished = useReview((state) => isFinished(state.status.state, state.result !== null));
   return useMemo(
-    () => deriveAiCoverage({
+    () => (hidden ? HIDDEN_COVERAGE : deriveAiCoverage({
       activity, functions: functions ?? [], files: files ?? [], statusState: finished ? 'done' : 'running', hasResult: finished,
-    }),
-    [activity, functions, files, finished],
+    })),
+    [hidden, activity, functions, files, finished],
   );
 }

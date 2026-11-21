@@ -14,6 +14,7 @@ export interface OverviewData {
   summary: OverviewSummary;
   targets: LookTarget[];
   aiKnown: boolean;
+  aiHidden: boolean;
 }
 
 export function useOverviewData(): OverviewData {
@@ -31,6 +32,7 @@ export function useOverviewData(): OverviewData {
       aiFunctions: coverage.examinedFunctions,
       aiFiles: coverage.examinedFiles,
       aiKnown: coverage.known,
+      aiHidden: coverage.hidden,
     };
     const map = buildPackageMap({ files: files ?? [], functions: functions ?? [], graph, findings, ...source });
     return {
@@ -38,6 +40,7 @@ export function useOverviewData(): OverviewData {
       summary: overviewSummary(map, { ...source, functions: functions ?? [], aiComplete: coverage.complete }),
       targets: whereToLook(map),
       aiKnown: coverage.known,
+      aiHidden: coverage.hidden,
     };
   }, [files, functions, graph, viewed, findings, coverage]);
 }
