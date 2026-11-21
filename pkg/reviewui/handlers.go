@@ -147,11 +147,8 @@ func (server *Server) handlePost(writer http.ResponseWriter, request *http.Reque
 
 	server.postMutex.Lock()
 	defer server.postMutex.Unlock()
-	if server.lastPost != nil && !postRequest.ConfirmRepost {
-		writeJSON(writer, http.StatusConflict, alreadyPosted{
-			Error:       "a review was already posted in this session; send confirm_repost to post another",
-			PreviousURL: server.lastPost.URL,
-		})
+	if conflict, refused := server.repostConflict(postRequest.ConfirmRepost); refused {
+		writeJSON(writer, http.StatusConflict, conflict)
 		return
 	}
 
@@ -164,6 +161,8 @@ func (server *Server) handlePost(writer http.ResponseWriter, request *http.Reque
 	result, err := server.options.Poster.PostReview(postContext, reviewContext.PR, reviewContext.Files, postRequest)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(postContext.Err(), context.DeadlineExceeded) {
+			// gh may have reached GitHub before the deadline: arm the repost guard
+			server.postOutcomeUnknown = true
 			writeError(writer, http.StatusGatewayTimeout, fmt.Sprintf(
 				"posting to GitHub timed out after %s: check the PR before retrying, the review may or may not have been posted",
 				server.options.PostTimeout))
@@ -173,7 +172,30 @@ func (server *Server) handlePost(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	server.lastPost = result
+	server.postOutcomeUnknown = false
 	writeJSON(writer, http.StatusOK, result)
+}
+
+// repostConflict reports whether a post must be refused until the client confirms a
+// repost: this session already posted a review, or an earlier post timed out and may
+// have reached GitHub. Call with postMutex held.
+func (server *Server) repostConflict(confirmed bool) (alreadyPosted, bool) {
+	if confirmed {
+		return alreadyPosted{}, false
+	}
+	if server.lastPost != nil {
+		return alreadyPosted{
+			Error:       "a review was already posted in this session; send confirm_repost to post another",
+			PreviousURL: server.lastPost.URL,
+		}, true
+	}
+	if server.postOutcomeUnknown {
+		return alreadyPosted{
+			Error:          "the last post timed out and may have reached GitHub; check the PR, then send confirm_repost to post again",
+			OutcomeUnknown: true,
+		}, true
+	}
+	return alreadyPosted{}, false
 }
 
 // checkWriteGuards rejects requests without the token in the X-Kaizen-Token header (a
@@ -204,6 +226,8 @@ func (server *Server) checkWriteGuards(writer http.ResponseWriter, request *http
 type alreadyPosted struct {
 	Error       string `json:"error"`
 	PreviousURL string `json:"previous_url"`
+	// OutcomeUnknown is true when the earlier post timed out: it may or may not be on GitHub
+	OutcomeUnknown bool `json:"outcome_unknown,omitempty"`
 }
 
 // originHost strips the scheme from an Origin header value

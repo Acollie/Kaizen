@@ -76,10 +76,4 @@ export function clusterAgents(cluster: FindingCluster): string[] {
   return [...new Set(agents)];
 }
 
-export function formatConfidence(confidence: number): string {
-  if (!Number.isFinite(confidence) || confidence <= 0) return '';
-  const percent = confidence <= 1 ? confidence * 100 : confidence;
-  return `${Math.round(percent)}%`;
-}
-
 export { focusFunctions, riskyFiles } from '../../state/viewing';

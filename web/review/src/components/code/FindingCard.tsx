@@ -4,7 +4,8 @@ import { memo, useState } from 'react';
 import type { Finding } from '../../types';
 import { formatLineRef, SEVERITY_LABEL } from '../../lib/findings';
 import { highlightLine } from '../../lib/highlight';
-import { AgentTag } from '../shared/bits';
+import { AgentTag, ConfidenceWord, PassTag } from '../shared/bits';
+import { useCompareTag } from '../../hooks/useCompare';
 import { Markdown } from '../shared/Markdown';
 import type { TriageEntry } from '../../state/triage';
 import { DismissedLine, TriageActions, VerifyStep } from '../shared/Triage';
@@ -54,10 +55,14 @@ function CardFooter({ finding, onShowLine }: Pick<FindingCardProps, 'finding' | 
         </button>
       ) : null}
       <span className="cv-card-spacer" />
-      {finding.confidence > 0 ? <span className="cv-card-confidence" title="Model confidence">{Math.round(finding.confidence * 100)}%</span> : null}
+      <ConfidenceWord confidence={finding.confidence} />
       <AgentTag agent={finding.source} />
     </div>
   );
+}
+
+function CardPassTag({ id }: { id: string }) {
+  return <PassTag kind={useCompareTag(id)} />;
 }
 
 export const FindingCard = memo(function FindingCard(props: FindingCardProps) {
@@ -89,6 +94,7 @@ export const FindingCard = memo(function FindingCard(props: FindingCardProps) {
           <span className={`cv-card-sev sev-${finding.severity}`}>{SEVERITY_LABEL[finding.severity] ?? finding.severity}</span>
           {finding.category ? <span className="cv-card-meta">{finding.category}</span> : null}
           <span className="cv-card-meta mono">{formatLineRef(finding)}</span>
+          <CardPassTag id={finding.id} />
           {dismissed ? (
             <button type="button" className="tr-link cv-card-collapse" onClick={(event) => { event.stopPropagation(); setExpanded(false); }}>Collapse</button>
           ) : null}

@@ -24,6 +24,10 @@ import {
   type KeyValueStorage,
 } from './persistence';
 import type { StateSync } from './stateSync';
+import { captureReveal, type RevealMoment } from './compare';
+import {
+  advanceSession, mergeOrder, moveSession, startSession, verifyOrder, visibleIds, type VerifySession,
+} from './verifyQueue';
 
 export type TabName = 'review' | 'graph' | 'function' | 'activity';
 export const TABS: readonly TabName[] = ['review', 'graph', 'function', 'activity'];
@@ -79,6 +83,8 @@ export interface UIState {
   composer: CommentTarget | null;
   /** Line where `c` was pressed on a removed line: shows why it can't take a comment */
   blockedCommentKey: string | null;
+  /** The verify queue (V), when open */
+  verify: VerifySession | null;
 }
 
 export type DismissSurface = 'code' | 'panel';
@@ -107,6 +113,8 @@ export interface ReviewState {
   comments: CommentMap;
   /** Findings revealed in "Think first" mode */
   revealed: boolean;
+  /** When the findings were first revealed and what had been viewed by then (persisted) */
+  reveal: RevealMoment | null;
   result: ReviewResult | null;
   status: EngineStatus;
   activity: ReviewEvent[];
@@ -132,6 +140,17 @@ export interface ReviewState {
   setThinkFirst(enabled: boolean): void;
   toggleThinkFirst(): void;
   revealFindings(): void;
+
+  // ---- verify queue (V) ----
+  openVerify(): void;
+  closeVerify(): void;
+  verifyMove(delta: number): void;
+  verifyAccept(): void;
+  verifyStartDismiss(): void;
+  verifyCancelDismiss(): void;
+  verifyDismiss(reason: string): void;
+  verifyToggleNits(): void;
+  verifyToggleRelations(): void;
   openComposer(target: CommentTarget): void;
   closeComposer(): void;
   /** Saves a new comment (or the one being edited); returns its id */
@@ -233,6 +252,23 @@ export function createReviewStore(rawContext: ReviewContext) {
       });
     };
 
+    /** Apply a transition to the open verify queue, given the IDs it currently walks */
+    const updateVerify = (transition: (session: VerifySession, visible: string[], state: ReviewState) => VerifySession) => {
+      const state = get();
+      const session = state.ui.verify;
+      if (!session) return;
+      const next = transition(session, visibleIds(session, state.findings, state.triage), state);
+      if (next !== session) set((current) => ({ ui: { ...current.ui, verify: next } }));
+    };
+
+    /** New or withdrawn findings while the queue is open: keep its order in step */
+    const syncVerify = () => {
+      const state = get();
+      if (!state.ui.verify) return;
+      const ordered = verifyOrder(findingsList(state), state.triage, (finding) => findingRisk(index, finding));
+      updateVerify((session) => mergeOrder(session, ordered));
+    };
+
     return {
       context,
       index,
@@ -245,6 +281,7 @@ export function createReviewStore(rawContext: ReviewContext) {
       viewed: EMPTY_VIEWED,
       comments: {},
       revealed: false,
+      reveal: null,
       result: null,
       status: { state: 'connecting', message: 'Connecting', agent: '' },
       activity: [],
@@ -266,6 +303,7 @@ export function createReviewStore(rawContext: ReviewContext) {
         dismissing: null,
         composer: null,
         blockedCommentKey: null,
+        verify: null,
       },
 
       applyEvent(event) {
@@ -283,11 +321,13 @@ export function createReviewStore(rawContext: ReviewContext) {
             break;
           case 'finding':
             addFinding(event.data);
+            syncVerify();
             break;
           case 'result': {
             const resultFindings = event.data.findings;
             if (Array.isArray(resultFindings)) set((state) => applyResultFindings(state, resultFindings));
             set({ result: event.data });
+            syncVerify();
             setStatus({ state: 'done', message: 'Review complete', agent: '' });
             break;
           }
@@ -345,7 +385,46 @@ export function createReviewStore(rawContext: ReviewContext) {
         get().setThinkFirst(!get().ui.thinkFirst);
       },
       revealFindings() {
-        set({ revealed: true });
+        // The first reveal is the one that counts: re-hiding does not make you unsee them
+        set((state) => ({ revealed: true, reveal: state.reveal ?? captureReveal(Date.now(), state.viewed) }));
+      },
+
+      openVerify() {
+        const state = get();
+        if (findingsHidden(state)) return;
+        const ordered = verifyOrder(findingsList(state), state.triage, (finding) => findingRisk(index, finding));
+        const session = startSession(ordered, state.triage, state.selection.findingId);
+        set((current) => ({ ui: { ...current.ui, verify: session, dismissing: null } }));
+      },
+      closeVerify() {
+        set((state) => (state.ui.verify ? { ui: { ...state.ui, verify: null } } : {}));
+      },
+      verifyMove(delta) {
+        updateVerify((session, visible) => moveSession(session, visible, delta));
+      },
+      verifyAccept() {
+        const id = get().ui.verify?.currentId;
+        if (!id || !get().findings[id]) return;
+        get().acceptFinding(id);
+        updateVerify((session, visible, state) => advanceSession(session, visible, state.triage));
+      },
+      verifyStartDismiss() {
+        updateVerify((session) => (session.currentId ? { ...session, picking: true } : session));
+      },
+      verifyCancelDismiss() {
+        updateVerify((session) => (session.picking ? { ...session, picking: false } : session));
+      },
+      verifyDismiss(reason) {
+        const id = get().ui.verify?.currentId;
+        if (!id || !get().findings[id]) return;
+        get().dismissFinding(id, reason);
+        updateVerify((session, visible, state) => advanceSession(session, visible, state.triage));
+      },
+      verifyToggleNits() {
+        updateVerify((session) => ({ ...session, showNits: !session.showNits }));
+      },
+      verifyToggleRelations() {
+        updateVerify((session) => ({ ...session, showRelations: !session.showRelations }));
       },
       openComposer(target) {
         set((state) => ({ ui: { ...state.ui, composer: target, blockedCommentKey: null } }));
@@ -574,9 +653,11 @@ export function bindPersistence(store: ReviewStore, storage: KeyValueStorage | n
   return store.subscribe((state, previous) => {
     if (state.ui.thinkFirst !== previous.ui.thinkFirst) saveThinkFirst(storage, state.ui.thinkFirst);
     const changed = state.triage !== previous.triage || state.viewed !== previous.viewed
-      || state.comments !== previous.comments || state.revealed !== previous.revealed;
+      || state.comments !== previous.comments || state.revealed !== previous.revealed || state.reveal !== previous.reveal;
     if (!changed) return;
-    const review = { triage: state.triage, viewed: state.viewed, comments: state.comments, revealed: state.revealed };
+    const review = {
+      triage: state.triage, viewed: state.viewed, comments: state.comments, revealed: state.revealed, reveal: state.reveal,
+    };
     saveReview(storage, key, review);
     server?.sync.schedule(serializeReview(key, review));
   });
@@ -595,6 +676,14 @@ export function findingsList(state: Pick<ReviewState, 'findings' | 'findingOrder
 
 export function findingsForFile(state: Pick<ReviewState, 'findings' | 'findingOrder'>, path: string): Finding[] {
   return findingsList(state).filter((finding) => finding.file === path);
+}
+
+/** Kaizen risk behind a finding: its function's, else its file's (0 when unknown) */
+export function findingRisk(index: ReviewIndex, finding: Finding): number {
+  const fn = (finding.line ? functionAtLine(index, finding.file, finding.line) : null)
+    || (finding.function_id ? index.functions.get(finding.function_id) : null);
+  if (fn) return fn.risk_score;
+  return index.files.get(finding.file)?.risk_score ?? 0;
 }
 
 export function functionAtLine(index: ReviewIndex, path: string, line: number): FunctionRisk | null {

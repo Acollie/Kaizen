@@ -1,15 +1,16 @@
-// One finding cluster: severity rail, location · category · confidence, title, excerpt,
+// One finding cluster: severity rail, severity · location · category · confidence word, title, excerpt,
 // agents, and the folded "+N similar" findings from other reviewers.
 
 import { useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useReview } from '../../state/StoreProvider';
 import type { FindingCluster } from '../../lib/findings';
 import type { Finding } from '../../types';
-import { AgentTag } from '../shared/bits';
+import { AgentTag, ConfidenceWord, PassTag, SeverityChip } from '../shared/bits';
+import { useCompareTag } from '../../hooks/useCompare';
 import { DismissedLine, TriageActions, VerifyStep } from '../shared/Triage';
 import { triageStatus } from '../../state/triage';
 import { useScrollIntoView } from '../sidebar/useScrollIntoView';
-import { clusterAgents, firstSentence, formatConfidence, locationLabel } from './reviewModel';
+import { clusterAgents, firstSentence, locationLabel } from './reviewModel';
 
 /** Findings that arrived within this window animate in */
 const FRESH_MS = 2500;
@@ -67,12 +68,14 @@ export function FindingItem({ cluster }: { cluster: FindingCluster }) {
 }
 
 function FindingMeta({ finding }: { finding: Finding }) {
-  const confidence = formatConfidence(finding.confidence);
+  const tag = useCompareTag(finding.id);
   return (
     <div className="rv-item-meta">
+      <SeverityChip severity={finding.severity} />
       <span className="mono rv-loc" title={finding.line ? `${finding.file}:${finding.line}` : finding.file}>{locationLabel(finding)}</span>
       <span>{finding.category}</span>
-      {confidence && <span className="mono" title="Reviewer confidence">{confidence}</span>}
+      <ConfidenceWord confidence={finding.confidence} />
+      <PassTag kind={tag} />
     </div>
   );
 }

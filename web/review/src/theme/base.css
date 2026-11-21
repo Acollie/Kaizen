@@ -78,6 +78,25 @@ kbd {
 .count.sev-suggestion { background: var(--sev-suggestion-soft); color: var(--sev-suggestion); }
 .count.sev-praise { background: var(--sev-praise-soft); color: var(--sev-praise); }
 
+/* Severity chip: severity leads every finding; <span class="sev-chip sev-warning">Should fix</span> */
+.sev-chip {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: var(--radius-sm);
+  font: 600 var(--text-xs)/1 var(--font-ui, inherit); letter-spacing: 0.01em; white-space: nowrap;
+  background: var(--bg-active);
+}
+.sev-chip.sev-critical { background: var(--sev-critical-soft); }
+.sev-chip.sev-warning { background: var(--sev-warning-soft); }
+.sev-chip.sev-suggestion { background: var(--sev-suggestion-soft); }
+.sev-chip.sev-praise { background: var(--sev-praise-soft); }
+
+/* Confidence as a quiet word (low / medium / high); the number is in the tooltip */
+.conf-word { font-size: var(--text-xs); color: var(--text-3); cursor: help; white-space: nowrap; }
+
+/* After the reveal: how an AI finding relates to the reviewer's own pass */
+.pass-tag { font-size: var(--text-xs); white-space: nowrap; border-radius: var(--radius-sm); padding: 0 5px; line-height: 16px; }
+.pass-tag-overlap { color: var(--sev-praise); background: var(--sev-praise-soft); }
+.pass-tag-outside { color: var(--text-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
+
 /* Agent tag: style --agent-color is set inline */
 .agent {
   display: inline-flex; align-items: center; gap: 5px;

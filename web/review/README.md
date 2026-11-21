@@ -118,7 +118,23 @@ unless the developer accepted it.
   They post first, as findings with `source: "you"`, `title: ""`, id `c-…`.
 - **Viewed** (`state/viewing.ts`, `code/useViewTracking.ts`): a function counts as viewed
   after its code has been on screen for 2s while selected; a file after 2s open.
-- **Think first** (`T`): hides the AI's findings, verdict and counts until the reviewer reveals them.
+- **Think first** (`T`, on by default): hides the AI's findings, verdict, counts and coverage until the
+  reviewer reveals them. (In blind evaluations a reviewer who saw the AI's list first found nothing on
+  their own; one who didn't found three bugs the AI missed.) Meanwhile the Review panel shows **Your
+  pass** (`state/ownPass.ts`): a checklist built only from Kaizen's data (the Overview's "Where to look"
+  packages, focus functions, risky non-code files) with "4 of 7 viewed" progress from the viewed state
+  and a visible way to comment. "Reveal AI findings (N ready)" is always available, never a gate. The
+  reveal moment (time + what was viewed by then) is persisted as `reveal`; after it, a **Compare** banner
+  (`state/compare.ts`) says "You flagged K things yourself · AI raised N · M overlap by file:line (±3)",
+  and findings are tagged "you also found this" or "outside your pass". An explicit "off" is remembered.
+- **Verify queue** (`V`, after the reveal; `state/verifyQueue.ts`, `components/verify/`): one AI finding
+  at a time with severity, How to verify, the body, ±8 lines of code with diff colouring and (`r`) the
+  enclosing function's callers / callees. `a` accept, `d` dismiss (`1`-`4`), `s` skip, `c` comment,
+  `o` open in the code view, `j`/`k`/Enter next / previous, `n` show suggestions, Esc exits. Order:
+  critical, warning, suggestion; unreviewed first, then by Kaizen risk; frozen while open.
+- **Severity first**: findings lead with a severity chip; confidence (poorly calibrated) is only a
+  low / medium / high word (`lib/confidence.ts`), the number in its tooltip. Suggestions stay folded
+  under "N suggestions (triage the warnings first)" while any critical or warning is unreviewed.
 - **Persistence** (`state/persistence.ts`, `state/stateSync.ts`): triage, viewed, comments and
   reveal are saved on the server (`GET`/`PUT /api/state`, token-protected) in
   `.kaizen/reviews/pr-<n>-<head12>.state.json` next to the review cache, because
@@ -127,6 +143,10 @@ unless the developer accepted it.
   copy in `localStorage` (key `kaizen-review:<owner>/<repo>#<number>@<head_sha>`) is the
   fallback for older runs and is kept up to date as a secondary copy. A new push starts
   fresh. The Think first preference stays in `localStorage` (`kaizen-review-think-first`).
+- **Repost guard**: after a post times out (504) the server can't know whether GitHub got it, so the
+  next post needs `confirm_repost` (409 with `outcome_unknown`), and the dialog says "The last post may
+  have reached GitHub. Check the PR before posting again."
+
 
 ### Keyboard: keymap and commands
 

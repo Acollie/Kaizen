@@ -245,7 +245,8 @@ func TestPostTimesOutAndReleasesTheLock(t *testing.T) {
 	headers := goodStateHeaders(ts)
 	for attempt := 0; attempt < 2; attempt++ {
 		started := time.Now()
-		status, body := stateRequest(t, ts, http.MethodPost, "/api/post", `{"summary":"s"}`, headers)
+		// The first timeout arms the repost guard, so the retry must confirm
+		status, body := stateRequest(t, ts, http.MethodPost, "/api/post", `{"summary":"s","confirm_repost":true}`, headers)
 		if status != http.StatusGatewayTimeout {
 			t.Fatalf("attempt %d: status %d, want 504", attempt, status)
 		}
@@ -270,5 +271,61 @@ func TestPostTimeoutDefaultsToTwoMinutes(t *testing.T) {
 	}
 	if server.options.PostTimeout != 2*time.Minute {
 		t.Errorf("PostTimeout = %s", server.options.PostTimeout)
+	}
+}
+
+// flakyPoster times out (blocks past the deadline) until hang is cleared, then succeeds
+type flakyPoster struct {
+	hang  bool
+	calls int
+}
+
+func (poster *flakyPoster) PostReview(ctx context.Context, pr review.PullRequest, files []review.FileDiff, request review.PostRequest) (*review.PostResult, error) {
+	poster.calls++
+	if poster.hang {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return &review.PostResult{URL: "https://example.test/review/2"}, nil
+}
+
+func TestTimedOutPostArmsTheRepostGuard(t *testing.T) {
+	poster := &flakyPoster{hang: true}
+	ts := startServerWithOptions(t, func(options *Options) {
+		options.Poster = poster
+		options.PostTimeout = 50 * time.Millisecond
+	})
+	headers := goodStateHeaders(ts)
+	if status, _ := stateRequest(t, ts, http.MethodPost, "/api/post", `{"summary":"s"}`, headers); status != http.StatusGatewayTimeout {
+		t.Fatalf("first post: status %d, want 504", status)
+	}
+
+	poster.hang = false
+	status, body := stateRequest(t, ts, http.MethodPost, "/api/post", `{"summary":"s"}`, headers)
+	if status != http.StatusConflict {
+		t.Fatalf("unconfirmed retry after a timeout: status %d, want 409", status)
+	}
+	var conflict alreadyPosted
+	if err := json.Unmarshal([]byte(body), &conflict); err != nil {
+		t.Fatal(err)
+	}
+	if !conflict.OutcomeUnknown || conflict.PreviousURL != "" || !strings.Contains(conflict.Error, "may have reached GitHub") {
+		t.Errorf("conflict body %+v", conflict)
+	}
+	if poster.calls != 1 {
+		t.Fatalf("the refused retry must not reach the poster, got %d calls", poster.calls)
+	}
+
+	if status, _ := stateRequest(t, ts, http.MethodPost, "/api/post", `{"summary":"s","confirm_repost":true}`, headers); status != http.StatusOK {
+		t.Fatalf("confirmed retry: status %d, want 200", status)
+	}
+	status, body = stateRequest(t, ts, http.MethodPost, "/api/post", `{"summary":"s"}`, headers)
+	if status != http.StatusConflict {
+		t.Fatalf("post after a success: status %d, want 409", status)
+	}
+	var afterSuccess alreadyPosted
+	_ = json.Unmarshal([]byte(body), &afterSuccess)
+	if afterSuccess.OutcomeUnknown || afterSuccess.PreviousURL != "https://example.test/review/2" {
+		t.Errorf("after a success the guard names the posted review, got %+v", afterSuccess)
 	}
 }

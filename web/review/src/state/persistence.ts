@@ -4,13 +4,14 @@
 // is the primary one: localStorage is per-origin and kaizen picks a new port each run.
 // localStorage stays a secondary copy and the fallback for runs saved before the server
 // kept state. Keyed by PR and head SHA, so a new push starts fresh. The "Think first" preference is global (a habit, not
-// a per-PR choice). Storage can be missing or throw (private mode, quota): every access
+// a per-PR choice) and on by default: only an explicit "off" is remembered as off. Storage can be missing or throw (private mode, quota): every access
 // is guarded and the UI works without it.
 
 import type { PullRequest } from '../types';
 import type { CommentMap, ReviewComment } from './comments';
 import type { TriageEntry, TriageMap } from './triage';
 import { EMPTY_VIEWED, type ViewedState } from './viewing';
+import { parseRevealMoment, type RevealMoment } from './compare';
 
 export const THINK_FIRST_KEY = 'kaizen-review-think-first';
 const VERSION = 1;
@@ -20,6 +21,8 @@ export interface PersistedReview {
   viewed: ViewedState;
   comments: CommentMap;
   revealed: boolean;
+  /** When the AI's findings were first revealed, and what had been viewed by then */
+  reveal: RevealMoment | null;
 }
 
 export type KeyValueStorage = Pick<Storage, 'getItem' | 'setItem'>;
@@ -96,6 +99,7 @@ export interface ReviewDocument {
   viewed: { functions: string[]; files: string[] };
   comments: CommentMap;
   revealed: boolean;
+  reveal?: RevealMoment;
 }
 
 export function serializeReview(key: string, review: PersistedReview): ReviewDocument {
@@ -106,6 +110,7 @@ export function serializeReview(key: string, review: PersistedReview): ReviewDoc
     viewed: { functions: Object.keys(review.viewed.functions), files: Object.keys(review.viewed.files) },
     comments: review.comments,
     revealed: review.revealed,
+    ...(review.reveal ? { reveal: review.reveal } : {}),
   };
 }
 
@@ -122,6 +127,7 @@ export function parseReview(data: unknown, key: string): PersistedReview | null 
     viewed: { functions: parseIdSet(viewed.functions), files: parseIdSet(viewed.files) },
     comments: parseComments(data.comments),
     revealed: data.revealed === true,
+    reveal: parseRevealMoment(data.reveal),
   };
 }
 
@@ -139,12 +145,13 @@ export function hasWork(review: PersistedReview): boolean {
     || Object.keys(review.viewed.functions).length > 0 || Object.keys(review.viewed.files).length > 0 || review.revealed;
 }
 
+/** Think first is on unless the reviewer explicitly turned it off */
 export function loadThinkFirst(storage: KeyValueStorage | null): boolean {
-  return readJson(storage, THINK_FIRST_KEY) === true;
+  return readJson(storage, THINK_FIRST_KEY) !== false;
 }
 
 export function saveThinkFirst(storage: KeyValueStorage | null, enabled: boolean): void {
   writeJson(storage, THINK_FIRST_KEY, enabled);
 }
 
-export const EMPTY_REVIEW: PersistedReview = { triage: {}, viewed: EMPTY_VIEWED, comments: {}, revealed: false };
+export const EMPTY_REVIEW: PersistedReview = { triage: {}, viewed: EMPTY_VIEWED, comments: {}, revealed: false, reveal: null };

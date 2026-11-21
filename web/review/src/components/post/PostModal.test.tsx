@@ -99,6 +99,18 @@ describe('PostModal', () => {
     expect(post.mock.calls[1]?.[0].confirm_repost).toBe(true);
   });
 
+  it('after a timeout, warns the post may have reached GitHub and needs confirmation', async () => {
+    setup({ accept: ['inline'] });
+    const post = vi.spyOn(api, 'postReview')
+      .mockRejectedValueOnce(new api.AlreadyPostedError('', true))
+      .mockResolvedValueOnce({ url: 'https://github.com/o/r/pull/7#review-2', inline_comments: 1, body_findings: 0 });
+    fireEvent.click(button('Post 1 accepted finding'));
+    await waitFor(() => expect(screen.getByText('The last post may have reached GitHub. Check the PR before posting again.')).toBeTruthy());
+    fireEvent.click(button('Yes, post again'));
+    await waitFor(() => expect(screen.getByText('Review posted')).toBeTruthy());
+    expect(post.mock.calls[1]?.[0].confirm_repost).toBe(true);
+  });
+
   it('reopening after a post asks before posting again', async () => {
     const store = setup({ accept: ['inline'] });
     vi.spyOn(api, 'postReview').mockResolvedValue({ url: 'https://github.com/o/r/pull/7#review', inline_comments: 1, body_findings: 0 });

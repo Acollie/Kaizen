@@ -3,6 +3,7 @@
 import type { CSSProperties } from 'react';
 import type { Finding, Severity } from '../../types';
 import { severityCounts, SEVERITY_LABEL } from '../../lib/findings';
+import { confidenceView } from '../../lib/confidence';
 
 const AGENT_COLORS: Record<string, string> = {
   lead: 'var(--agent-lead)',
@@ -36,4 +37,23 @@ export function SeverityCounts({ findings, skipPraise = true }: { findings: read
         ))}
     </>
   );
+}
+
+/** Severity first and prominent: "Should fix" in the severity colour */
+export function SeverityChip({ severity }: { severity: Severity }) {
+  return <span className={`sev-chip sev-${severity}`}>{SEVERITY_LABEL[severity] ?? severity}</span>;
+}
+
+/** Confidence as a quiet low / medium / high word; the number is in the tooltip */
+export function ConfidenceWord({ confidence }: { confidence: number | undefined }) {
+  const view = confidenceView(confidence);
+  if (!view) return null;
+  return <span className={`conf-word conf-${view.level}`} title={view.title}>{view.word} conf.</span>;
+}
+
+/** After the reveal: where an AI finding stands against the reviewer's own pass */
+export function PassTag({ kind }: { kind: 'overlap' | 'outside' | null }) {
+  if (kind === 'overlap') return <span className="pass-tag pass-tag-overlap" title="One of your comments from before the reveal is at the same spot (±3 lines)">you also found this</span>;
+  if (kind === 'outside') return <span className="pass-tag pass-tag-outside" title="You hadn't viewed this file before the reveal">outside your pass</span>;
+  return null;
 }

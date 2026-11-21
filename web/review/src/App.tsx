@@ -13,6 +13,7 @@ import { Workspace } from './components/layout/Workspace';
 import { ModeIndicator } from './components/layout/ModeIndicator';
 import { HelpOverlay } from './components/help/HelpOverlay';
 import { PostModal } from './components/post/PostModal';
+import { VerifyQueue } from './components/verify/VerifyQueue';
 import './App.css';
 
 export function App() {
@@ -32,6 +33,7 @@ export function App() {
       <ModeIndicator status={keymap} />
       <HelpOverlay />
       <PostModal />
+      <VerifyQueue />
     </div>
   );
 }

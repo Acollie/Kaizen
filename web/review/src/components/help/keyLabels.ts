@@ -1,7 +1,7 @@
 // Split a help label from helpGroups() ("gT", "]c", "Ctrl-d", "Space") back into the
 // individual keys to draw one <kbd> per key.
 
-const NAMED_KEY = /^(Ctrl-.|Esc|Space|Tab|Enter)/;
+const NAMED_KEY = /^(Ctrl-.|Shift-Enter|Esc|Space|Tab|Enter)/;
 
 export function splitKeyLabel(label: string): string[] {
   const keys: string[] = [];

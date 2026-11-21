@@ -115,8 +115,8 @@ describe('bindPersistence with the server', () => {
     const storage = memoryStorage();
     const store = storeWithFindings();
     const key = reviewStorageKey(store.getState().context.pr);
-    saveReview(storage, key, { triage: { w: { state: 'dismissed' } }, viewed: EMPTY_VIEWED, comments: {}, revealed: false });
-    const serverDoc = serializeReview(key, { triage: { w: { state: 'accepted' } }, viewed: EMPTY_VIEWED, comments: {}, revealed: false });
+    saveReview(storage, key, { triage: { w: { state: 'dismissed' } }, viewed: EMPTY_VIEWED, comments: {}, revealed: false, reveal: null });
+    const serverDoc = serializeReview(key, { triage: { w: { state: 'accepted' } }, viewed: EMPTY_VIEWED, comments: {}, revealed: false, reveal: null });
     bindPersistence(store, storage, { saved: serverDoc, sync: createStateSync(fakeRemote().remote) });
     expect(store.getState().triage).toEqual({ w: { state: 'accepted' } });
   });
@@ -137,7 +137,7 @@ describe('bindPersistence with the server', () => {
 
   it('ignores a server document saved for another PR head', () => {
     const store = storeWithFindings();
-    const stale = serializeReview('kaizen-review:o/r#7@old-sha', { triage: { w: { state: 'accepted' } }, viewed: EMPTY_VIEWED, comments: {}, revealed: false });
+    const stale = serializeReview('kaizen-review:o/r#7@old-sha', { triage: { w: { state: 'accepted' } }, viewed: EMPTY_VIEWED, comments: {}, revealed: false, reveal: null });
     bindPersistence(store, memoryStorage(), { saved: stale, sync: createStateSync(fakeRemote().remote) });
     expect(store.getState().triage).toEqual({});
   });

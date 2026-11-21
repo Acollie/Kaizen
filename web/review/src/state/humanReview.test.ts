@@ -201,7 +201,36 @@ describe('persistence', () => {
     expect(Object.values(state.comments).map((comment) => comment.body)).toEqual(['Mine']);
     expect(state.ui.thinkFirst).toBe(true);
     expect(state.revealed).toBe(true);
-    expect(storage.data.get(THINK_FIRST_KEY)).toBe('true');
+    expect(state.reveal?.viewedFiles).toEqual(['pkg/a.go']);
+  });
+
+  it('turns Think first on by default, and remembers an explicit off', () => {
+    const storage = memoryStorage();
+    const first = storeWithFindings();
+    bindPersistence(first, storage);
+    expect(first.getState().ui.thinkFirst).toBe(true);
+    expect(findingsHidden(first.getState())).toBe(true);
+    first.getState().toggleThinkFirst();
+    expect(storage.data.get(THINK_FIRST_KEY)).toBe('false');
+
+    const second = storeWithFindings();
+    bindPersistence(second, storage);
+    expect(second.getState().ui.thinkFirst).toBe(false);
+  });
+
+  it('records the first reveal moment with what was viewed by then', () => {
+    const store = storeWithFindings();
+    store.getState().setThinkFirst(true);
+    store.getState().markViewed('function', 'pkg/a.go:F');
+    store.getState().revealFindings();
+    const reveal = store.getState().reveal;
+    expect(reveal?.viewedFunctions).toEqual(['pkg/a.go:F']);
+    expect(typeof reveal?.at).toBe('number');
+    store.getState().markViewed('file', 'pkg/b.go');
+    store.getState().setThinkFirst(false);
+    store.getState().setThinkFirst(true);
+    store.getState().revealFindings();
+    expect(store.getState().reveal).toBe(reveal);
   });
 
   it('starts fresh on a new head SHA', () => {

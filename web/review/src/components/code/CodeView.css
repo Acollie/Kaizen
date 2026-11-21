@@ -208,7 +208,6 @@
 }
 .cv-card-show { height: 22px; font-size: var(--text-xs); }
 .cv-card-spacer { flex: 1; }
-.cv-card-confidence { font-family: var(--font-mono); }
 
 /* File-level findings and findings outside the shown lines */
 .cv-notes { padding: var(--space-2) 0 var(--space-3); border-bottom: 1px solid var(--line); font-family: var(--font-ui); }
