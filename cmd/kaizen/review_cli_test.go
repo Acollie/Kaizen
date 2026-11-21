@@ -28,6 +28,10 @@ func TestReviewCacheKeyChangesWithSettings(t *testing.T) {
 	withFocus.focus = 8
 	assert.NotEqual(t, reviewCacheKey(cli, base), reviewCacheKey(cli, withFocus))
 	assert.Empty(t, reviewCacheKey(nil, base))
+
+	withWorker := base
+	withWorker.workerModel = "sonnet"
+	assert.Equal(t, "claude-cli model= effort=high focus=5 worker=sonnet", reviewCacheKey(cli, withWorker))
 }
 
 type cacheKeyEngine struct{ name string }

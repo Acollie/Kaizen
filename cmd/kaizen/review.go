@@ -275,7 +275,12 @@ func reviewCacheKey(selected review.Engine, options reviewFlags) string {
 	if selected == nil {
 		return ""
 	}
-	return fmt.Sprintf("%s model=%s effort=%s focus=%d", selected.Name(), options.model, options.effort, options.focus)
+	key := fmt.Sprintf("%s model=%s effort=%s focus=%d", selected.Name(), options.model, options.effort, options.focus)
+	// Appended only when set, so the default key (and existing caches) stay unchanged
+	if options.workerModel != "" {
+		key += " worker=" + options.workerModel
+	}
+	return key
 }
 
 // runReviewEngine runs the AI review (or replays a cached one for the same PR head)
