@@ -3,7 +3,7 @@
 
 import { Fragment, useMemo } from 'react';
 import { useReview } from '../../state/StoreProvider';
-import { helpGroups, type HelpGroup } from '../../keys/keymap';
+import { helpGroups, verifyHelpGroup, type HelpGroup } from '../../keys/keymap';
 import { ModalDialog } from '../layout/ModalDialog';
 import { splitKeyLabel } from './keyLabels';
 import './HelpOverlay.css';
@@ -11,7 +11,7 @@ import './HelpOverlay.css';
 export function HelpOverlay() {
   const open = useReview((state) => state.ui.helpOpen);
   const setHelpOpen = useReview((state) => state.setHelpOpen);
-  const groups = useMemo(() => helpGroups(), []);
+  const groups = useMemo(() => [...helpGroups(), verifyHelpGroup()], []);
   return (
     <ModalDialog open={open} onClose={() => setHelpOpen(false)} labelledBy="hp-title" className="hp-dialog">
       <header className="modal-head">

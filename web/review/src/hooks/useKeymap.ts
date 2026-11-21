@@ -61,6 +61,7 @@ export function useKeymap(): KeymapStatus {
       accept: () => withCurrentFinding((state, id) => state.acceptFinding(id)),
       dismiss: () => withCurrentFinding((state, id) => state.startDismiss(id, dismissSurface(state))),
       toggleThinkFirst: () => store.getState().toggleThinkFirst(),
+      verifyQueue: () => store.getState().openVerify(),
       back: () => store.getState().goBack(),
       focusLeft: () => store.getState().moveFocus(-1),
       focusRight: () => store.getState().moveFocus(1),
@@ -142,6 +143,8 @@ export function useKeymap(): KeymapStatus {
       const token = keyToken(event);
       if (!token) return;
       const ui = store.getState().ui;
+      // The verify queue handles its own keys (components/verify/VerifyQueue.tsx)
+      if (ui.verify) return;
       const modalOpen = ui.helpOpen || ui.postOpen;
       if (isTypingTarget(event.target)) {
         if (token === 'Esc' && !modalOpen && event.target instanceof HTMLElement) {

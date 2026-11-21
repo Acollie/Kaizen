@@ -59,6 +59,11 @@
 
 .rv-item-meta { display: flex; align-items: center; min-width: 0; font-size: var(--text-xs); color: var(--text-3); white-space: nowrap; }
 .rv-item-meta > * + *::before { content: '·'; margin: 0 6px; }
+.rv-item-meta > .sev-chip { margin-right: 2px; }
+.rv-item-meta > .sev-chip + *::before { content: none; }
+.rv-item-meta > .sev-chip + * { margin-left: 6px; }
+.rv-item-meta > .pass-tag::before { content: none; }
+.rv-item-meta > .pass-tag { margin-left: 8px; flex: none; }
 .rv-loc { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .rv-item-title { font-weight: 600; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
 .rv-item-body {
@@ -209,3 +214,57 @@
 .rv-withdrawn-row:hover .rv-withdrawn-title { color: var(--text); }
 .rv-withdrawn-title { font-size: var(--text-sm); text-decoration: line-through; text-decoration-color: var(--text-3); }
 .rv-withdrawn-meta { display: flex; gap: var(--space-2); align-items: baseline; font-size: var(--text-xs); color: var(--text-3); }
+
+/* ---------- Your pass (Think first) ---------- */
+.rv-pass { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-4); border-bottom: 1px solid var(--line); }
+.rv-pass-head { display: flex; align-items: baseline; gap: var(--space-2); }
+.rv-pass-count { font-size: var(--text-xs); color: var(--text-2); }
+.rv-pass-next { margin-left: auto; }
+.rv-pass-bar { height: 3px; border-radius: 2px; background: var(--bg-active); overflow: hidden; }
+.rv-pass-bar > span { display: block; height: 100%; background: var(--accent); transition: width var(--fast) var(--ease); }
+.rv-pass-prompt { margin: 0; color: var(--text-2); font-size: var(--text-sm); line-height: 1.45; }
+.rv-pass-done .rv-pass-prompt { color: var(--text); font-weight: 600; }
+.rv-pass-list { list-style: none; margin: 0 calc(-1 * var(--space-2)); padding: 0; }
+.rv-pass-row {
+  display: flex; align-items: flex-start; gap: var(--space-2); width: 100%;
+  padding: 5px var(--space-2); border: 0; border-radius: var(--radius); background: transparent;
+  color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.rv-pass-row:hover { background: var(--bg-hover); }
+.rv-pass-row:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.rv-pass-check {
+  flex: none; width: 14px; height: 14px; margin-top: 2px; border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--line-focus); color: var(--accent);
+  font-size: 11px; line-height: 14px; text-align: center;
+}
+.rv-pass-viewed .rv-pass-check { box-shadow: inset 0 0 0 1px var(--accent-line); background: var(--accent-soft); }
+.rv-pass-viewed .rv-pass-name { color: var(--text-2); }
+.rv-pass-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.rv-pass-name { font-size: var(--text-sm); line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-pass-reason { font-size: var(--text-xs); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-pass-kind { margin-right: 6px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; }
+.rv-pass-comment { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) 0 0; border-top: 1px solid var(--line); }
+.rv-pass-comment-text { font-size: var(--text-xs); color: var(--text-2); }
+.rv-pass-comment-btn { height: 24px; font-size: var(--text-xs); }
+.rv-pass-reveal { align-self: flex-start; margin-top: var(--space-1); }
+
+/* ---------- Compare (after the reveal) ---------- */
+.rv-compare {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-2);
+  padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--line); background: var(--bg-raised);
+}
+.rv-compare-label { color: var(--accent); }
+.rv-compare-text { font-size: var(--text-sm); color: var(--text); }
+.rv-compare-hint { flex-basis: 100%; font-size: var(--text-xs); color: var(--text-3); }
+
+/* ---------- Verify queue button, folded suggestions ---------- */
+.rv-verify-btn { align-self: flex-start; height: 26px; margin-top: var(--space-2); gap: 6px; }
+.rv-verify-btn kbd { height: 14px; min-width: 14px; font-size: 10px; line-height: 12px; }
+.rv-nits-toggle {
+  display: flex; align-items: center; gap: var(--space-2); width: calc(100% - 2 * var(--space-2));
+  margin: 0 var(--space-2); padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius);
+  background: transparent; color: var(--text-2); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer;
+}
+.rv-nits-toggle:hover { background: var(--bg-hover); color: var(--text); }
+.rv-nits-toggle .rv-chevron { color: var(--sev-suggestion); }
+.rv-nits-fold { margin-left: auto; }

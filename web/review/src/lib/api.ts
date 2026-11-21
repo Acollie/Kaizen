@@ -85,14 +85,19 @@ export function putStateOnUnload(document: unknown): void {
   }
 }
 
-/** Thrown by postReview when this session already posted and confirm_repost was not set */
+/**
+ * Thrown by postReview when posting again needs confirm_repost: this session already
+ * posted a review, or (outcomeUnknown) the last post timed out and may have reached GitHub
+ */
 export class AlreadyPostedError extends Error {
   readonly previousUrl: string;
+  readonly outcomeUnknown: boolean;
 
-  constructor(previousUrl: string) {
-    super('A review was already posted in this session');
+  constructor(previousUrl: string, outcomeUnknown = false) {
+    super(outcomeUnknown ? 'The last post may have reached GitHub' : 'A review was already posted in this session');
     this.name = 'AlreadyPostedError';
     this.previousUrl = previousUrl;
+    this.outcomeUnknown = outcomeUnknown;
   }
 }
 
@@ -104,9 +109,11 @@ export async function postReview(request: PostRequest): Promise<PostResult> {
     body: JSON.stringify(request),
   });
   if (response.status === 409) {
-    const body = (await response.json().catch(() => ({}))) as { previous_url?: string };
-    throw new AlreadyPostedError(body.previous_url ?? '');
+    const body = (await response.json().catch(() => ({}))) as { previous_url?: string; outcome_unknown?: boolean };
+    throw new AlreadyPostedError(body.previous_url ?? '', body.outcome_unknown === true);
   }
+  // A timeout may still have reached GitHub: the server now needs confirm_repost
+  if (response.status === 504) throw new AlreadyPostedError('', true);
   return readJSON<PostResult>(response);
 }
 

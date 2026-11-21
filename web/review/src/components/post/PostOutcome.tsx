@@ -9,7 +9,7 @@ export type PostPhase =
   | { kind: 'posting' }
   | { kind: 'posted'; result: PostResult }
   /** This session already posted a review; posting again needs explicit confirmation */
-  | { kind: 'already-posted'; previousUrl: string }
+  | { kind: 'already-posted'; previousUrl: string; outcomeUnknown?: boolean }
   | { kind: 'error'; message: string };
 
 function ReviewLink({ url }: { url: string }) {
@@ -22,6 +22,14 @@ function ReviewLink({ url }: { url: string }) {
 export function PostOutcome({ phase }: { phase: PostPhase }) {
   if (phase.kind === 'error') {
     return <div className="pm-outcome pm-outcome-error" role="alert">Posting failed: {phase.message}</div>;
+  }
+  if (phase.kind === 'already-posted' && phase.outcomeUnknown) {
+    return (
+      <div className="pm-outcome pm-outcome-repost" role="alert">
+        <span>Outcome unknown:</span>
+        <span className="pm-outcome-question">The last post may have reached GitHub. Check the PR before posting again.</span>
+      </div>
+    );
   }
   if (phase.kind === 'already-posted') {
     return (

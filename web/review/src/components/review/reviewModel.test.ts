@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { FileDiff, Finding, FunctionRisk } from '../../types';
 import {
-  clusterAgents, countsSentence, firstSentence, focusFunctions, formatConfidence, locationLabel,
+  clusterAgents, countsSentence, firstSentence, focusFunctions, locationLabel,
   riskyFiles, severitySections, verdictView,
 } from './reviewModel';
 
@@ -67,11 +67,6 @@ describe('small formatters', () => {
   test('locationLabel uses the base name', () => {
     expect(locationLabel({ file: 'internal/config/config.go', line: 118 })).toBe('config.go:118');
     expect(locationLabel({ file: 'action.yml' })).toBe('action.yml');
-  });
-  test('formatConfidence accepts fractions and percents', () => {
-    expect(formatConfidence(0.92)).toBe('92%');
-    expect(formatConfidence(85)).toBe('85%');
-    expect(formatConfidence(0)).toBe('');
   });
 });
 

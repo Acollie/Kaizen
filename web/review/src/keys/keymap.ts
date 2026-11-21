@@ -8,7 +8,8 @@ export type Action =
   | 'top' | 'bottom' | 'halfPageDown' | 'halfPageUp' | 'pageDown' | 'pageUp'
   | 'expandAbove' | 'expandBelow' | 'expandAll' | 'gotoDefinition' | 'gotoCallers' | 'back'
   | 'focusLeft' | 'focusRight' | 'focusFilter' | 'nextTab' | 'prevTab' | 'tab'
-  | 'toggleOverview' | 'toggleWrap' | 'fitGraph' | 'expandFlow' | 'toggleLayered' | 'post' | 'help' | 'escape';
+  | 'toggleOverview' | 'toggleWrap' | 'fitGraph' | 'expandFlow' | 'toggleLayered' | 'post' | 'help' | 'escape'
+  | 'verifyQueue';
 
 export interface Binding {
   keys: readonly string[];
@@ -41,7 +42,8 @@ export const BINDINGS: readonly Binding[] = [
   { keys: ['x'], action: 'toggleAccept', group: 'Findings', description: 'Toggle accept on the current finding' },
   { keys: ['Space'], action: 'toggleAccept', group: 'Findings', description: 'Toggle accept' },
   { keys: ['c'], action: 'comment', group: 'Findings', description: 'Comment on the current line' },
-  { keys: ['T'], action: 'toggleThinkFirst', group: 'Findings', description: 'Think first: hide the AI findings until you reveal them' },
+  { keys: ['T'], action: 'toggleThinkFirst', group: 'Findings', description: 'Think first (on by default): do your own pass, then reveal the AI findings' },
+  { keys: ['V'], action: 'verifyQueue', group: 'Findings', description: 'Verify queue: one AI finding at a time (after the reveal)' },
   { keys: ['g', 'g'], action: 'top', group: 'Scroll', description: 'Top of the current file' },
   { keys: ['G'], action: 'bottom', group: 'Scroll', description: 'Bottom of the current file' },
   { keys: ['C-d'], action: 'halfPageDown', group: 'Scroll', description: 'Half page down' },
@@ -74,6 +76,48 @@ export const BINDINGS: readonly Binding[] = [
   { keys: ['?'], action: 'help', group: 'Review', description: 'Show this help' },
   { keys: ['Esc'], action: 'escape', group: 'Review', description: 'Close overlays, clear pending keys' },
 ];
+
+/** Keys inside the verify queue (V). It takes over the keyboard while open. */
+export type VerifyAction = 'accept' | 'dismiss' | 'skip' | 'comment' | 'open' | 'relations' | 'next' | 'prev' | 'nits' | 'exit';
+
+export interface VerifyBinding {
+  /** Alternatives, not a sequence */
+  keys: readonly string[];
+  action: VerifyAction;
+  description: string;
+}
+
+export const VERIFY_BINDINGS: readonly VerifyBinding[] = [
+  { keys: ['a'], action: 'accept', description: 'Accept (posted as yours), then the next one' },
+  { keys: ['d'], action: 'dismiss', description: 'Dismiss: pick a reason with 1-4 (Esc cancels)' },
+  { keys: ['s'], action: 'skip', description: 'Skip for now' },
+  { keys: ['c'], action: 'comment', description: 'Add your own comment at this spot' },
+  { keys: ['o'], action: 'open', description: 'Open it in the full code view' },
+  { keys: ['r'], action: 'relations', description: 'Callers / callees of the enclosing function' },
+  { keys: ['j', 'Enter'], action: 'next', description: 'Next finding' },
+  { keys: ['k', 'S-Enter'], action: 'prev', description: 'Previous finding' },
+  { keys: ['n'], action: 'nits', description: 'Show or fold the suggestions' },
+  { keys: ['Esc'], action: 'exit', description: 'Leave the queue' },
+];
+
+/** Token for a key press inside the verify queue: keyToken plus Enter / Shift-Enter */
+export function verifyToken(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'altKey' | 'ctrlKey' | 'shiftKey'>): string | null {
+  if (event.key === 'Enter' && !event.metaKey && !event.altKey && !event.ctrlKey) return event.shiftKey ? 'S-Enter' : 'Enter';
+  return keyToken(event);
+}
+
+export function verifyActionFor(token: string | null): VerifyAction | null {
+  if (!token) return null;
+  return VERIFY_BINDINGS.find((binding) => binding.keys.includes(token))?.action ?? null;
+}
+
+/** The verify queue's keys as a help group */
+export function verifyHelpGroup(): HelpGroup {
+  return {
+    group: 'Verify queue (V)',
+    rows: VERIFY_BINDINGS.map((binding) => ({ labels: binding.keys.map(keyLabel), description: binding.description })),
+  };
+}
 
 export const SEQUENCE_TIMEOUT_MS = 800;
 
@@ -175,6 +219,7 @@ export function createKeyParser(bindings: readonly Binding[] = BINDINGS, options
 /** Human-readable key label for the help overlay */
 export function keyLabel(token: string): string {
   if (token.startsWith('C-')) return `Ctrl-${token.slice(2)}`;
+  if (token.startsWith('S-')) return `Shift-${token.slice(2)}`;
   return token;
 }
 

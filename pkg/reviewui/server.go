@@ -65,6 +65,9 @@ type Server struct {
 	// clicks (or tabs) can never both post a review
 	postMutex sync.Mutex
 	lastPost  *review.PostResult // the session's successful post, nil until one
+	// postOutcomeUnknown is set when a post timed out: GitHub may hold the review even
+	// though no result came back, so the next attempt needs confirm_repost too
+	postOutcomeUnknown bool
 
 	stateMutex sync.Mutex // serialises state file reads and writes
 }

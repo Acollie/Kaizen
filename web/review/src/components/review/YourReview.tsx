@@ -5,7 +5,7 @@
 import { useReview, useReviewStore } from '../../state/StoreProvider';
 import { useLookProgress } from '../../hooks/useLookProgress';
 import { filterCount, progressSentence, TRIAGE_FILTERS, type TriageFilter, type TriageProgress } from '../../state/triage';
-import { allFocusSeen, everythingSeen, lookSentence, nextUnseen } from '../../state/viewing';
+import { lookSentence, nextUnseen } from '../../state/viewing';
 
 const FILTER_LABELS: Record<TriageFilter, string> = {
   unreviewed: 'Unreviewed', accepted: 'Accepted', dismissed: 'Dismissed', all: 'All',
@@ -26,7 +26,8 @@ export function YourReview({ progress, filter, onFilter, hidden }: YourReviewPro
         <ThinkFirstSwitch />
       </div>
       {!hidden && <div className="rv-yours-line">{progressSentence(progress)}</div>}
-      <LookLine />
+      {!hidden && <LookLine />}
+      {!hidden && progress.total > 0 && <VerifyQueueButton />}
       {!hidden && progress.total > 0 && <TriageFilterBar progress={progress} filter={filter} onFilter={onFilter} />}
     </section>
   );
@@ -58,7 +59,7 @@ function ThinkFirstSwitch() {
   const toggle = useReview((state) => state.toggleThinkFirst);
   return (
     <button type="button" role="switch" aria-checked={enabled} className={`rv-switch${enabled ? ' rv-switch-on' : ''}`}
-      onClick={toggle} title="Think first: hide the AI's findings until you've looked at the code yourself (T)">
+      onClick={toggle} title="Think first (on by default): do your own pass before the AI's findings are shown (T)">
       <span className="rv-switch-track" aria-hidden="true"><span className="rv-switch-thumb" /></span>
       Think first <kbd>T</kbd>
     </button>
@@ -78,25 +79,13 @@ function TriageFilterBar({ progress, filter, onFilter }: { progress: TriageProgr
   );
 }
 
-/** Shown instead of the findings while "Think first" hides them */
-export function ThinkFirstNotice({ total, running }: { total: number; running: boolean }) {
-  const reveal = useReview((state) => state.revealFindings);
-  const look = useLookProgress();
-  const ready = allFocusSeen(look) || (look.focus.total === 0 && everythingSeen(look));
-  const message = noticeText(total, running, ready);
+/** Opens the verify queue (V): one finding at a time, single-key decisions */
+function VerifyQueueButton() {
+  const openVerify = useReview((state) => state.openVerify);
   return (
-    <div className={`rv-think${ready ? ' rv-think-ready' : ''}`} role="status">
-      <p className="rv-think-text">{message}</p>
-      <button type="button" className={`btn ${ready ? 'btn-primary' : 'btn-outline'} rv-think-btn`} onClick={reveal} disabled={total === 0}>
-        Reveal the AI findings
-      </button>
-    </div>
+    <button type="button" className="btn btn-outline rv-verify-btn" onClick={openVerify}
+      title="Verify queue: one finding at a time, with its code and how to verify it (V)">
+      Verify queue <kbd>V</kbd>
+    </button>
   );
-}
-
-function noticeText(total: number, running: boolean, ready: boolean): string {
-  if (total === 0) return running ? 'The AI is still reviewing. Look at the focus functions yourself in the meantime.' : 'The AI found nothing to report.';
-  if (ready) return "You've seen the focus functions. Reveal the AI's findings?";
-  const count = `${total} AI ${total === 1 ? 'finding' : 'findings'} ready.`;
-  return `${count} Look at the focus functions first, then reveal.`;
 }

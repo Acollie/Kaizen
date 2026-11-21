@@ -1,6 +1,7 @@
 // Review panel: the AI's verdict, the reviewer's own progress (triage, what they've
 // looked at, "Think first"), their comments, the findings to triage (filtered), the AI
-// summary, Kaizen focus and Kaizen concerns.
+// summary, Kaizen focus and Kaizen concerns. While Think first hides the findings, the
+// panel shows "Your pass" instead and nothing derived from the AI (no AI coverage).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAllFindings, useFindings, useReview } from '../../state/StoreProvider';
@@ -15,7 +16,10 @@ import { SummarySection } from './SummarySection';
 import { FocusSection } from './FocusSection';
 import { ConcernsSection } from './ConcernsSection';
 import { BlindSpots } from './BlindSpots';
-import { ThinkFirstNotice, YourReview } from './YourReview';
+import { YourReview } from './YourReview';
+import { YourPass } from './YourPass';
+import { CompareBanner } from './CompareBanner';
+import { isUserComment } from '../../state/comments';
 import { YourComments } from './YourComments';
 import { WithdrawnSection } from './WithdrawnSection';
 import './ReviewPanel.css';
@@ -38,14 +42,15 @@ export function ReviewPanel() {
     <div className="rv">
       <Headline findings={findings} hidden={hidden} />
       <YourReview progress={progress} filter={filter} onFilter={setChosen} hidden={hidden} />
+      {!hidden && <CompareBanner />}
+      {hidden && <YourPass ready={allFindings.filter((finding) => !isUserComment(finding)).length} running={running} />}
       <YourComments />
-      {hidden
-        ? <ThinkFirstNotice total={allFindings.length} running={running} />
-        : <FindingSections findings={findings} showCluster={showCluster} emptyText={emptyText(filter, progress.total)} />}
-      {/* What the AI never opened: shown even in "Think first", to plan your own pass */}
-      <BlindSpots />
+      {!hidden && <FindingSections findings={findings} showCluster={showCluster} emptyText={emptyText(filter, progress.total)} collapseNits />}
+      {/* What the AI never opened: after the reveal only, so it cannot steer your own pass */}
+      {!hidden && <BlindSpots />}
       {hasResult && !hidden && <SummarySection />}
-      <FocusSection />
+      {/* Your pass already lists the focus code while Think first is on */}
+      {!hidden && <FocusSection />}
       <ConcernsSection />
       {!hidden && <WithdrawnSection />}
     </div>

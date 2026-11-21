@@ -177,7 +177,9 @@ function usePostSubmit(open: boolean) {
       const result = await postReview({ summary, findings, ...(confirmRepost ? { confirm_repost: true } : {}) });
       setPhase({ kind: 'posted', result });
     } catch (error) {
-      if (error instanceof AlreadyPostedError) setPhase({ kind: 'already-posted', previousUrl: error.previousUrl });
+      if (error instanceof AlreadyPostedError) {
+        setPhase({ kind: 'already-posted', previousUrl: error.previousUrl, outcomeUnknown: error.outcomeUnknown });
+      }
       else setPhase({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
       posting.current = false;
