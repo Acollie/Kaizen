@@ -411,7 +411,7 @@ var sideEffectPatterns = []string{
 // word like "secret" in a help text or a comment does not count.
 var securityCodePatterns = append(slices.Clone(sideEffectPatterns),
 	// data access, secrets and request handling
-	".Query(", ".Exec(", "hashlib", "password", "secret", "token", "Authorization",
+	".Query(", ".Exec(", "hashlib", "Authorization",
 	"http.ResponseWriter", "http.Request", "HandleFunc", "ServeHTTP",
 	"Unmarshal", "pickle.load", "yaml.load", "gob.NewDecoder", "Decodable",
 )
@@ -456,6 +456,9 @@ func securityFactor(function *FunctionRisk, changedLines []string) riskFactor {
 // firstSecurityPattern returns the first security pattern a changed line uses, or ""
 func firstSecurityPattern(line string) string {
 	code := stripLiteralsAndComments(line)
+	if word := firstCredentialIdentifier(code); word != "" {
+		return word
+	}
 	for _, pattern := range securityCodePatterns {
 		if strings.Contains(code, pattern) {
 			return pattern
@@ -658,3 +661,36 @@ var dependencyManifests = map[string]bool{
 	"cargo.toml": true, "cargo.lock": true, "gemfile": true, "gemfile.lock": true, "build.gradle": true,
 	"build.gradle.kts": true, "package.swift": true, "podfile": true, "podfile.lock": true,
 }
+
+// credentialWords mark an identifier as holding a credential when they appear as a
+// whole word in it (passwordHash, client_secret)
+var credentialWords = map[string]bool{"password": true, "passwd": true, "secret": true, "credential": true, "credentials": true}
+
+// authQualifiers turn a "token" identifier into a credential (accessToken, GH_TOKEN,
+// bearer_token); without one, "token" is usually a lexer or parser token (lineToken)
+var authQualifiers = map[string]bool{
+	"access": true, "auth": true, "api": true, "bearer": true, "refresh": true, "session": true,
+	"csrf": true, "jwt": true, "oauth": true, "id": true, "github": true, "gh": true, "personal": true, "secret": true,
+}
+
+// firstCredentialIdentifier returns the first identifier in code that names a
+// credential, matched by whole words rather than substrings
+func firstCredentialIdentifier(code string) string {
+	for _, identifier := range identifierPattern.FindAllString(code, -1) {
+		words := splitIdentifierWords(identifier)
+		hasToken, hasQualifier := false, false
+		for _, word := range words {
+			if credentialWords[word] {
+				return identifier
+			}
+			hasToken = hasToken || word == "token" || word == "tokens"
+			hasQualifier = hasQualifier || authQualifiers[word]
+		}
+		if hasToken && hasQualifier {
+			return identifier
+		}
+	}
+	return ""
+}
+
+var identifierPattern = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)

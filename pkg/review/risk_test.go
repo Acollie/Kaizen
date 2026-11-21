@@ -398,3 +398,19 @@ func TestScoreFileFlagsAgentInstructionFiles(t *testing.T) {
 	docs, _ := ScoreFile(FileDiff{Path: "docs/claude-integration.md", Additions: 2}, false)
 	assert.Zero(t, docs)
 }
+
+func TestCredentialIdentifiersMatchWholeWordsOnly(t *testing.T) {
+	cases := map[string]string{
+		"tokens := tokenizeLine(lineToken)":     "",
+		"next := scanner.NextToken()":           "",
+		"request.Header.Set(name, accessToken)": "accessToken",
+		"env := os.Getenv(GH_TOKEN)":            "GH_TOKEN",
+		"hash := hashPassword(input)":           "hashPassword",
+		"cfg.ClientSecret = value":              "ClientSecret",
+		"secretary := lookup(name)":             "",
+		"if passwordHash == stored {":           "passwordHash",
+	}
+	for line, expected := range cases {
+		assert.Equal(t, expected, firstCredentialIdentifier(line), line)
+	}
+}
