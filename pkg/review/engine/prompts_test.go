@@ -19,7 +19,7 @@ func TestLeadPromptSpreadsCoverageWithPackageReviewers(t *testing.T) {
 }
 
 func TestPackageReviewerIsToldToBeEfficient(t *testing.T) {
-	definition := subagentDefinitions("haiku")[agentPackage]
+	definition := subagentDefinitions("opus", "haiku")[agentPackage]
 	assert.Equal(t, "haiku", definition.Model)
 	assert.Equal(t, subagentTools, definition.Tools)
 	for _, phrase := range []string{"Be efficient", "Skim test files", "report only issues you verified", "Contract mismatches between files", "mcp__kaizen__get_file_diff"} {

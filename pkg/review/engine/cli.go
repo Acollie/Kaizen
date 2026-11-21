@@ -52,8 +52,11 @@ type CLIEngine struct {
 	Effort     string   // --effort; default "high"
 	ExtraArgs  []string // appended to the claude arguments
 	// MaxBudgetUSD is passed as --max-budget-usd so a runaway (or prompt-injected)
-	// review stops; default DefaultMaxBudgetUSD
+	// review stops. 0 (the zero value) means DefaultMaxBudgetUSD; negative is an error.
 	MaxBudgetUSD float64
+	// WorkerModel is the model of the breadth subagents (package, sweep and
+	// evasion reviewers). Empty (the default) runs them on Model like the rest.
+	WorkerModel string
 }
 
 // cliStrippedEnv are removed from the claude process environment so the CLI
@@ -92,10 +95,14 @@ func (engine *CLIEngine) resolved() (CLIEngine, error) {
 	if config.Model == "" {
 		config.Model = defaultCLIModel
 	}
+	config.Effort = strings.ToLower(strings.TrimSpace(config.Effort))
 	if config.Effort == "" {
 		config.Effort = defaultCLIEffort
 	}
-	if config.MaxBudgetUSD <= 0 {
+	if config.MaxBudgetUSD < 0 {
+		return config, fmt.Errorf("max budget must not be negative (got %g); 0 means the default of $%g", config.MaxBudgetUSD, DefaultMaxBudgetUSD)
+	}
+	if config.MaxBudgetUSD == 0 {
 		config.MaxBudgetUSD = DefaultMaxBudgetUSD
 	}
 	if config.ClaudePath == "" {
@@ -142,7 +149,13 @@ func (engine *CLIEngine) Run(ctx context.Context, reviewContext *review.ReviewCo
 	parser.toolbox = tools.New(reviewContext)
 	emitStatus(emit, fmt.Sprintf("Starting Claude Code review (model %s, effort %s)", config.Model, config.Effort), sourceLead)
 	if err := config.runClaude(ctx, args, reviewContext.WorktreePath, parser); err != nil {
-		return nil, err
+		var exited *claudeExit
+		if !errors.As(err, &exited) || !parser.hasStructuredOutput() {
+			return nil, err
+		}
+		// The CLI exited non-zero (a budget stop, say) after the lead had already
+		// produced its structured review: keep the review and surface the exit
+		emitStatus(emit, "Warning: claude exited with an error after producing the review, which is kept: "+err.Error(), sourceLead)
 	}
 	return config.finish(parser, reviewContext, emit)
 }
@@ -167,7 +180,7 @@ func (engine *CLIEngine) buildArgs(contextFile string, pr review.PullRequest) ([
 	if err != nil {
 		return nil, err
 	}
-	agents, err := json.Marshal(subagentDefinitions(engine.Model))
+	agents, err := json.Marshal(subagentDefinitions(engine.Model, engine.WorkerModel))
 	if err != nil {
 		return nil, fmt.Errorf("encode agents: %w", err)
 	}
@@ -243,7 +256,7 @@ func (engine *CLIEngine) runClaude(ctx context.Context, args []string, workDir s
 		return fmt.Errorf("review cancelled: %w", ctx.Err())
 	}
 	if waitErr != nil {
-		return claudeExitError(waitErr, stderr.String(), parser.lastResultText())
+		return claudeExitError(waitErr, stderr.String(), parser.lastResultSnapshot())
 	}
 	if readErr != nil {
 		return fmt.Errorf("read claude output: %w", readErr)
@@ -295,15 +308,25 @@ func (engine *CLIEngine) finish(parser *streamParser, reviewContext *review.Revi
 // ever uses the Claude Code login
 const loginHelp = `Claude Code is not logged in (or its login expired). Run "claude" in a terminal and log in (/login), then retry. Kaizen's CLI engine always uses your Claude Code login and ignores ANTHROPIC_API_KEY.`
 
-// claudeExitError explains a non-zero exit, with the login fix for auth failures
-func claudeExitError(waitErr error, stderrTail, resultText string) error {
-	if isAuthFailure(stderrTail) || isAuthFailure(resultText) {
-		return fmt.Errorf("%s\nclaude exited with an error: %w%s", loginHelp, waitErr, formatTail(stderrTail))
+// claudeExit is the error for a non-zero claude exit, so Run can tell it
+// apart from a failure to start or a cancellation
+type claudeExit struct{ err error }
+
+func (exit *claudeExit) Error() string { return exit.err.Error() }
+func (exit *claudeExit) Unwrap() error { return exit.err }
+
+// claudeExitError explains a non-zero exit, with the login fix for auth
+// failures. It reads only CLI signals: stderr, and the last result's subtype,
+// terminal reason and (for an error result, which the CLI writes) its text,
+// never the model's own prose in a successful result.
+func claudeExitError(waitErr error, stderrTail string, last *streamResult) error {
+	if isAuthFailure(stderrTail) || (last != nil && last.IsError && isAuthFailure(last.Text)) {
+		return &claudeExit{fmt.Errorf("%s\nclaude exited with an error: %w%s", loginHelp, waitErr, formatTail(stderrTail))}
 	}
-	if isBudgetStop(resultText) {
-		return fmt.Errorf("the review stopped at its spending cap (--max-budget-usd); raise the budget and rerun: %w", waitErr)
+	if isBudgetStop(last) || isBudgetStderr(stderrTail) {
+		return &claudeExit{fmt.Errorf("the review stopped at its spending cap (--max-budget-usd); raise the budget and rerun: %w%s", waitErr, formatTail(stderrTail))}
 	}
-	return fmt.Errorf("claude exited with an error: %w%s", waitErr, formatTail(stderrTail))
+	return &claudeExit{fmt.Errorf("claude exited with an error: %w%s", waitErr, formatTail(stderrTail))}
 }
 
 // authFailureMarkers are lower-case phrases the CLI and the API print on an
@@ -337,9 +360,34 @@ func isAuthFailure(text string) bool {
 	return false
 }
 
-// isBudgetStop reports a result subtype or message from --max-budget-usd
-func isBudgetStop(text string) bool {
-	return strings.Contains(strings.ToLower(text), "budget")
+// budgetSubtype is the result subtype the CLI sets when --max-budget-usd stops it
+const budgetSubtype = "error_max_budget_usd"
+
+// isBudgetStop reports a result the CLI ended because of --max-budget-usd,
+// from its subtype or terminal reason only
+func isBudgetStop(result *streamResult) bool {
+	if result == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(result.Subtype), budgetSubtype) {
+		return true
+	}
+	reason := strings.ToLower(strings.TrimSpace(result.TerminalReason))
+	return reason == "max_budget_usd" || reason == "max_budget" || reason == "budget_exceeded"
+}
+
+// budgetStderrMarkers are lower-case phrases the CLI prints to stderr when it
+// stops at --max-budget-usd
+var budgetStderrMarkers = []string{"--max-budget-usd", "max_budget_usd", "maximum budget", "budget exceeded", "exceeded budget"}
+
+func isBudgetStderr(stderrTail string) bool {
+	lower := strings.ToLower(stderrTail)
+	for _, marker := range budgetStderrMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func missingOutputError(result *streamResult) error {
@@ -350,7 +398,7 @@ func missingOutputError(result *streamResult) error {
 	if len(detail) > 500 {
 		detail = detail[:500] + "…"
 	}
-	if isBudgetStop(result.Subtype) {
+	if isBudgetStop(result) {
 		return fmt.Errorf("the review stopped at its spending cap (--max-budget-usd, spent $%.2f) before producing a result; raise the budget and rerun", result.CostUSD)
 	}
 	if result.IsError && isAuthFailure(detail) {

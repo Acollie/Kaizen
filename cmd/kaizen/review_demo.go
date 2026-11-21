@@ -142,24 +142,45 @@ func (poster *demoPoster) PostReview(ctx context.Context, pr review.PullRequest,
 	}, nil
 }
 
-// findingOnDiffLine reports whether a finding's line is a head-side line shown in the diff
+// findingOnDiffLine reports whether the real poster would post a finding
+// inline. It replicates pkg/github's inlineComment (unexported there): the
+// file is set, Line is an added or context line of the diff, and a range end,
+// if any, is a commentable line in the same hunk as Line.
 func findingOnDiffLine(finding review.Finding, files []review.FileDiff) bool {
-	if finding.Line <= 0 {
+	if finding.File == "" || finding.Line <= 0 {
 		return false
 	}
+	hunks := commentableHunks(finding.File, files)
+	startHunk, startOK := hunks[finding.Line]
+	if !startOK {
+		return false
+	}
+	if finding.EndLine > finding.Line {
+		endHunk, endOK := hunks[finding.EndLine]
+		return endOK && endHunk == startHunk
+	}
+	return true
+}
+
+// commentableHunks maps each added or context head-side line of path to its
+// hunk number, as pkg/github's newDiffLineIndex does (the last entry for a
+// path wins)
+func commentableHunks(path string, files []review.FileDiff) map[int]int {
+	var lines map[int]int
 	for _, file := range files {
-		if file.Path != finding.File {
+		if file.Path != path {
 			continue
 		}
-		for _, hunk := range file.Hunks {
+		lines = make(map[int]int)
+		for hunkNumber, hunk := range file.Hunks {
 			for _, line := range hunk.Lines {
-				if line.Kind != review.LineRemoved && line.NewLine == finding.Line {
-					return true
+				if line.Kind == review.LineAdded || line.Kind == review.LineContext {
+					lines[line.NewLine] = hunkNumber
 				}
 			}
 		}
 	}
-	return false
+	return lines
 }
 
 // demoScript is the scripted engine run replayed by review-demo

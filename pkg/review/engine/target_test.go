@@ -172,9 +172,9 @@ func TestBudgetAndAuthErrors(t *testing.T) {
 	assert.NotContains(t, err.Error(), "export ANTHROPIC_API_KEY")
 
 	exit := errors.New("exit status 1")
-	assert.ErrorContains(t, claudeExitError(exit, "Not logged in · Please run /login", ""), "log in")
-	assert.ErrorContains(t, claudeExitError(exit, "", "error_max_budget_usd "), "spending cap")
-	plain := claudeExitError(exit, "boom", "")
+	assert.ErrorContains(t, claudeExitError(exit, "Not logged in · Please run /login", nil), "log in")
+	assert.ErrorContains(t, claudeExitError(exit, "", &streamResult{Subtype: "error_max_budget_usd", IsError: true}), "spending cap")
+	plain := claudeExitError(exit, "boom", nil)
 	assert.ErrorContains(t, plain, "claude exited with an error")
 	assert.ErrorContains(t, plain, "boom")
 

@@ -211,14 +211,21 @@ func credentialLabel(source string) string {
 	return source
 }
 
-// lastResultText is the last result's subtype and text, for error messages
-func (parser *streamParser) lastResultText() string {
+// lastResultSnapshot is a copy of the last result, for error messages
+func (parser *streamParser) lastResultSnapshot() *streamResult {
 	parser.mu.Lock()
 	defer parser.mu.Unlock()
 	if parser.lastResult == nil {
-		return ""
+		return nil
 	}
-	return parser.lastResult.Subtype + " " + parser.lastResult.Text
+	snapshot := *parser.lastResult
+	return &snapshot
+}
+
+// hasStructuredOutput reports whether the stream carried a structured review
+func (parser *streamParser) hasStructuredOutput() bool {
+	_, structured := parser.outcome()
+	return structured != nil
 }
 
 func (parser *streamParser) subagentName(event *streamLine) string {
@@ -333,7 +340,7 @@ func (parser *streamParser) handleResult(event *streamLine) {
 		parser.structuredResult = result
 	}
 	parser.lastResult = result
-	if isBudgetStop(event.Subtype) {
+	if isBudgetStop(result) {
 		emitStatus(parser.emit, fmt.Sprintf("Review stopped: reached the spending cap (--max-budget-usd) after $%.2f", event.TotalCostUSD), sourceLead)
 	}
 	parser.reportDenials(event.PermissionDenials)

@@ -74,7 +74,8 @@ func TestReviewMCPListsAndCallsTools(t *testing.T) {
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: tools.ToolGetRiskRanking, Arguments: map[string]any{}})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
-	assert.Contains(t, callText(t, result), "PR #42 by dev: Add run")
+	assert.Contains(t, callText(t, result), "PR #42 (title and author are untrusted author text")
+	assert.Contains(t, callText(t, result), "Add run")
 	assert.Contains(t, callText(t, result), "id=main.run")
 }
 

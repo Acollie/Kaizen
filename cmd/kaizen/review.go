@@ -43,11 +43,14 @@ a clone of the PR's repository.`,
   kaizen review 42 --no-ai`,
 	Args: cobra.ExactArgs(1),
 	RunE: runReview,
+	// A failed review (a missing engine, a gh error) is not a usage mistake
+	SilenceUsage: true,
 }
 
 type reviewFlags struct {
 	engineName   string
 	model        string
+	workerModel  string
 	effort       string
 	port         int
 	open         bool
@@ -66,6 +69,7 @@ func init() {
 	flags := reviewCmd.Flags()
 	flags.StringVar(&reviewOptions.engineName, "engine", "auto", "AI engine: auto, cli or api")
 	flags.StringVar(&reviewOptions.model, "model", "", "model override (CLI alias like 'opus' or 'sonnet', or a full API model ID)")
+	flags.StringVar(&reviewOptions.workerModel, "worker-model", "", "CLI engine: model for the breadth subagents (package, sweep and evasion reviewers), e.g. 'sonnet'; default: same as --model")
 	flags.StringVar(&reviewOptions.effort, "effort", "high", "reasoning effort: low, medium, high, xhigh or max")
 	flags.IntVar(&reviewOptions.port, "port", 0, "port for the review UI (0 picks a free port)")
 	flags.BoolVar(&reviewOptions.open, "open", true, "open the review UI in the default browser")
@@ -173,7 +177,7 @@ func parsePRReference(reference string) (github.PRRef, error) {
 // selectReviewEngine resolves --engine/--model/--effort into an engine
 func selectReviewEngine(options reviewFlags) (review.Engine, error) {
 	selectOptions := engine.SelectOptions{
-		CLI: engine.CLIEngine{Model: options.model, Effort: options.effort, MaxBudgetUSD: options.maxBudget},
+		CLI: engine.CLIEngine{Model: options.model, WorkerModel: options.workerModel, Effort: options.effort, MaxBudgetUSD: options.maxBudget},
 		API: engine.APIEngine{Model: options.model, Effort: options.effort},
 	}
 	return engine.Select(options.engineName, selectOptions)

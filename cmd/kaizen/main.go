@@ -309,6 +309,8 @@ func init() {
 
 func main() {
 	rootCmd.Version = Version
+	// main prints the error itself, so cobra must not print it a second time
+	rootCmd.SilenceErrors = true
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

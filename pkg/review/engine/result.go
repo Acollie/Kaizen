@@ -65,17 +65,21 @@ func dedupKey(finding review.Finding) string {
 	return fmt.Sprintf("%s\x00%d\x00%s", finding.File, finding.Line, tools.NormalizeTitle(finding.Title))
 }
 
-// add records a finding and reports whether it was new
+// add records a finding and reports whether the set changed. A finding with
+// an id already in the set replaces it (a restated finding, as the toolbox's
+// record does); a new id at an existing file, line and title is a duplicate
+// and is dropped.
 func (set *findingSet) add(finding review.Finding) bool {
 	set.mu.Lock()
 	defer set.mu.Unlock()
 	if finding.ID == "" {
 		finding.ID = tools.FindingID(finding)
 	}
-	if _, exists := set.byID[finding.ID]; exists {
-		return false
-	}
 	key := dedupKey(finding)
+	if index, exists := set.byID[finding.ID]; exists {
+		set.replace(index, finding, key)
+		return true
+	}
 	if _, exists := set.byKey[key]; exists {
 		return false
 	}
@@ -83,6 +87,21 @@ func (set *findingSet) add(finding review.Finding) bool {
 	set.byKey[key] = len(set.items)
 	set.items = append(set.items, finding)
 	return true
+}
+
+// replace swaps the finding at index for its restated version, moving its
+// dedup key when the file, line or title changed. The caller holds the lock.
+func (set *findingSet) replace(index int, finding review.Finding, key string) {
+	oldKey := dedupKey(set.items[index])
+	if oldKey != key {
+		if set.byKey[oldKey] == index {
+			delete(set.byKey, oldKey)
+		}
+		if _, taken := set.byKey[key]; !taken {
+			set.byKey[key] = index
+		}
+	}
+	set.items[index] = finding
 }
 
 // lookup finds a recorded finding with the same id or the same file, line and title
@@ -161,7 +180,9 @@ func reportWithdrawn(withdrawn []review.Finding, emit review.EmitFunc) {
 func addStructuredFinding(finding review.Finding, merged, live *findingSet, toolbox *tools.Toolbox, emit review.EmitFunc) {
 	if err := toolbox.ValidateFinding(&finding); err != nil {
 		if previous, ok := live.lookup(finding); ok {
-			merged.add(previous)
+			if _, duplicate := merged.lookup(previous); !duplicate {
+				merged.add(previous)
+			}
 			return
 		}
 		emitStatus(emit, fmt.Sprintf("Dropped finding %q from the final output: %v", finding.Title, err), sourceLead)
@@ -178,6 +199,11 @@ func addStructuredFinding(finding review.Finding, merged, live *findingSet, tool
 	}
 	if finding.Source == "" {
 		finding.Source = sourceLead
+	}
+	// Within the final list the first copy of a finding wins; a later duplicate
+	// (same id, or same file, line and title) is not a restatement
+	if _, duplicate := merged.lookup(finding); duplicate {
+		return
 	}
 	merged.add(finding)
 }

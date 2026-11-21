@@ -76,3 +76,33 @@ func TestDemoPosterClassifiesFindings(t *testing.T) {
 		t.Errorf("unexpected classification: %+v", result)
 	}
 }
+
+func TestFindingOnDiffLineMirrorsInlinePosting(t *testing.T) {
+	files := []review.FileDiff{{Path: "a.go", Hunks: []review.Hunk{
+		{Lines: []review.DiffLine{{Kind: review.LineContext, NewLine: 1}, {Kind: review.LineAdded, NewLine: 2}, {Kind: review.LineRemoved, OldLine: 3}}},
+		{Lines: []review.DiffLine{{Kind: review.LineAdded, NewLine: 20}}},
+	}}}
+	cases := map[string]struct {
+		finding review.Finding
+		want    bool
+	}{
+		"added line":         {review.Finding{File: "a.go", Line: 2}, true},
+		"range in one hunk":  {review.Finding{File: "a.go", Line: 1, EndLine: 2}, true},
+		"range across hunks": {review.Finding{File: "a.go", Line: 2, EndLine: 20}, false},
+		"range end off diff": {review.Finding{File: "a.go", Line: 2, EndLine: 3}, false},
+		"line off diff":      {review.Finding{File: "a.go", Line: 5}, false},
+		"other file":         {review.Finding{File: "b.go", Line: 2}, false},
+		"file level":         {review.Finding{File: "a.go"}, false},
+	}
+	for name, testCase := range cases {
+		if got := findingOnDiffLine(testCase.finding, files); got != testCase.want {
+			t.Errorf("%s: got %v, want %v", name, got, testCase.want)
+		}
+	}
+}
+
+func TestReviewCommandSilencesUsageOnly(t *testing.T) {
+	if !reviewCmd.SilenceUsage {
+		t.Error("a failed review is not a usage error")
+	}
+}

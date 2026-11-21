@@ -41,6 +41,9 @@ type Toolbox struct {
 	root     string
 	rootErr  error
 
+	fenceOnce sync.Once
+	fence     string
+
 	mu       sync.Mutex
 	findings []review.Finding
 }

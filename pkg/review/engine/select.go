@@ -42,6 +42,9 @@ func Select(name string, options SelectOptions) (review.Engine, error) {
 	if getenv == nil {
 		getenv = os.Getenv
 	}
+	if err := validateOptions(options); err != nil {
+		return nil, err
+	}
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", SelectAuto:
 		return selectAuto(options, lookPath, getenv)
@@ -52,6 +55,20 @@ func Select(name string, options SelectOptions) (review.Engine, error) {
 	default:
 		return nil, fmt.Errorf("unknown review engine %q: use auto, cli or api", name)
 	}
+}
+
+// validateOptions rejects a bad --effort or a negative budget up front, so a
+// typo fails before the PR is fetched and checked out
+func validateOptions(options SelectOptions) error {
+	for _, effort := range []string{options.CLI.Effort, options.API.Effort} {
+		if _, err := apiEffort(effort); err != nil {
+			return err
+		}
+	}
+	if options.CLI.MaxBudgetUSD < 0 {
+		return fmt.Errorf("max budget must not be negative (got %g); 0 means the default of $%g", options.CLI.MaxBudgetUSD, DefaultMaxBudgetUSD)
+	}
+	return nil
 }
 
 func selectAuto(options SelectOptions, lookPath func(string) (string, error), getenv func(string) string) (review.Engine, error) {

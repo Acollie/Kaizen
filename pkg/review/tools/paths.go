@@ -59,11 +59,21 @@ func cleanRelative(relative string) (string, error) {
 		}
 	}
 	cleaned := filepath.Clean(filepath.FromSlash(slashed))
-	firstSegment := strings.SplitN(filepath.ToSlash(cleaned), "/", 2)[0]
-	if firstSegment == ".git" {
+	if hasGitSegment(cleaned) {
 		return "", fmt.Errorf("%w: the .git directory is not readable", errPathRejected)
 	}
 	return cleaned, nil
+}
+
+// hasGitSegment reports whether any segment of a relative path is .git, in
+// any letter case (case-insensitive filesystems treat .GIT as .git)
+func hasGitSegment(relative string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(relative), "/") {
+		if strings.EqualFold(segment, ".git") {
+			return true
+		}
+	}
+	return false
 }
 
 // resolvePath maps a repo-relative path to an absolute path inside the worktree.
@@ -84,6 +94,11 @@ func (t *Toolbox) resolvePath(relative string) (string, error) {
 	}
 	if !isWithin(root, resolved) {
 		return "", fmt.Errorf("%w: %q resolves outside the worktree", errPathRejected, relative)
+	}
+	// A symlink (anywhere in the path) can point into .git even when the typed
+	// path does not name it, so check the resolved segments too
+	if inside, err := filepath.Rel(root, resolved); err != nil || hasGitSegment(inside) {
+		return "", fmt.Errorf("%w: the .git directory is not readable", errPathRejected)
 	}
 	return resolved, nil
 }
