@@ -38,22 +38,22 @@ func TestScoreFunctionsTable(t *testing.T) {
 		{
 			name:            "notable cyclomatic complexity",
 			function:        FunctionRisk{ID: "app.Branchy", Name: "Branchy", File: "app/x.go", Metrics: simpleMetrics(12, 0, 1, 90)},
-			minScore:        9,
-			maxScore:        10,
+			minScore:        6, // weights rebalanced to sum to 100 with behaviour change and decision logic
+			maxScore:        7,
 			reasonFragments: []string{"cyclomatic complexity 12 (notable)"},
 		},
 		{
 			name:            "high fan-in",
 			function:        FunctionRisk{ID: "app.Shared", Name: "Shared", File: "app/x.go", FanIn: 14, Metrics: simpleMetrics(1, 0, 0, 90)},
-			minScore:        18,
-			maxScore:        19,
+			minScore:        15,
+			maxScore:        16,
 			reasonFragments: []string{"fan-in 14: changes ripple to many callers"},
 		},
 		{
 			name:            "critical approximate fan-in",
 			function:        FunctionRisk{ID: "a.py:shared", Name: "shared", File: "a.py", FanIn: 20, FanInApproximate: true},
-			minScore:        20,
-			maxScore:        20,
+			minScore:        WeightFanIn,
+			maxScore:        WeightFanIn,
 			reasonFragments: []string{"fan-in 20 (approximate): critical blast radius"},
 		},
 		{
@@ -66,8 +66,10 @@ func TestScoreFunctionsTable(t *testing.T) {
 					MaintainabilityIndex: 5, HalsteadVolume: 900, Churn: &models.ChurnMetric{TotalCommits: 30},
 				},
 			},
-			minScore: 100,
-			maxScore: 100,
+			// without a diff the behaviour-change and decision-logic factors
+			// cannot fire, so every other factor maxed is 100 minus their weights
+			minScore: 100 - WeightBehaviourChange - WeightDecisionLogic,
+			maxScore: 100 - WeightBehaviourChange - WeightDecisionLogic,
 			reasonFragments: []string{
 				"cyclomatic complexity 25 (high)", "cognitive complexity 40", "nesting depth 7",
 				"fan-in 30", "churn 30 commits", "110 lines changed (+100/-10)",
@@ -186,7 +188,8 @@ func TestSplitIdentifierWords(t *testing.T) {
 
 func TestWeightsSumToHundred(t *testing.T) {
 	total := WeightCyclomatic + WeightCognitive + WeightNesting + WeightFanIn + WeightChurn +
-		WeightLinesChanged + WeightLowMaintainability + WeightNewComplex + WeightSecurity
+		WeightLinesChanged + WeightLowMaintainability + WeightNewComplex + WeightSecurity +
+		WeightBehaviourChange + WeightDecisionLogic
 	assert.InDelta(t, 100.0, total, 0.001)
 }
 
@@ -287,10 +290,12 @@ func TestScoreFunctionsScalesComplexityByChangeShare(t *testing.T) {
 		expectedScore float64
 		smallEdit     bool
 	}{
-		{name: "3-line touch drops to a quarter", linesAdded: 3, linesRemoved: 3, expectedScore: 6.6, smallEdit: true},
-		{name: "partial edit scales proportionally", linesAdded: 12, linesRemoved: 8, expectedScore: 13.0, smallEdit: true},
-		{name: "large edit keeps full complexity", linesAdded: 50, linesRemoved: 10, expectedScore: 33.1},
-		{name: "new function keeps full complexity", linesAdded: 3, isNew: true, expectedScore: 29.4},
+		// expected scores follow the weights rebalanced to sum to 100 with the
+		// behaviour-change and decision-logic factors
+		{name: "3-line touch drops to a quarter", linesAdded: 3, linesRemoved: 3, expectedScore: 4.6, smallEdit: true},
+		{name: "partial edit scales proportionally", linesAdded: 12, linesRemoved: 8, expectedScore: 9.0, smallEdit: true},
+		{name: "large edit keeps full complexity", linesAdded: 50, linesRemoved: 10, expectedScore: 23.1},
+		{name: "new function keeps full complexity", linesAdded: 3, isNew: true, expectedScore: 20.1},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {

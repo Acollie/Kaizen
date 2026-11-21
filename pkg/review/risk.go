@@ -13,25 +13,28 @@ import (
 
 // Risk weights. Each factor is scaled to 0-1 against absolute thresholds (not
 // relative to the other functions in the PR) and multiplied by its weight; the
-// weights sum to 100, so a function maxing every factor scores 100 and a
-// trivial one-line change to a simple function scores close to 0.
+// weights, together with WeightBehaviourChange and WeightDecisionLogic
+// (behaviour.go), sum to 100, so a function maxing every factor scores 100 and a
+// trivial one-line change to a simple function scores close to 0. The shape
+// weights (complexity, nesting, size, MI) were cut when the diff-based factors
+// were added, since those say more about what a change does.
 const (
 	// WeightCyclomatic rewards branchy code: 0 at CC<=5, full at CC>=20
-	WeightCyclomatic = 20.0
+	WeightCyclomatic = 14.0
 	// WeightCognitive rewards hard-to-read code: 0 at <=8, full at >=30
-	WeightCognitive = 10.0
+	WeightCognitive = 7.0
 	// WeightNesting rewards deep nesting: 0 at depth<=2, full at >=6
-	WeightNesting = 8.0
+	WeightNesting = 5.0
 	// WeightFanIn rewards blast radius: 0 at fan-in<=1, full at the critical threshold (15)
-	WeightFanIn = 20.0
+	WeightFanIn = 17.0
 	// WeightChurn rewards unstable code: 0 at <=2 commits, full at >=20
-	WeightChurn = 10.0
+	WeightChurn = 9.0
 	// WeightLinesChanged rewards large edits: 0 at <=5 lines, full at >=80
-	WeightLinesChanged = 10.0
+	WeightLinesChanged = 7.0
 	// WeightLowMaintainability rewards poor MI: 0 at MI>=40, full at MI<=10
-	WeightLowMaintainability = 7.0
+	WeightLowMaintainability = 5.0
 	// WeightNewComplex rewards new functions that are already complex: 0 at CC<10, full at CC>=20
-	WeightNewComplex = 5.0
+	WeightNewComplex = 3.0
 	// WeightSecurity is added in full when the name, path or changed lines look security-sensitive
 	WeightSecurity = 10.0
 )
@@ -139,6 +142,7 @@ func collectRiskFactors(function *FunctionRisk, edit functionEdit) []riskFactor 
 		churnFactor(function),
 		securityFactor(function, edit.added),
 		behaviourChangeFactor(edit),
+		decisionLogicFactor(function, edit),
 	}
 	shape := []riskFactor{linesChangedFactor(function)}
 	if function.Metrics != nil {
@@ -472,29 +476,34 @@ func firstSecurityPattern(line string) string {
 
 // stripLiteralsAndComments blanks the contents of "...", '...' and `...` literals
 // and drops // and /* */ comments from a single line. It is a per-line heuristic:
-// literals and comments spanning lines are not tracked.
+// literals and comments spanning lines are not tracked. The diff-based factors use
+// commentScanner directly, with the file's language and state across lines.
 func stripLiteralsAndComments(line string) string {
-	var code strings.Builder
-	for position := 0; position < len(line); position++ {
-		character := line[position]
-		switch {
-		case strings.HasPrefix(line[position:], "//"):
-			return code.String()
-		case strings.HasPrefix(line[position:], "/*"):
-			end := strings.Index(line[position+2:], "*/")
-			if end < 0 {
-				return code.String()
-			}
-			position += end + 3
-			code.WriteByte(' ')
-		case character == '"' || character == '\'' || character == '`':
-			position = skipLiteral(line, position)
-			code.WriteString(`""`)
-		default:
-			code.WriteByte(character)
+	return newCommentScanner(defaultSyntax, true).clean(line)
+}
+
+// sensitivePatterns returns every security and side-effect pattern a line of
+// code uses, sorted, so two lines can be compared for them
+func sensitivePatterns(line string) []string {
+	code := stripLiteralsAndComments(line)
+	var found []string
+	for _, pattern := range securityCodePatterns {
+		if strings.Contains(code, pattern) && !slices.Contains(found, pattern) {
+			found = append(found, pattern)
 		}
 	}
-	return code.String()
+	for _, candidate := range securityCodeExpressions {
+		if candidate.expression.MatchString(code) {
+			found = append(found, candidate.label)
+		}
+	}
+	for _, pattern := range securityLiteralPatterns {
+		if strings.Contains(line, pattern) {
+			found = append(found, pattern)
+		}
+	}
+	slices.Sort(found)
+	return found
 }
 
 // skipLiteral returns the index of the quote closing the literal opened at start,

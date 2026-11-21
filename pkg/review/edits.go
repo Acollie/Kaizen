@@ -2,19 +2,24 @@ package review
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
 
 // Mechanical-edit detection. A changed function whose removed and added lines
-// are, almost all, rewrites of the same statement (a rename, a reformat, or an
-// API swap such as sb.WriteString(fmt.Sprintf(...)) -> fmt.Fprintf(&sb, ...))
-// changes little behaviour, so its pre-existing complexity should not rank it
-// above code that actually changes what the program does.
+// are, almost all, rewrites of the same statement (a reformat, or an API swap
+// such as sb.WriteString(fmt.Sprintf(...)) -> fmt.Fprintf(&sb, ...)) changes
+// little behaviour, so its pre-existing complexity should not rank it above
+// code that actually changes what the program does.
 const (
 	// RewriteSimilarity is the minimum normalised token similarity for a removed
 	// and an added line to count as a rewrite of the same statement
 	RewriteSimilarity = 0.8
+	// IdentifierSimilarity is the minimum share of identifier parts and literal
+	// values two lines must share to be a rewrite: a line with the same shape
+	// but other names or strings does something else (isAdmin(user) -> isGuest(user))
+	IdentifierSimilarity = 0.7
 	// MechanicalShare is the share of a function's changed lines that must be
 	// rewrites for the edit to count as mechanical
 	MechanicalShare = 0.8
@@ -25,10 +30,19 @@ const (
 
 // functionEdit is what a PR changed inside one function
 type functionEdit struct {
-	added         []string // every added line in the function, in order
-	unpairedAdded []string // added lines that are not a rewrite of a removed line
-	changed       int      // non-blank added plus removed lines
+	syntax        *languageSyntax
+	added         []string // every added line in the function, in order, as written
+	unpairedAdded []string // added lines, comments removed, that are not a rewrite of a removed line
+	changed       int      // non-blank added plus removed lines, comments removed
 	rewritten     int      // lines (added plus removed) that belong to a rewrite pair
+}
+
+// languageSyntax returns the syntax the edit's lines are written in
+func (edit functionEdit) languageSyntax() *languageSyntax {
+	if edit.syntax == nil {
+		return defaultSyntax
+	}
+	return edit.syntax
 }
 
 // isMechanical reports whether nearly every changed line is a rewrite of the same statement
@@ -42,18 +56,20 @@ func (edit functionEdit) mechanicalReason() string {
 }
 
 // analyzeFunctionEdit collects the changed lines of the function at head-side
-// lines [start, end] and pairs removed lines with their rewrites, hunk by hunk
+// lines [start, end], strips their comments in the file's language, and pairs
+// removed lines with their rewrites, hunk by hunk
 func analyzeFunctionEdit(file *FileDiff, start, end int) functionEdit {
 	var edit functionEdit
 	if file == nil || end < start {
 		return edit
 	}
+	edit.syntax = syntaxFor(file.Path, file.Language)
 	for _, hunk := range file.Hunks {
-		removed, added := hunkChangesInRange(hunk, start, end)
-		edit.added = append(edit.added, added...)
-		removed, added = nonBlank(removed), nonBlank(added)
+		changes := hunkChangesInRange(hunk, start, end, edit.syntax)
+		edit.added = append(edit.added, changes.rawAdded...)
+		removed, added := nonBlank(changes.removed), nonBlank(changes.added)
 		edit.changed += len(removed) + len(added)
-		pairedAdded := pairRewrites(removed, added)
+		pairedAdded := pairRewrites(removed, added, edit.syntax)
 		for index, line := range added {
 			if pairedAdded[index] {
 				edit.rewritten += 2
@@ -65,25 +81,42 @@ func analyzeFunctionEdit(file *FileDiff, start, end int) functionEdit {
 	return edit
 }
 
+// hunkChanges are one hunk's changed lines inside a function
+type hunkChanges struct {
+	rawAdded []string // added lines as written
+	removed  []string // removed lines, comments removed
+	added    []string // added lines, comments removed
+}
+
 // hunkChangesInRange returns the removed lines whose removal point is inside
-// [start, end] and the added lines inside it
-func hunkChangesInRange(hunk Hunk, start, end int) (removed, added []string) {
+// [start, end] and the added lines inside it. Each side of the hunk is scanned
+// in order, context lines included, so a block comment or multi-line literal
+// opened on one line is recognised on the next.
+func hunkChangesInRange(hunk Hunk, start, end int, syntax *languageSyntax) hunkChanges {
+	var changes hunkChanges
+	headScanner, baseScanner := newCommentScanner(syntax, false), newCommentScanner(syntax, false)
 	nextHeadLine := hunk.NewStart
 	for _, line := range hunk.Lines {
 		switch line.Kind {
 		case LineRemoved:
+			code := baseScanner.clean(line.Text)
 			if nextHeadLine >= start && nextHeadLine <= end {
-				removed = append(removed, line.Text)
+				changes.removed = append(changes.removed, code)
 			}
 			continue
 		case LineAdded:
+			code := headScanner.clean(line.Text)
 			if line.NewLine >= start && line.NewLine <= end {
-				added = append(added, line.Text)
+				changes.rawAdded = append(changes.rawAdded, line.Text)
+				changes.added = append(changes.added, code)
 			}
+		default:
+			headScanner.clean(line.Text)
+			baseScanner.clean(line.Text)
 		}
 		nextHeadLine = line.NewLine + 1
 	}
-	return removed, added
+	return changes
 }
 
 func nonBlank(lines []string) []string {
@@ -98,14 +131,14 @@ func nonBlank(lines []string) []string {
 
 // pairRewrites matches each removed line with the most similar unmatched added
 // line that rewrites the same statement, and reports which added lines matched
-func pairRewrites(removed, added []string) []bool {
+func pairRewrites(removed, added []string, syntax *languageSyntax) []bool {
 	paired := make([]bool, len(added))
 	addedShapes := make([]lineShape, len(added))
 	for index, line := range added {
-		addedShapes[index] = shapeOf(line)
+		addedShapes[index] = shapeOf(line, syntax)
 	}
 	for _, line := range removed {
-		removedShape := shapeOf(line)
+		removedShape := shapeOf(line, syntax)
 		best, bestScore := -1, 0.0
 		for index := range added {
 			if paired[index] {
@@ -122,23 +155,45 @@ func pairRewrites(removed, added []string) []bool {
 	return paired
 }
 
-// lineShape is a line reduced for comparison: tokens with identifiers and
-// string literals collapsed, the meaning-bearing tokens, and the raw identifiers
+// lineShape is a line of code (comments already removed) reduced for comparison
 type lineShape struct {
-	tokens      []string
+	tokens      []string // identifiers and string literals collapsed to placeholders
 	critical    []string // keywords, operators that change meaning, and number literals, sorted
-	identifiers []string
+	identifiers []string // qualified names, in order
+	values      []string // identifier parts and literal contents, output calls folded together
+	calls       []string // distinct called names, output calls folded together, sorted
+	urls        []string // literal contents that look like URLs, sorted
+	sensitive   []string // security and side-effect patterns the line uses, sorted
 }
 
-func shapeOf(line string) lineShape {
+// formatCallFamily are output and formatting calls an API rewrite swaps freely
+// (sb.WriteString(fmt.Sprintf(...)) -> fmt.Fprintf(&sb, ...)); they compare as one name
+var formatCallFamily = wordSet("print", "printf", "println", "sprint", "sprintf", "sprintln",
+	"fprint", "fprintf", "fprintln", "writestring", "writebyte", "writerune")
+
+const formatCallPlaceholder = "<format>"
+
+func shapeOf(line string, syntax *languageSyntax) lineShape {
 	var shape lineShape
-	for _, token := range tokenizeLine(line) {
+	tokens := tokenizeLine(line, syntax)
+	calls := map[string]bool{}
+	for index, token := range tokens {
 		switch {
 		case token.kind == tokenIdentifier:
 			shape.tokens = append(shape.tokens, "id")
 			shape.identifiers = append(shape.identifiers, token.text)
+			for _, part := range strings.Split(token.text, ".") {
+				shape.values = append(shape.values, foldFormatCall(part))
+			}
+			if index+1 < len(tokens) && tokens[index+1].text == "(" {
+				calls[callName(token.text)] = true
+			}
 		case token.kind == tokenString:
 			shape.tokens = append(shape.tokens, "str")
+			shape.values = append(shape.values, `"`+token.value)
+			if strings.Contains(token.value, "://") {
+				shape.urls = append(shape.urls, token.value)
+			}
 		case pointerOperators[token.text]:
 			// & and * (address-of, dereference) come and go in API rewrites
 			// such as Sprintf -> Fprintf(&sb, ...); they are left out of the comparison
@@ -149,26 +204,91 @@ func shapeOf(line string) lineShape {
 			}
 		}
 	}
+	for name := range calls {
+		shape.calls = append(shape.calls, name)
+	}
+	slices.Sort(shape.calls)
 	slices.Sort(shape.critical)
+	slices.Sort(shape.urls)
+	shape.sensitive = sensitivePatterns(line)
 	return shape
 }
 
+func foldFormatCall(part string) string {
+	if formatCallFamily[part] {
+		return formatCallPlaceholder
+	}
+	return part
+}
+
+// callName is a called (lower-case, qualified) name, or the format placeholder
+// for an output call, whose receiver an API rewrite moves around
+func callName(qualified string) string {
+	if formatCallFamily[qualified[strings.LastIndex(qualified, ".")+1:]] {
+		return formatCallPlaceholder
+	}
+	return qualified
+}
+
 // rewriteScore returns the similarity of two lines and whether the added line
-// is a rewrite of the removed one: similar token shape, the same keywords,
-// operators and numbers, and not merely the same identifiers in another order
-// (a swapped argument list is a behaviour change)
+// is a rewrite of the removed one. A rewrite has a similar token shape, mostly
+// the same identifiers and literals, and exactly the same keywords, operators,
+// numbers, boolean literals, called functions, URLs and security or
+// side-effect patterns. The same identifiers in another order (a swapped
+// argument list) are a behaviour change, not a rewrite.
 func rewriteScore(removed, added lineShape) (float64, bool) {
 	if len(removed.tokens) == 0 || len(added.tokens) == 0 {
 		return 0, false
 	}
-	if !slices.Equal(removed.critical, added.critical) {
+	if !slices.Equal(removed.critical, added.critical) || !callsMatch(removed.calls, added.calls) ||
+		!slices.Equal(removed.urls, added.urls) || !slices.Equal(removed.sensitive, added.sensitive) {
 		return 0, false
 	}
 	if isReordering(removed.identifiers, added.identifiers) {
 		return 0, false
 	}
 	score := tokenSimilarity(removed.tokens, added.tokens)
-	return score, score >= RewriteSimilarity
+	if score < RewriteSimilarity || valueSimilarity(removed.values, added.values) < IdentifierSimilarity {
+		return score, false
+	}
+	return score, true
+}
+
+// callsMatch reports whether two lines call the same functions. A call may gain
+// or lose a qualifier (openInBrowser -> visualization.OpenInBrowser, a function
+// moved to a package) but not change it (cache.Remove -> os.Remove).
+func callsMatch(left, right []string) bool {
+	leftQualifiers, rightQualifiers := qualifiersByName(left), qualifiersByName(right)
+	if len(leftQualifiers) != len(rightQualifiers) {
+		return false
+	}
+	for name, leftSet := range leftQualifiers {
+		rightSet, ok := rightQualifiers[name]
+		if !ok {
+			return false
+		}
+		if len(leftSet) > 0 && len(rightSet) > 0 && !maps.Equal(leftSet, rightSet) {
+			return false
+		}
+	}
+	return true
+}
+
+// qualifiersByName groups called names by their last part, collecting the
+// qualifiers each is called with (unqualified calls add none)
+func qualifiersByName(calls []string) map[string]map[string]bool {
+	grouped := make(map[string]map[string]bool, len(calls))
+	for _, call := range calls {
+		dot := strings.LastIndex(call, ".")
+		name := call[dot+1:]
+		if grouped[name] == nil {
+			grouped[name] = map[string]bool{}
+		}
+		if dot > 0 {
+			grouped[name][call[:dot]] = true
+		}
+	}
+	return grouped
 }
 
 func isReordering(left, right []string) bool {
@@ -179,6 +299,29 @@ func isReordering(left, right []string) bool {
 	slices.Sort(sortedLeft)
 	slices.Sort(sortedRight)
 	return slices.Equal(sortedLeft, sortedRight)
+}
+
+// valueSimilarity is the Dice coefficient of two multisets of identifier parts
+// and literal values: 2*shared / (len(left)+len(right)), 1 when both are empty.
+// It ignores order because an API rewrite moves the same names around
+// (sb.WriteString(fmt.Sprintf(f, n)) -> fmt.Fprintf(&sb, f, n)); a pure
+// reordering of the same names is rejected separately by isReordering.
+func valueSimilarity(left, right []string) float64 {
+	if len(left)+len(right) == 0 {
+		return 1
+	}
+	remaining := make(map[string]int, len(left))
+	for _, value := range left {
+		remaining[value]++
+	}
+	shared := 0
+	for _, value := range right {
+		if remaining[value] > 0 {
+			remaining[value]--
+			shared++
+		}
+	}
+	return 2 * float64(shared) / float64(len(left)+len(right))
 }
 
 // tokenSimilarity is 2*LCS / (len(left)+len(right)), 1 for identical sequences
@@ -209,59 +352,59 @@ const (
 )
 
 type lineToken struct {
-	kind tokenKind
-	text string // lower-case
-}
-
-// lineKeywords are kept verbatim by the normaliser (Go, Python, Kotlin, Swift)
-var lineKeywords = map[string]bool{
-	"if": true, "else": true, "elif": true, "for": true, "while": true, "range": true, "switch": true,
-	"case": true, "default": true, "select": true, "when": true, "guard": true, "match": true,
-	"go": true, "defer": true, "return": true, "break": true, "continue": true, "goto": true,
-	"fallthrough": true, "panic": true, "raise": true, "throw": true, "try": true, "catch": true,
-	"except": true, "finally": true, "nil": true, "null": true, "none": true, "true": true,
-	"false": true, "and": true, "or": true, "not": true, "in": true, "is": true, "await": true,
-	"func": true, "fun": true, "def": true, "var": true, "val": true, "let": true, "const": true,
+	kind  tokenKind
+	text  string // lower-case
+	value string // as written; a literal's content
 }
 
 // meaningfulOperators are punctuation tokens whose change alters behaviour
 var meaningfulOperators = map[string]bool{
-	"==": true, "!=": true, "<": true, "<=": true, ">": true, ">=": true, "&&": true, "||": true,
-	"!": true, "+": true, "-": true, "/": true, "%": true, "<-": true, "++": true, "--": true,
-	"+=": true, "-=": true, "<<": true, ">>": true, "^": true, "|": true, "??": true,
+	"==": true, "!=": true, "===": true, "!==": true, "<": true, "<=": true, ">": true, ">=": true,
+	"&&": true, "||": true, "!": true, "+": true, "-": true, "/": true, "%": true, "<-": true, "++": true,
+	"--": true, "+=": true, "-=": true, "<<": true, ">>": true, "^": true, "|": true, "??": true,
 }
+
+// assignmentOperators follow a word that is being assigned, which makes it a name
+var assignmentOperators = wordSet("=", ":=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
+	"<<=", ">>=", "&^=", "??=", "||=", "&&=")
 
 // pointerOperators are ignored when comparing lines
 var pointerOperators = map[string]bool{"&": true, "*": true}
 
 // multiCharOperators are matched before single characters, longest first
 var multiCharOperators = []string{
-	"...", "<<=", ">>=", "&^=", "==", "!=", "<=", ">=", "&&", "||", ":=", "<-", "++", "--",
-	"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>", "&^", "->", "=>", "??", "::",
+	"===", "!==", "...", "<<=", ">>=", "&^=", "??=", "||=", "&&=", "==", "!=", "<=", ">=", "&&", "||",
+	":=", "<-", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>", "&^", "->",
+	"=>", "??", "::",
 }
 
-// tokenizeLine splits one line of code into lower-cased tokens, dropping a
-// trailing // comment and merging qualified names (a.b.c) into one identifier
-func tokenizeLine(line string) []lineToken {
+// tokenizeLine splits one line of code (comments already removed, see
+// commentScanner) into tokens, marks the language's keywords, and merges
+// qualified names (a.b.c) into one identifier
+func tokenizeLine(line string, syntax *languageSyntax) []lineToken {
+	if syntax == nil {
+		syntax = defaultSyntax
+	}
+	tokens := scanTokens(line)
+	markKeywords(tokens, syntax)
+	return mergeQualifiedNames(tokens)
+}
+
+func scanTokens(line string) []lineToken {
 	var tokens []lineToken
 	for position := 0; position < len(line); {
 		character := line[position]
 		switch {
 		case character == ' ' || character == '\t' || character == '\r':
 			position++
-		case strings.HasPrefix(line[position:], "//"):
-			return mergeQualifiedNames(tokens)
 		case character == '"' || character == '\'' || character == '`':
-			position = skipLiteral(line, position) + 1
-			tokens = append(tokens, lineToken{kind: tokenString, text: "str"})
+			closing := skipLiteral(line, position)
+			tokens = append(tokens, lineToken{kind: tokenString, text: "str", value: line[position+1 : min(closing, len(line))]})
+			position = closing + 1
 		case isWordStart(character):
 			end := wordEnd(line, position)
-			word := strings.ToLower(line[position:end])
-			kind := tokenIdentifier
-			if lineKeywords[word] {
-				kind = tokenKeyword
-			}
-			tokens = append(tokens, lineToken{kind: kind, text: word})
+			word := line[position:end]
+			tokens = append(tokens, lineToken{kind: tokenIdentifier, text: strings.ToLower(word), value: word})
 			position = end
 		case character >= '0' && character <= '9':
 			end := wordEnd(line, position)
@@ -269,11 +412,37 @@ func tokenizeLine(line string) []lineToken {
 			position = end
 		default:
 			operator := operatorAt(line, position)
-			tokens = append(tokens, lineToken{kind: tokenPunctuation, text: operator})
+			tokens = append(tokens, lineToken{kind: tokenPunctuation, text: operator, value: operator})
 			position += len(operator)
 		}
 	}
-	return mergeQualifiedNames(tokens)
+	return tokens
+}
+
+// markKeywords turns words in the language's (case-sensitive) keyword set into
+// keywords, except where the word is used as a name: after "." (re.match,
+// db.Select), before an assignment (go = 3, val when = 3), or as a key at the
+// start of a literal or argument ({if: 1}, Go: true)
+func markKeywords(tokens []lineToken, syntax *languageSyntax) {
+	for index := range tokens {
+		token := &tokens[index]
+		if token.kind != tokenIdentifier || !syntax.keywords[token.value] {
+			continue
+		}
+		previous, next := "", ""
+		if index > 0 {
+			previous = tokens[index-1].text
+		}
+		if index+1 < len(tokens) {
+			next = tokens[index+1].text
+		}
+		keyPosition := previous == "" || previous == "{" || previous == "," || previous == "("
+		isKey := next == ":" && keyPosition && !syntax.colonKeywords[token.value]
+		if previous == "." || assignmentOperators[next] || isKey {
+			continue
+		}
+		token.kind = tokenKeyword
+	}
 }
 
 func isWordStart(character byte) bool {
@@ -307,6 +476,7 @@ func mergeQualifiedNames(tokens []lineToken) []lineToken {
 		for token.kind == tokenIdentifier && index+2 < len(tokens) &&
 			tokens[index+1].text == "." && tokens[index+2].kind == tokenIdentifier {
 			token.text += "." + tokens[index+2].text
+			token.value += "." + tokens[index+2].value
 			index += 2
 		}
 		merged = append(merged, token)
