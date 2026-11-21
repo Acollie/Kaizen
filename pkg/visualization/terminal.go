@@ -32,7 +32,7 @@ func NewTerminalVisualizer() *TerminalVisualizer {
 func (visualizer *TerminalVisualizer) RenderHeatMap(result *models.AnalysisResult, metric string) string {
 	var builder strings.Builder
 
-	builder.WriteString(fmt.Sprintf("\n🗺️  Heat Map - %s\n\n", metricTitle(metric)))
+	fmt.Fprintf(&builder, "\n🗺️  Heat Map - %s\n\n", metricTitle(metric))
 
 	// Sort folders by score (descending)
 	folders := sortFoldersByMetric(result.FolderStats, metric)

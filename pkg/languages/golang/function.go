@@ -86,30 +86,71 @@ func (goFunc *GoFunction) ReturnCount() int {
 	return count
 }
 
-// MaxNestingDepth returns the maximum nesting level
+// MaxNestingDepth returns the maximum nesting level of control-flow statements.
+// ast.Inspect calls the visitor with nil after each node's children, so we keep
+// a stack recording whether each visited node opened a nesting level. An
+// "else if" continues its parent if chain rather than nesting inside it, so a
+// flat if / else if / else if chain is depth 1.
 func (goFunc *GoFunction) MaxNestingDepth() int {
 	maxDepth := 0
 	currentDepth := 0
+	var opensLevel []bool
+	elseIfs := make(map[*ast.IfStmt]bool)
 
 	ast.Inspect(goFunc.declaration, func(node ast.Node) bool {
 		if node == nil {
-			currentDepth--
-			return false
+			last := len(opensLevel) - 1
+			if opensLevel[last] {
+				currentDepth--
+			}
+			opensLevel = opensLevel[:last]
+			return true
 		}
 
-		switch node.(type) {
-		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt,
-			*ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		markElseIf(node, elseIfs)
+		ifStmt, _ := node.(*ast.IfStmt)
+		isNesting := isNestingNode(node) && !elseIfs[ifStmt]
+		opensLevel = append(opensLevel, isNesting)
+		if isNesting {
 			currentDepth++
 			if currentDepth > maxDepth {
 				maxDepth = currentDepth
 			}
 		}
-
 		return true
 	})
 
 	return maxDepth
+}
+
+// markElseIf records the IfStmt in an "else if" position of an if statement
+func markElseIf(node ast.Node, elseIfs map[*ast.IfStmt]bool) {
+	ifStmt, ok := node.(*ast.IfStmt)
+	if !ok {
+		return
+	}
+	if elseIf, chained := ifStmt.Else.(*ast.IfStmt); chained {
+		elseIfs[elseIf] = true
+	}
+}
+
+// isNestingNode reports whether a node introduces a control-flow nesting level
+func isNestingNode(node ast.Node) bool {
+	switch node.(type) {
+	case *ast.IfStmt:
+		return true
+	case *ast.ForStmt:
+		return true
+	case *ast.RangeStmt:
+		return true
+	case *ast.SwitchStmt:
+		return true
+	case *ast.TypeSwitchStmt:
+		return true
+	case *ast.SelectStmt:
+		return true
+	}
+	return false
 }
 
 // CalculateCyclomaticComplexity calculates McCabe's cyclomatic complexity

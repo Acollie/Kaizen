@@ -1,0 +1,116 @@
+/*
+ * Kaizen Review design tokens: dark dev-tool.
+ *
+ * Principles (follow these in every component):
+ * - Structure comes from hairlines (--line) and spacing, not boxes. No drop shadows
+ *   except overlays (--shadow-overlay). No borders around panels; one hairline between them.
+ * - Colour is information. The UI chrome is greyscale; colour appears only for
+ *   severity (--sev-*), risk (--risk-*), diff (--diff-*), and the single accent
+ *   (--accent) for selection/focus/primary action.
+ * - Type: Inter for UI at 13px, JetBrains Mono for code/paths/numbers at 12.5px.
+ *   Use weight and colour (--text / --text-2 / --text-3) for hierarchy, not size jumps.
+ * - Radii are small (--radius 6px). Hit targets >= 24px. Motion: 120-180ms ease-out.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, darkest to lightest */
+  --bg: #0b0c0e;          /* app background, code view */
+  --bg-raised: #101216;   /* sidebar, context panel, header */
+  --bg-hover: #161920;    /* row hover */
+  --bg-active: #1b1f27;   /* selected row, active tab */
+  --bg-inset: #07080a;    /* code gutter, inputs */
+  --bg-overlay: #14171c;  /* modals, tooltips, popovers */
+
+  /* Hairlines */
+  --line: #1d2027;
+  --line-strong: #2a2e37;
+  --line-focus: #3a4150;
+
+  /* Text */
+  --text: #e6e8eb;
+  --text-2: #a0a6b0;
+  --text-3: #6a707b;
+  --text-inverse: #0b0c0e;
+
+  /* Accent: selection, focus rings, primary action, links */
+  --accent: #8b9cff;
+  --accent-strong: #a9b6ff;
+  --accent-soft: rgba(139, 156, 255, 0.14);
+  --accent-line: rgba(139, 156, 255, 0.45);
+
+  /* Severity (AI findings) */
+  --sev-critical: #ff5d5d;
+  --sev-warning: #f5a524;
+  --sev-suggestion: #5ea1ff;
+  --sev-praise: #3dd68c;
+  --sev-critical-soft: rgba(255, 93, 93, 0.12);
+  --sev-warning-soft: rgba(245, 165, 36, 0.12);
+  --sev-suggestion-soft: rgba(94, 161, 255, 0.12);
+  --sev-praise-soft: rgba(61, 214, 140, 0.12);
+
+  /* Risk (Kaizen metrics); use riskColor() in TS for continuous values */
+  --risk-none: #5c6370;
+  --risk-low: #5ea1ff;
+  --risk-notable: #f5a524;
+  --risk-high: #ff5d5d;
+
+  /* Diff */
+  --diff-add-bg: rgba(61, 214, 140, 0.075);
+  --diff-add-gutter: rgba(61, 214, 140, 0.16);
+  --diff-add-mark: #3dd68c;
+  --diff-del-bg: rgba(255, 93, 93, 0.075);
+  --diff-del-gutter: rgba(255, 93, 93, 0.16);
+  --diff-del-mark: #ff5d5d;
+  --diff-hunk-bg: #0f1117;
+  --diff-expand-bg: #0d0f13;
+  --diff-cursor: rgba(139, 156, 255, 0.10);
+  --diff-flash: rgba(139, 156, 255, 0.28);
+
+  /* Syntax (muted; diff colours stay dominant) */
+  --tok-keyword: #c792ea;
+  --tok-string: #a5d6a7;
+  --tok-comment: #5c6370;
+  --tok-number: #f78c6c;
+  --tok-func: #82aaff;
+
+  /* Agents (reviewer subagents) */
+  --agent-lead: #8b9cff;
+  --agent-hotspot: #f5a524;
+  --agent-security: #ff5d5d;
+  --agent-impact: #3dd68c;
+  --agent-other: #a0a6b0;
+
+  /* Type */
+  --font-ui: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --code-size: 12.5px;
+  --code-line: 20px;
+
+  /* Space (4px grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--line-strong);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --fast: 120ms;
+  --medium: 180ms;
+
+  /* Layout */
+  --header-h: 52px;
+  --sidebar-w: 300px;
+  --context-w: 440px;
+}

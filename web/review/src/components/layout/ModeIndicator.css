@@ -1,0 +1,9 @@
+.mode-indicator {
+  position: fixed; left: 50%; bottom: var(--space-3); transform: translateX(-50%);
+  padding: 2px var(--space-2); border-radius: var(--radius-sm);
+  background: var(--bg-overlay); box-shadow: 0 0 0 1px var(--line-strong);
+  font: 600 var(--text-xs) var(--font-mono); letter-spacing: 0.06em; color: var(--text-3);
+  pointer-events: none; z-index: 20;
+}
+.mode-indicator.pending { color: var(--accent); }
+.mode-indicator.input { color: var(--sev-praise); }

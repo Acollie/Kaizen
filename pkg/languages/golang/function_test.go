@@ -158,8 +158,7 @@ func MyFunction() {
 `
 
 	goFunc := parseGoFunction(t, code)
-	// Flat code should have low nesting
-	assert.GreaterOrEqual(t, goFunc.MaxNestingDepth(), 0)
+	assert.Equal(t, 0, goFunc.MaxNestingDepth())
 }
 
 func TestMaxNestingDepthWithControlFlow(t *testing.T) {
@@ -173,8 +172,7 @@ func MyFunction() {
 `
 
 	goFunc := parseGoFunction(t, code)
-	// Should detect nesting in control flow
-	assert.GreaterOrEqual(t, goFunc.MaxNestingDepth(), 0)
+	assert.Equal(t, 1, goFunc.MaxNestingDepth())
 }
 
 func TestMaxNestingDepthDeepNesting(t *testing.T) {
@@ -192,9 +190,76 @@ func MyFunction() {
 `
 
 	goFunc := parseGoFunction(t, code)
-	// Deep nesting should have higher depth than shallow nesting
-	depth := goFunc.MaxNestingDepth()
-	assert.GreaterOrEqual(t, depth, 0)
+	assert.Equal(t, 3, goFunc.MaxNestingDepth())
+}
+
+func TestMaxNestingDepthSiblingsDoNotAccumulate(t *testing.T) {
+	code := `package main
+
+func MyFunction(items []int) {
+	if len(items) == 0 {
+		return
+	}
+	for _, item := range items {
+		if item > 0 {
+			println(item)
+		}
+	}
+	switch len(items) {
+	case 1:
+		println("one")
+	}
+	if true {
+		println("done")
+	}
+}
+`
+
+	goFunc := parseGoFunction(t, code)
+	assert.Equal(t, 2, goFunc.MaxNestingDepth())
+}
+
+func TestMaxNestingDepthElseIfChainIsFlat(t *testing.T) {
+	code := `package main
+
+func Classify(value int) string {
+	if value == 1 {
+		return "one"
+	} else if value == 2 {
+		return "two"
+	} else if value == 3 {
+		return "three"
+	} else if value == 4 {
+		return "four"
+	} else if value == 5 {
+		return "five"
+	} else {
+		return "many"
+	}
+}
+`
+
+	goFunc := parseGoFunction(t, code)
+	assert.Equal(t, 1, goFunc.MaxNestingDepth())
+}
+
+func TestMaxNestingDepthIfInsideElseIfNests(t *testing.T) {
+	code := `package main
+
+func Classify(value int, strict bool) string {
+	if value == 1 {
+		return "one"
+	} else if value == 2 {
+		if strict {
+			return "two"
+		}
+	}
+	return ""
+}
+`
+
+	goFunc := parseGoFunction(t, code)
+	assert.Equal(t, 2, goFunc.MaxNestingDepth())
 }
 
 func TestCalculateCyclomaticComplexitySimple(t *testing.T) {
@@ -421,10 +486,10 @@ func MyFunction() {
 
 func TestCyclomaticComplexityKnownValues(t *testing.T) {
 	tests := []struct {
-		name            string
-		code            string
-		minExpectedCC   int
-		maxExpectedCC   int
+		name          string
+		code          string
+		minExpectedCC int
+		maxExpectedCC int
 	}{
 		{
 			name: "simple function",

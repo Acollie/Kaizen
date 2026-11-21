@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -83,8 +81,13 @@ var (
 	diffSkipChurn        bool
 )
 
+// Version is the release version, injected at build time with
+// -ldflags "-X main.Version=v1.2.3". It defaults to "dev" for local builds.
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "kaizen",
+	Use:     "kaizen",
+	Version: Version,
 	Short: "Code analysis tool for measuring code quality and churn",
 	Long: `Kaizen analyzes your codebase to identify:
   - Code complexity (cyclomatic, cognitive)
@@ -305,6 +308,9 @@ func init() {
 }
 
 func main() {
+	rootCmd.Version = Version
+	// main prints the error itself, so cobra must not print it a second time
+	rootCmd.SilenceErrors = true
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -762,7 +768,7 @@ func generateHTMLOutput(result *models.AnalysisResult) {
 	// Open in browser
 	if openBrowser {
 		fmt.Printf("🌐 Opening in browser...\n")
-		err = openInBrowser(htmlOutput)
+		err = visualization.OpenInBrowser(htmlOutput)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", htmlOutput)
@@ -804,34 +810,6 @@ func generateSVGOutput(result *models.AnalysisResult) {
 	fmt.Printf("   Dimensions: %dx%d pixels\n", svgWidth, svgHeight)
 	fmt.Printf("   Metric: %s\n", metric)
 	fmt.Printf("\nOpen the file in a browser or image viewer to view the heat map.\n")
-}
-
-// openInBrowser opens a file in the default browser (cross-platform)
-func openInBrowser(filename string) error {
-	// Convert to absolute path
-	absPath, err := filepath.Abs(filename)
-	if err != nil {
-		return err
-	}
-
-	// Platform-specific commands
-	var command string
-	var args []string
-
-	switch runtime.GOOS {
-	case "darwin": // macOS
-		command = "open"
-		args = []string{absPath}
-	case "windows":
-		command = "cmd"
-		args = []string{"/c", "start", absPath}
-	default: // linux, freebsd, etc.
-		command = "xdg-open"
-		args = []string{absPath}
-	}
-
-	cmd := exec.Command(command, args...)
-	return cmd.Start()
 }
 
 func findCodeOwnersFile(rootPath string) string {
@@ -975,7 +953,7 @@ func renderReportHTML(report *ownership.OwnerReport, outputPath string, open boo
 
 	if open {
 		fmt.Printf("🌐 Opening in browser...\n")
-		err = openInBrowser(outputPath)
+		err = visualization.OpenInBrowser(outputPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", outputPath)
@@ -1260,7 +1238,7 @@ func renderTrendHTML(metricName, folder string, points []storage.TimeSeriesPoint
 
 	if open {
 		fmt.Printf("🌐 Opening in browser...\n")
-		err = openInBrowser(outputPath)
+		err = visualization.OpenInBrowser(outputPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", outputPath)
@@ -1381,40 +1359,13 @@ func filterGraphByDiff(graph *models.CallGraph, repoPath, baseBranch string) *mo
 	}
 
 	// Build full names matching the call graph node keys (package.Function or package.Receiver.Function)
-	fullNames := buildFullNamesFromChangedFunctions(changedFunctions, graph)
+	fullNames := check.MatchCallGraphNames(changedFunctions, graph, repoPath)
 
 	originalCount := len(graph.Nodes)
 	filtered := graph.FilterByFunctionNames(fullNames)
 	fmt.Printf("🔍 Filtered to %d changed functions (+ callers/callees)\n", len(changedFunctions))
 	fmt.Printf("   %d → %d functions\n\n", originalCount, len(filtered.Nodes))
 	return filtered
-}
-
-// buildFullNamesFromChangedFunctions matches ChangedFunction entries to call graph node keys.
-// It tries exact package.Function matching, and falls back to name-only matching.
-func buildFullNamesFromChangedFunctions(changedFunctions []check.ChangedFunction, graph *models.CallGraph) []string {
-	var fullNames []string
-	matched := make(map[string]bool)
-
-	for _, changedFunc := range changedFunctions {
-		// Try to find matching node by file path and function name
-		for fullName, node := range graph.Nodes {
-			if matched[fullName] {
-				continue
-			}
-			// Match by file suffix (diff paths are repo-relative, node.File may be absolute)
-			if !strings.HasSuffix(node.File, changedFunc.FilePath) {
-				continue
-			}
-			// Match function name
-			if node.Name == changedFunc.Name {
-				fullNames = append(fullNames, fullName)
-				matched[fullName] = true
-			}
-		}
-	}
-
-	return fullNames
 }
 
 func generateCallGraphHTML(graph *models.CallGraph) {
@@ -1434,7 +1385,7 @@ func generateCallGraphHTML(graph *models.CallGraph) {
 	// Open in browser
 	if openBrowser {
 		fmt.Printf("🌐 Opening in browser...\n")
-		err = openInBrowser(outputFilename)
+		err = visualization.OpenInBrowser(outputFilename)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", outputFilename)
@@ -1585,7 +1536,7 @@ func runSankey(cmd *cobra.Command, args []string) {
 	// Step 9: Open in browser
 	if sankeyOpen {
 		fmt.Printf("\n🌐 Opening in browser...\n")
-		err = openInBrowser(sankeyOutput)
+		err = visualization.OpenInBrowser(sankeyOutput)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
 			fmt.Printf("Please open the file manually: %s\n", sankeyOutput)

@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/github/Acollie/Kaizen/graph/badge.svg?token=9V3XZY7JAF)](https://codecov.io/github/Acollie/Kaizen)
 [![Go Report Card](https://goreportcard.com/badge/github.com/acollie/kaizen)](https://goreportcard.com/report/github.com/acollie/kaizen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/go-1.21%2B-blue)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/go-1.25%2B-blue)](https://golang.org/)
 [![Latest Release](https://img.shields.io/github/v/release/acollie/kaizen)](https://github.com/acollie/kaizen/releases)
 
 **Continuous improvement starts with visibility.** Kaizen analyzes code quality, complexity, and churn to identify technical debt and hotspots in your codebase. It generates health grades, actionable concerns, and interactive visualizations.
@@ -116,6 +116,32 @@ Every PR will receive a comment showing score changes, complexity metrics, and h
 
 ### 📦 Installation
 
+#### Install with Homebrew
+
+```bash
+brew install acollie/tap/kaizen
+kaizen --version
+```
+
+Homebrew builds Kaizen from source with Go (it needs cgo for the tree-sitter
+parsers), so the first install takes a minute. Upgrade with `brew upgrade kaizen`,
+or track `main` with `brew install --HEAD acollie/tap/kaizen`. Shell completions
+for bash, zsh and fish are installed automatically.
+
+Optional dependencies:
+
+- `git` is required for churn analysis (preinstalled on macOS); use `--skip-churn` without it.
+- `gh` (`brew install gh`) is needed by `kaizen review` to fetch pull requests.
+- The AI review uses the `claude` CLI if it is on your `PATH`, or the Anthropic API when `ANTHROPIC_API_KEY` is set.
+
+#### Install with Go
+
+```bash
+CGO_ENABLED=1 go install github.com/alexcollie/kaizen/cmd/kaizen@latest
+```
+
+#### Install from source
+
 ```bash
 git clone https://github.com/acollie/kaizen.git
 cd kaizen
@@ -173,6 +199,7 @@ kaizen history list
 | `kaizen check` | 🛡️ CI quality gate — warn on high blast-radius function changes |
 | `kaizen callgraph` | 🔗 Generate function call graph (HTML, SVG, or JSON) |
 | `kaizen pr-comment` | 🤖 Generate a GitHub PR comment from base vs head analysis |
+| `kaizen review` | 🔎 AI review of a pull request in a local, risk-focused web UI |
 | `kaizen sankey` | 🔄 Generate Sankey diagram of code ownership flow |
 | `kaizen diff` | 📈 Compare current analysis with previous snapshot |
 | `kaizen trend` | 📊 Visualize metric trends over time (ASCII, HTML, or JSON) |
@@ -180,6 +207,84 @@ kaizen history list
 | `kaizen history list` | 📋 List all stored analysis snapshots |
 | `kaizen history show` | 🔍 Display detailed snapshot information |
 | `kaizen history prune` | 🗑️ Remove old snapshots |
+
+---
+
+## 🔎 AI PR Review — `kaizen review`
+
+`kaizen review <PR>` fetches a GitHub pull request, ranks its changed functions by risk
+with Kaizen's metrics (complexity, fan-in, churn, size, security-sensitive code) and
+opens a local web UI: the changed files and functions, the diff with expandable
+context, a call-flow diagram of the changed code, and an AI review that streams in live,
+starting with the riskiest functions. You choose which findings to keep and post them
+back to the PR as a GitHub review.
+
+<!-- TODO: add a screenshot of the review UI on a real PR at docs/review-ui.png and embed it here -->
+> 📸 _Screenshot of the review UI coming soon._
+
+```bash
+kaizen review 42                                   # PR number, inside a clone of the repo
+kaizen review https://github.com/owner/repo/pull/42 --engine=api
+kaizen review 42 --no-ai                           # risk analysis only
+kaizen review 42 --rerun                           # ignore the cached review
+```
+
+Requires `git` and an authenticated GitHub CLI (`gh auth login`), run inside a clone of
+the PR's repository (or pass `--repo`). The PR is checked out into a temporary git
+worktree; your working tree is not touched.
+
+**Engines** (`--engine`):
+
+| Engine | How it reviews |
+|---|---|
+| `auto` (default) | The Claude Code CLI if `claude` is installed, otherwise the API |
+| `cli` | Claude Code CLI with your Claude login. A lead reviewer delegates to subagents (`hotspot-reviewer` for the riskiest functions, `security-reviewer`, `impact-analyst` for callers) through Kaizen's read-only MCP tools |
+| `api` | The Anthropic Messages API with the same tools, using `ANTHROPIC_API_KEY` |
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--engine` | `auto` | `auto`, `cli` or `api` |
+| `--model` | | Model override (CLI alias like `opus`, or a full API model ID) |
+| `--effort` | `high` | Reasoning effort: `low`, `medium`, `high`, `xhigh` or `max` |
+| `--focus` | `5` | Number of highest-risk functions the review concentrates on |
+| `--no-ai` | `false` | Show the Kaizen risk analysis only |
+| `--rerun` | `false` | Run a fresh AI review even if one is cached for this head commit |
+| `--port` | `0` | Port for the UI (0 picks a free port) |
+| `--open` | `true` | Open the UI in the default browser |
+| `--repo` | `.` | Path to a local clone of the PR's repository |
+| `--skip-churn` | `false` | Skip per-function git churn lookups |
+| `--keep-worktree` | `false` | Keep the PR checkout after exiting |
+
+**Review cache.** A finished review is saved to
+`.kaizen/reviews/pr-<number>-<head sha>.json`. Opening the same PR at the same head
+commit replays it instantly at no AI cost; a new push gets a new review. Use `--rerun`
+to force a fresh one.
+
+**Posting.** Press `P` (or the Post button) to choose findings and edit the summary.
+Findings on a diff line become inline comments; the rest go in the review body. Kaizen
+posts a single `COMMENT` review as you, through `gh`; it never approves or requests
+changes.
+
+**Keyboard** (vim-style; press `?` in the UI for the full list):
+
+| Keys | Action |
+|---|---|
+| `j` / `k`, `J` / `K` | Next / previous changed function, file |
+| `]c` / `[c` | Next / previous hunk |
+| `n` / `N` (`]f` / `[f`) | Next / previous finding |
+| `x` or `Space` | Include / exclude the current finding in the post |
+| `gg` / `G`, `Ctrl-d` / `Ctrl-u` | Top / bottom, half page down / up |
+| `gd`, `gr`, `Ctrl-o` | Go to definition, show callers, jump back |
+| `h` / `l` | Focus the pane to the left / right |
+| `gt` / `gT`, `g1`–`g4` | Cycle tabs, or Review / Flow / Function / Activity |
+| `F`, `f`, `L` | Full-width call flow, fit it, whole PR vs selection |
+| `/` | Filter files and functions |
+| `P`, `?`, `Esc` | Post review, help, close |
+
+The UI lives in [`web/review`](web/review/README.md) (React + TypeScript) and is
+embedded in the binary.
 
 ---
 
@@ -367,7 +472,7 @@ We welcome contributions! See [CONTRIBUTING.md](./CONTRIBUTING.md) for code styl
 
 ## ✅ Quality Assurance
 
-All code changes are tested across Go versions 1.21, 1.22, and 1.23 on Linux:
+All code changes are tested across Go versions 1.25 and 1.26 on Linux:
 
 - 🧪 **Unit Tests**: 50+ test files covering analyzers, metrics, and language parsers
 - 🔗 **Integration Tests**: end-to-end analysis and visualization pipeline validation
@@ -380,7 +485,7 @@ All code changes are tested across Go versions 1.21, 1.22, and 1.23 on Linux:
 
 ## 📋 Requirements
 
-- 🐹 **Go 1.21+**
+- 🐹 **Go 1.25+**
 - 🔀 **Git** (optional — use `--skip-churn` without it)
 - 🌳 **Tree-sitter libraries** for Kotlin/Swift (auto-installed)
 

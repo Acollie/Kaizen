@@ -1,0 +1,35 @@
+/* Overlay surface shared by the help and post dialogs */
+.modal {
+  padding: 0; border: 0; border-radius: var(--radius-lg);
+  background: var(--bg-overlay); color: var(--text);
+  box-shadow: var(--shadow-overlay);
+  max-width: min(calc(100vw - 32px), 880px); max-height: calc(100vh - 64px);
+  overflow: hidden;
+}
+.modal[open] { display: flex; animation: modal-in var(--medium) var(--ease); }
+.modal::backdrop { background: color-mix(in srgb, var(--bg) 72%, transparent); }
+.modal-surface { display: flex; flex-direction: column; min-width: 0; min-height: 0; width: 100%; max-height: calc(100vh - 64px); }
+
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
+}
+.modal-title { margin: 0; font-size: var(--text-md); font-weight: 600; color: var(--text); }
+.modal-close { width: 26px; justify-content: center; padding: 0; color: var(--text-3); }
+.modal-body { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--space-5) var(--space-4); }
+.modal-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-3) var(--space-5); box-shadow: inset 0 1px 0 var(--line);
+  color: var(--text-3); font-size: var(--text-sm);
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 640px) {
+  .modal { max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
+  .modal-surface { max-height: calc(100vh - 16px); }
+  .modal-head, .modal-body, .modal-foot { padding-left: var(--space-4); padding-right: var(--space-4); }
+}
