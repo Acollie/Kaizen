@@ -20,13 +20,13 @@ func RenderOwnerReportASCII(report *OwnerReport) string {
 	}
 
 	// Summary
-	output.WriteString(fmt.Sprintf("Analyzed: %s | Total Owners: %d\n\n", report.AnalyzedAt, report.TotalOwners))
+	fmt.Fprintf(&output, "Analyzed: %s | Total Owners: %d\n\n", report.AnalyzedAt, report.TotalOwners)
 
 	// Header
-	output.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&output,
 		"%-20s │ %-8s │ %-8s │ %-8s │ %-10s │ %-10s │ %-8s\n",
 		"Owner", "Files", "Funcs", "Health", "Avg Cmplx", "Avg Maint", "Hotspots",
-	))
+	)
 	output.WriteString("─────────────────────┼──────────┼──────────┼──────────┼────────────┼────────────┼──────────\n")
 
 	// Data rows
@@ -36,7 +36,7 @@ func RenderOwnerReportASCII(report *OwnerReport) string {
 			owner = owner[:17] + "..."
 		}
 
-		output.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&output,
 			"%-20s │ %-8d │ %-8d │ %7.1f%% │ %10.1f │ %10.1f │ %-8d\n",
 			owner,
 			metrics.FileCount,
@@ -45,7 +45,7 @@ func RenderOwnerReportASCII(report *OwnerReport) string {
 			metrics.AvgCyclomaticComplexity,
 			metrics.AvgMaintainabilityIndex,
 			metrics.HotspotCount,
-		))
+		)
 	}
 
 	output.WriteString("\n")
@@ -54,12 +54,12 @@ func RenderOwnerReportASCII(report *OwnerReport) string {
 	output.WriteString("Health Status:\n")
 	for _, metrics := range report.OwnerMetrics {
 		status := getHealthStatus(metrics.OverallHealthScore)
-		output.WriteString(fmt.Sprintf("  %s %s (%d files, %d functions)\n",
+		fmt.Fprintf(&output, "  %s %s (%d files, %d functions)\n",
 			status,
 			metrics.Owner,
 			metrics.FileCount,
 			metrics.FunctionCount,
-		))
+		)
 	}
 
 	return output.String()

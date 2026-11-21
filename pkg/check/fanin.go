@@ -70,11 +70,17 @@ func computeGoFanIn(goFunctions []ChangedFunction, repoPath string) ([]FanInResu
 	var results []FanInResult
 
 	for _, fn := range goFunctions {
-		fullName, err := buildGoFullName(fn)
-		if err != nil {
-			// Log but continue
-			fmt.Fprintf(os.Stderr, "Warning: could not build full name for %s: %v\n", fn.Name, err)
-			continue
+		// Match by file first: keys of a package name declared in several
+		// directories are directory-qualified (cmd/kaizen:main.main)
+		fullName := MatchCallGraphName(fn, graph, repoPath)
+		if fullName == "" {
+			// Loop-local error: one failure must not skip every later function
+			var nameErr error
+			fullName, nameErr = buildGoFullName(fn)
+			if nameErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not build full name for %s: %v\n", fn.Name, nameErr)
+				continue
+			}
 		}
 
 		fanIn := 0

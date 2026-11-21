@@ -1,0 +1,85 @@
+.hd {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+  height: var(--header-h); padding: 0 var(--space-4);
+  background: var(--bg-raised); border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+
+/* ---------- Left: identity ---------- */
+.hd-left { display: flex; align-items: center; gap: var(--space-3); min-width: 0; flex: 1 1 auto; }
+.hd-mark {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: var(--radius);
+  background: var(--bg-active); color: var(--accent);
+  font-size: var(--text-md); font-weight: 600;
+}
+.hd-identity { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.hd-title-line { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.hd-number { color: var(--text-3); font-size: var(--text-sm); flex: none; }
+.hd-title { color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.hd-meta {
+  display: flex; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap;
+  color: var(--text-3); font-size: var(--text-xs);
+}
+.hd-meta > * { flex: none; }
+.hd-meta > * + *::before { content: '·'; margin: 0 6px; color: var(--text-3); }
+.hd-meta .hd-branches { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; min-width: 40px; }
+.hd-meta a { color: var(--text-2); }
+.hd-meta a:hover { color: var(--accent); }
+.hd-add { color: var(--diff-add-mark); }
+.hd-del { color: var(--diff-del-mark); }
+
+/* ---------- Right: findings, engine, actions ---------- */
+.hd-right { display: flex; align-items: center; gap: var(--space-3); flex: none; min-width: 0; }
+
+.hd-chips { display: flex; align-items: center; gap: 2px; }
+.hd-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 var(--space-2);
+  border: 0; border-radius: var(--radius); background: transparent;
+  font-size: var(--text-sm); cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+.hd-chip .hd-chip-count { font-weight: 600; }
+.hd-chip .hd-chip-label { color: var(--text-2); }
+.hd-chip:hover { background: var(--bg-hover); }
+.hd-chip.sev-critical:not(.hd-chip-zero) { background: var(--sev-critical-soft); }
+.hd-chip.sev-warning:not(.hd-chip-zero) { background: var(--sev-warning-soft); }
+.hd-chip.sev-critical:not(.hd-chip-zero) .hd-chip-label,
+.hd-chip.sev-warning:not(.hd-chip-zero) .hd-chip-label { color: var(--text); }
+.hd-chip-zero { color: var(--text-3); opacity: 0.55; cursor: default; }
+.hd-chip-zero:hover { background: transparent; }
+.hd-chip-zero .sev-dot { background: var(--text-3); }
+
+.hd-engine {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  max-width: 300px; height: 26px; padding: 0 var(--space-2);
+  border: 0; border-radius: var(--radius); background: transparent;
+  color: var(--text-2); font-size: var(--text-sm); cursor: pointer; min-width: 0;
+}
+.hd-engine:hover { background: var(--bg-hover); }
+.hd-engine .spinner, .hd-engine .agent { flex: none; }
+.hd-engine-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.hd-engine-busy .hd-engine-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-2); }
+.hd-engine-done { color: var(--text-3); }
+.hd-engine-check { color: var(--sev-praise); font-size: var(--text-sm); }
+.hd-engine-error { color: var(--sev-critical); }
+.hd-engine-cross {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--sev-critical); color: var(--text-inverse); font-size: 10px; font-weight: 700;
+}
+
+.hd-sep { width: 1px; height: 20px; background: var(--line); }
+.hd-help { width: 26px; justify-content: center; padding: 0; font-family: var(--font-mono); }
+
+@media (max-width: 1180px) {
+  .hd-chip-label { display: none; }
+  .hd-engine { max-width: 200px; }
+}
+@media (max-width: 900px) {
+  .hd-meta .hd-branches, .hd-meta .hd-author { display: none; }
+  .hd-meta .hd-diffstat::before { content: none; }
+  .hd-engine-label { display: none; }
+  .hd-engine .agent { display: none; }
+}

@@ -1,25 +1,42 @@
 package models
 
+import "sync"
+
 // CallGraph represents the function call relationships in a codebase
 type CallGraph struct {
 	Nodes map[string]*CallNode `json:"nodes"` // Key is function full name
 	Edges []CallEdge           `json:"edges"`
 	Stats CallGraphStats       `json:"stats"`
+
+	// edgeIndex is a lazily built lookup from node full name to edge positions.
+	// It is rebuilt whenever the number of edges changes.
+	indexMutex sync.Mutex
+	edgeIndex  *callEdgeIndex
+
+	// edgePositions maps From/To to an edge's position in Edges, for O(1) deduplication in AddEdge
+	edgePositions map[string]int
+}
+
+// callEdgeIndex maps a function full name to the positions of its edges in CallGraph.Edges
+type callEdgeIndex struct {
+	edgeCount    int
+	incomingByTo map[string][]int
+	outgoingFrom map[string][]int
 }
 
 // CallNode represents a function in the call graph
 type CallNode struct {
-	Name       string  `json:"name"`        // Function name
-	FullName   string  `json:"full_name"`   // Package.Function
-	Package    string  `json:"package"`     // Package path
-	File       string  `json:"file"`        // File path
-	Line       int     `json:"line"`        // Starting line
-	Complexity int     `json:"complexity"`  // Cyclomatic complexity
-	Length     int     `json:"length"`      // Function length
-	CallCount  int     `json:"call_count"`  // How many times it's called (fan-in)
-	CallsOut   int     `json:"calls_out"`   // How many functions it calls (fan-out)
-	IsExternal bool    `json:"is_external"` // Is from external package
-	IsExported bool    `json:"is_exported"` // Is exported (starts with capital)
+	Name       string `json:"name"`        // Function name
+	FullName   string `json:"full_name"`   // Package.Function
+	Package    string `json:"package"`     // Package path
+	File       string `json:"file"`        // File path
+	Line       int    `json:"line"`        // Starting line
+	Complexity int    `json:"complexity"`  // Cyclomatic complexity
+	Length     int    `json:"length"`      // Function length
+	CallCount  int    `json:"call_count"`  // How many times it's called (fan-in)
+	CallsOut   int    `json:"calls_out"`   // How many functions it calls (fan-out)
+	IsExternal bool   `json:"is_external"` // Is from external package
+	IsExported bool   `json:"is_exported"` // Is exported (starts with capital)
 }
 
 // CallEdge represents a function call relationship
@@ -29,6 +46,10 @@ type CallEdge struct {
 	Weight int    `json:"weight"` // Number of call sites
 	File   string `json:"file"`   // Where the call happens
 	Line   int    `json:"line"`   // Line number of call
+
+	// Inferred is true when every call site behind this edge was resolved by method
+	// name alone (no import or receiver evidence), so the callee may be wrong
+	Inferred bool `json:"inferred,omitempty"`
 }
 
 // CallGraphStats provides summary statistics
@@ -57,7 +78,7 @@ func (graph *CallGraph) AddNode(node *CallNode) {
 	graph.Nodes[node.FullName] = node
 }
 
-// AddEdge adds a call edge to the graph
+// AddEdge adds a call edge to the graph, merging repeated calls into one weighted edge
 func (graph *CallGraph) AddEdge(edge CallEdge) {
 	// Increment call counts
 	if callee, exists := graph.Nodes[edge.To]; exists {
@@ -68,17 +89,54 @@ func (graph *CallGraph) AddEdge(edge CallEdge) {
 		caller.CallsOut++
 	}
 
-	// Check if edge already exists and increment weight
-	for index := range graph.Edges {
-		if graph.Edges[index].From == edge.From && graph.Edges[index].To == edge.To {
-			graph.Edges[index].Weight++
-			return
+	positions := graph.edgePositionIndex()
+	key := edgeKey(edge.From, edge.To)
+	if position, exists := positions[key]; exists {
+		graph.Edges[position].Weight++
+		if !edge.Inferred {
+			graph.Edges[position].Inferred = false
 		}
+		return
 	}
 
-	// Add new edge
 	edge.Weight = 1
+	positions[key] = len(graph.Edges)
 	graph.Edges = append(graph.Edges, edge)
+}
+
+// edgePositionIndex returns the From/To -> position map used to deduplicate edges,
+// rebuilding it when Edges was modified directly (e.g. by a filter building a new graph)
+func (graph *CallGraph) edgePositionIndex() map[string]int {
+	if graph.edgePositions != nil && len(graph.edgePositions) == len(graph.Edges) {
+		return graph.edgePositions
+	}
+	graph.edgePositions = make(map[string]int, len(graph.Edges))
+	for position, edge := range graph.Edges {
+		graph.edgePositions[edgeKey(edge.From, edge.To)] = position
+	}
+	return graph.edgePositions
+}
+
+func edgeKey(from, to string) string {
+	return from + "\x00" + to
+}
+
+// RecomputeCallCounts derives every node's CallCount (call sites targeting it) and
+// CallsOut (call sites inside it) from the edge weights. Builders call this once all
+// nodes exist, so counts are correct regardless of the order nodes were added in.
+func (graph *CallGraph) RecomputeCallCounts() {
+	for _, node := range graph.Nodes {
+		node.CallCount = 0
+		node.CallsOut = 0
+	}
+	for _, edge := range graph.Edges {
+		if callee, exists := graph.Nodes[edge.To]; exists {
+			callee.CallCount += edge.Weight
+		}
+		if caller, exists := graph.Nodes[edge.From]; exists {
+			caller.CallsOut += edge.Weight
+		}
+	}
 }
 
 // FilterByFunctionNames returns a new CallGraph containing only the named functions
@@ -203,4 +261,54 @@ func (graph *CallGraph) CalculateStats() {
 	if len(graph.Nodes) > 0 {
 		graph.Stats.AvgCallsPerFunc = float64(totalCalls) / float64(len(graph.Nodes))
 	}
+}
+
+// Callers returns the edges whose callee is fullName (who calls this function).
+// The result is a copy and safe to modify; the order follows CallGraph.Edges.
+func (graph *CallGraph) Callers(fullName string) []CallEdge {
+	index := graph.currentEdgeIndex()
+	return graph.edgesAt(index.incomingByTo[fullName])
+}
+
+// Callees returns the edges whose caller is fullName (what this function calls).
+// The result is a copy and safe to modify; the order follows CallGraph.Edges.
+func (graph *CallGraph) Callees(fullName string) []CallEdge {
+	index := graph.currentEdgeIndex()
+	return graph.edgesAt(index.outgoingFrom[fullName])
+}
+
+// currentEdgeIndex returns the edge index, rebuilding it if edges were added since it was built
+func (graph *CallGraph) currentEdgeIndex() *callEdgeIndex {
+	graph.indexMutex.Lock()
+	defer graph.indexMutex.Unlock()
+
+	if graph.edgeIndex != nil && graph.edgeIndex.edgeCount == len(graph.Edges) {
+		return graph.edgeIndex
+	}
+
+	index := &callEdgeIndex{
+		edgeCount:    len(graph.Edges),
+		incomingByTo: make(map[string][]int),
+		outgoingFrom: make(map[string][]int),
+	}
+	for position, edge := range graph.Edges {
+		index.incomingByTo[edge.To] = append(index.incomingByTo[edge.To], position)
+		index.outgoingFrom[edge.From] = append(index.outgoingFrom[edge.From], position)
+	}
+
+	graph.edgeIndex = index
+	return index
+}
+
+// edgesAt copies the edges at the given positions
+func (graph *CallGraph) edgesAt(positions []int) []CallEdge {
+	if len(positions) == 0 {
+		return nil
+	}
+
+	edges := make([]CallEdge, 0, len(positions))
+	for _, position := range positions {
+		edges = append(edges, graph.Edges[position])
+	}
+	return edges
 }

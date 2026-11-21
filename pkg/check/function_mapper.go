@@ -22,12 +22,12 @@ type LineRange struct {
 // ChangedFunction represents a function that was modified in a diff
 type ChangedFunction struct {
 	FilePath     string
-	Name         string  // bare function name (e.g. "Analyze", not qualified)
-	HasReceiver  bool    // true if this is a method
-	ReceiverType string  // the receiver type name if HasReceiver is true
+	Name         string // bare function name (e.g. "Analyze", not qualified)
+	HasReceiver  bool   // true if this is a method
+	ReceiverType string // the receiver type name if HasReceiver is true
 	StartLine    int
 	EndLine      int
-	Language     string  // "Go", "Python", "Kotlin", "Swift"
+	Language     string // "Go", "Python", "Kotlin", "Swift"
 }
 
 // MapHunksToFunctions determines which functions contain changed lines

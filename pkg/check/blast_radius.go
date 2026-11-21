@@ -91,8 +91,8 @@ func buildBlastRadiusDescription(items []models.AffectedItem, hasApproximate boo
 	buffer.WriteString("Affected functions:\n")
 	for i, item := range items {
 		fanIn := int(item.Metrics["fan_in"])
-		buffer.WriteString(fmt.Sprintf("%d. %s (line %d) - called by %d function(s)\n",
-			i+1, item.FunctionName, item.Line, fanIn))
+		fmt.Fprintf(&buffer, "%d. %s (line %d) - called by %d function(s)\n",
+			i+1, item.FunctionName, item.Line, fanIn)
 	}
 
 	if hasApproximate {

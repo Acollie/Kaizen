@@ -50,9 +50,9 @@ func (visualizer *SVGVisualizer) GenerateSVG(result *models.AnalysisResult, metr
 	var builder strings.Builder
 
 	// SVG header
-	builder.WriteString(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	fmt.Fprintf(&builder, `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
-`, visualizer.width, visualizer.height, visualizer.width, visualizer.height))
+`, visualizer.width, visualizer.height, visualizer.width, visualizer.height)
 
 	// Title and metadata
 	builder.WriteString(`  <title>Kaizen Code Heat Map</title>
@@ -94,17 +94,17 @@ func (visualizer *SVGVisualizer) GenerateSVG(result *models.AnalysisResult, metr
 `)
 
 	// Background
-	builder.WriteString(fmt.Sprintf(`  <rect width="%d" height="%d" fill="#1a1a1a"/>
+	fmt.Fprintf(&builder, `  <rect width="%d" height="%d" fill="#1a1a1a"/>
 
-`, visualizer.width, visualizer.height))
+`, visualizer.width, visualizer.height)
 
 	// Header section
 	headerHeight := 80
-	builder.WriteString(fmt.Sprintf(`  <!-- Header -->
+	fmt.Fprintf(&builder, `  <!-- Header -->
   <text x="%d" y="30" class="title-text" text-anchor="middle">Kaizen Code Heat Map</text>
   <text x="%d" y="55" class="subtitle-text" text-anchor="middle">Metric: %s | Files: %d | Functions: %d</text>
 
-`, visualizer.width/2, visualizer.width/2, metricTitle(metric), result.Summary.TotalFiles, result.Summary.TotalFunctions))
+`, visualizer.width/2, visualizer.width/2, metricTitle(metric), result.Summary.TotalFiles, result.Summary.TotalFunctions)
 
 	// Legend
 	legendY := visualizer.height - 50
@@ -112,9 +112,9 @@ func (visualizer *SVGVisualizer) GenerateSVG(result *models.AnalysisResult, metr
 
 	// Draw rectangles
 	treemapHeight := visualizer.height - headerHeight - 80
-	builder.WriteString(fmt.Sprintf(`  <!-- Treemap (offset by header) -->
+	fmt.Fprintf(&builder, `  <!-- Treemap (offset by header) -->
   <g transform="translate(0, %d)">
-`, headerHeight))
+`, headerHeight)
 
 	for _, rect := range rectangles {
 		builder.WriteString(visualizer.drawRectangle(rect, float64(treemapHeight)))
@@ -215,12 +215,12 @@ func (visualizer *SVGVisualizer) drawRectangle(rect Rectangle, maxHeight float64
 	height := rect.Height * scaleY
 
 	// Draw rectangle
-	builder.WriteString(fmt.Sprintf(`    <rect class="folder-rect" x="%.2f" y="%.2f" width="%.2f" height="%.2f" fill="%s">
+	fmt.Fprintf(&builder, `    <rect class="folder-rect" x="%.2f" y="%.2f" width="%.2f" height="%.2f" fill="%s">
       <title>%s
 Lines: %d
 Score: %.1f/100</title>
     </rect>
-`, rect.X, y, rect.Width, height, rect.Color, rect.Label, rect.Value, rect.Score))
+`, rect.X, y, rect.Width, height, rect.Color, rect.Label, rect.Value, rect.Score)
 
 	// Draw label if rectangle is large enough
 	if rect.Width > 60 && height > 25 {
@@ -234,8 +234,8 @@ Score: %.1f/100</title>
 			label = label[:maxChars-3] + "..."
 		}
 
-		builder.WriteString(fmt.Sprintf(`    <text class="folder-label" x="%.2f" y="%.2f">%s</text>
-`, labelX, labelY, escapeXML(label)))
+		fmt.Fprintf(&builder, `    <text class="folder-label" x="%.2f" y="%.2f">%s</text>
+`, labelX, labelY, escapeXML(label))
 	}
 
 	return builder.String()
@@ -249,9 +249,9 @@ func (visualizer *SVGVisualizer) generateLegend(yPosition int) string {
 	legendHeight := 20
 	legendX := (visualizer.width - legendWidth) / 2
 
-	builder.WriteString(fmt.Sprintf(`  <!-- Legend -->
+	fmt.Fprintf(&builder, `  <!-- Legend -->
   <text x="%d" y="%d" class="subtitle-text" text-anchor="middle">Color Scale</text>
-`, visualizer.width/2, yPosition-10))
+`, visualizer.width/2, yPosition-10)
 
 	// Gradient legend
 	numSteps := 50
@@ -262,17 +262,17 @@ func (visualizer *SVGVisualizer) generateLegend(yPosition int) string {
 		color := visualizer.getColorForScore(score)
 		x := float64(legendX) + float64(step)*stepWidth
 
-		builder.WriteString(fmt.Sprintf(`  <rect x="%.2f" y="%d" width="%.2f" height="%d" fill="%s" stroke="none"/>
-`, x, yPosition, stepWidth+1, legendHeight, color))
+		fmt.Fprintf(&builder, `  <rect x="%.2f" y="%d" width="%.2f" height="%d" fill="%s" stroke="none"/>
+`, x, yPosition, stepWidth+1, legendHeight, color)
 	}
 
 	// Legend labels
-	builder.WriteString(fmt.Sprintf(`  <text x="%d" y="%d" class="subtitle-text" text-anchor="start">Low (Good)</text>
+	fmt.Fprintf(&builder, `  <text x="%d" y="%d" class="subtitle-text" text-anchor="start">Low (Good)</text>
   <text x="%d" y="%d" class="subtitle-text" text-anchor="middle">Medium</text>
   <text x="%d" y="%d" class="subtitle-text" text-anchor="end">High (Needs Attention)</text>
 `, legendX, yPosition+legendHeight+15,
 		visualizer.width/2, yPosition+legendHeight+15,
-		legendX+legendWidth, yPosition+legendHeight+15))
+		legendX+legendWidth, yPosition+legendHeight+15)
 
 	return builder.String()
 }
